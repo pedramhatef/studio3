@@ -19,9 +19,9 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   const host = 'https://api-testnet.bybit.com';
   const path = '/v5/account/wallet-balance';
   const timestamp = Date.now().toString();
-  const recvWindow = '10000';
+  const recvWindow = '20000';
   const params = 'accountType=UNIFIED';
-  
+
   const toSign = timestamp + apiKey + recvWindow + params;
   const signature = CryptoJS.HmacSHA256(toSign, apiSecret).toString(CryptoJS.enc.Hex);
 
@@ -30,6 +30,7 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   headers.append('X-BAPI-TIMESTAMP', timestamp);
   headers.append('X-BAPI-SIGN', signature);
   headers.append('X-BAPI-RECV-WINDOW', recvWindow);
+  headers.append('Content-Type', 'application/json');
 
   const url = `${host}${path}?${params}`;
 
