@@ -34,8 +34,8 @@ export function SetupForm({ onCredentialsSave }: SetupFormProps) {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      apiKey: 'OLifq1rI7BrR4AOI0t',
-      apiSecret: 'BFOwFXSQq5Q0dwVoGglefmfhqZ1kDMh4Cfk6',
+      apiKey: 'q9tp4bdWgu0at9e2P2',
+      apiSecret: 'V6qopTPEVpsnJ5vI4Vhp78GlDLgsvvlqCuz2',
     },
   });
 
