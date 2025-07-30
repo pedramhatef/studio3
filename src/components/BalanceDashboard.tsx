@@ -84,7 +84,7 @@ export function BalanceDashboard({ apiKey, apiSecret, onClearCredentials }: Bala
             <TableRow>
               <TableHead>Asset</TableHead>
               <TableHead className="text-right">Total Balance</TableHead>
-              <TableHead className="text-right">Available to Withdraw</TableHead>
+              <TableHead className="text-right">Equity</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -103,7 +103,7 @@ export function BalanceDashboard({ apiKey, apiSecret, onClearCredentials }: Bala
                      <span className="font-bold">{coin.coin}</span>
                   </TableCell>
                   <TableCell className="text-right">{parseFloat(coin.walletBalance).toFixed(6)}</TableCell>
-                  <TableCell className="text-right">{parseFloat(coin.availableToWithdraw).toFixed(6)}</TableCell>
+                  <TableCell className="text-right">{parseFloat(coin.equity).toFixed(6)}</TableCell>
                 </TableRow>
               ))
             ) : (
