@@ -33,9 +33,11 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   const path = '/v5/account/wallet-balance';
   
   const timestamp = Date.now().toString();
-  const recvWindow = '10000';
+  const recvWindow = '10000'; // Bybit's default is 5000, but we can increase it
   const params = 'accountType=UNIFIED';
   
+  // Correct signature generation for GET request
+  // The string to sign is: timestamp + apiKey + recvWindow + queryString
   const toSign = timestamp + apiKey + recvWindow + params;
   const signature = await hmac_sha256(apiSecret, toSign);
 
@@ -54,7 +56,8 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   const responseData = await response.json();
 
   if (responseData.retCode !== 0) {
-    throw new Error(responseData.retMsg || `HTTP error! status: ${response.status}`);
+    // Provide a more detailed error message
+    throw new Error(`Bybit API Error: ${responseData.retMsg} (retCode: ${responseData.retCode})`);
   }
 
   return responseData;
