@@ -33,7 +33,7 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   const path = '/v5/account/wallet-balance';
   
   const timestamp = Date.now().toString();
-  const recvWindow = '10000'; // Increased recv_window for network latency
+  const recvWindow = '10000';
   const params = 'accountType=UNIFIED';
   
   const toSign = timestamp + apiKey + recvWindow + params;
@@ -51,10 +51,11 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
     headers,
   });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ retMsg: `HTTP error! status: ${response.status}` }));
-    throw new Error(errorData.retMsg || `HTTP error! status: ${response.status}`);
+  const responseData = await response.json();
+
+  if (responseData.retCode !== 0) {
+    throw new Error(responseData.retMsg || `HTTP error! status: ${response.status}`);
   }
 
-  return response.json();
+  return responseData;
 }
