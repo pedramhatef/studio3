@@ -34,9 +34,15 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   const path = '/v5/account/wallet-balance';
   const timestamp = Date.now().toString();
   const recvWindow = '10000';
-  const params = 'accountType=UNIFIED';
   
-  const toSign = timestamp + apiKey + recvWindow + params;
+  // Parameters must be sorted alphabetically to create the query string
+  const params = new URLSearchParams({
+    accountType: 'UNIFIED',
+  });
+  params.sort();
+  const queryString = params.toString();
+
+  const toSign = timestamp + apiKey + recvWindow + queryString;
   const signature = await hmac_sha256(apiSecret, toSign);
 
   const headers = new Headers();
@@ -45,24 +51,24 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   headers.append('X-BAPI-SIGN', signature);
   headers.append('X-BAPI-RECV-WINDOW', recvWindow);
   headers.append('Content-Type', 'application/json');
-  
-  const url = `${host}${path}?${params}`;
+
+  const url = `${host}${path}?${queryString}`;
 
   const response = await fetch(url, {
     method: 'GET',
     headers,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Bybit API request failed with status ${response.status}: ${errorText}`);
-  }
-  
   const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Bybit API request failed with status ${response.status}: ${responseText}`);
+  }
+
   if (!responseText) {
     throw new Error('Bybit API returned an empty response.');
   }
-
+  
   try {
     return JSON.parse(responseText);
   } catch (e) {
