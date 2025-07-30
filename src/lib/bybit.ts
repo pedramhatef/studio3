@@ -52,7 +52,8 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ retMsg: `HTTP error! status: ${response.status}` }));
+    throw new Error(errorData.retMsg || `HTTP error! status: ${response.status}`);
   }
 
   return response.json();

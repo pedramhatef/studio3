@@ -30,11 +30,12 @@ export function BalanceDashboard({ apiKey, apiSecret, onClearCredentials }: Bala
       if (response.retCode === 0) {
         setBalance(response.result.list);
       } else {
-        setError(response.retMsg || 'An unknown error occurred.');
+        const errorMessage = response.retMsg || 'An unknown error occurred.';
+        setError(errorMessage);
         toast({
           variant: "destructive",
           title: "API Error",
-          description: response.retMsg,
+          description: errorMessage,
         })
       }
     } catch (e) {
