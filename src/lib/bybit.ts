@@ -20,9 +20,8 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   const path = '/v5/account/wallet-balance';
   const timestamp = Date.now().toString();
   const recvWindow = '10000';
-  
   const params = 'accountType=UNIFIED';
-
+  
   const toSign = timestamp + apiKey + recvWindow + params;
   const signature = CryptoJS.HmacSHA256(toSign, apiSecret).toString(CryptoJS.enc.Hex);
 
@@ -31,7 +30,6 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   headers.append('X-BAPI-TIMESTAMP', timestamp);
   headers.append('X-BAPI-SIGN', signature);
   headers.append('X-BAPI-RECV-WINDOW', recvWindow);
-  headers.append('Content-Type', 'application/json');
 
   const url = `${host}${path}?${params}`;
 
@@ -41,15 +39,16 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   });
 
   const responseText = await response.text();
-
+  
   if (!response.ok) {
+    console.error('Bybit API Error Response:', responseText);
     throw new Error(`Bybit API request failed with status ${response.status}: ${responseText}`);
   }
 
   if (!responseText) {
     throw new Error('Bybit API returned an empty response.');
   }
-  
+
   try {
     return JSON.parse(responseText);
   } catch (e) {
