@@ -64,15 +64,19 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   try {
     const responseData = JSON.parse(responseText);
     
+    // An retCode other than 0 is an API error from Bybit.
     if (responseData.retCode !== 0) {
-      // This is an expected API error from Bybit, with a message.
       throw new Error(`Bybit API Error: ${responseData.retMsg} (retCode: ${responseData.retCode})`);
     }
 
     return responseData;
   } catch (error) {
-    // This catches JSON parsing errors, which happen on unexpected server responses.
-    console.error("Failed to parse Bybit API response:", responseText);
-    throw new Error(`Failed to parse Bybit API response. The server sent back an unexpected response.`);
+    // This catches JSON parsing errors and API errors thrown above.
+    if (error instanceof SyntaxError) {
+      console.error("Failed to parse Bybit API response:", responseText);
+      throw new Error(`Failed to parse Bybit API response. The server sent back an unexpected response.`);
+    }
+    // Re-throw other errors (like the ones from retCode checks).
+    throw error;
   }
 }
