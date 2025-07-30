@@ -30,7 +30,6 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   headers.append('X-BAPI-TIMESTAMP', timestamp);
   headers.append('X-BAPI-SIGN', signature);
   headers.append('X-BAPI-RECV-WINDOW', recvWindow);
-  headers.append('Content-Type', 'application/json');
 
   const url = `${host}${path}?${params}`;
 
