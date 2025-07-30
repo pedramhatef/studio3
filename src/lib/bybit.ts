@@ -1,3 +1,4 @@
+
 import CryptoJS from 'crypto-js';
 
 export interface BybitBalance {
@@ -22,15 +23,15 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   const recvWindow = '20000';
   const params = 'accountType=UNIFIED';
 
-  // The string to sign is a concatenation of timestamp, apiKey, recvWindow, and the query string.
   const toSign = timestamp + apiKey + recvWindow + params;
   const signature = CryptoJS.HmacSHA256(toSign, apiSecret).toString(CryptoJS.enc.Hex);
 
   const headers = new Headers();
   headers.append('X-BAPI-API-KEY', apiKey);
   headers.append('X-BAPI-TIMESTAMP', timestamp);
-  headers.append('X-BAPI-RECV-WINDOW', recvWindow);
   headers.append('X-BAPI-SIGN', signature);
+  headers.append('X-BAPI-RECV-WINDOW', recvWindow);
+  headers.append('Content-Type', 'application/json');
 
   const url = `${host}${path}?${params}`;
 
