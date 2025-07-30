@@ -53,33 +53,20 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
     headers,
   });
 
-  const responseText = await response.text();
-  
   if (!response.ok) {
-    throw new Error(`Bybit API request failed with status ${response.status}: ${responseText}`);
+    const errorText = await response.text();
+    throw new Error(`Bybit API request failed with status ${response.status}: ${errorText}`);
   }
   
+  const responseText = await response.text();
   if (!responseText) {
     throw new Error('Bybit API returned an empty response.');
   }
 
   try {
-    const responseData = JSON.parse(responseText);
-    
-    // Bybit API returns retCode 0 for success.
-    if (responseData.retCode !== 0) {
-      // Use a more descriptive error message from the API response if available.
-      const errorMessage = responseData.retMsg || `Bybit API Error (retCode: ${responseData.retCode})`;
-      throw new Error(errorMessage);
-    }
-
-    return responseData;
-  } catch (error) {
+    return JSON.parse(responseText);
+  } catch (e) {
     console.error("Failed to parse Bybit API response:", responseText);
-    if (error instanceof SyntaxError) {
-      throw new Error(`Failed to parse JSON response. The API may have returned an HTML error page. Response: ${responseText}`);
-    }
-    // Re-throw other errors, including the custom one from above.
-    throw error;
+    throw new Error(`Unexpected end of JSON input. The API may have returned an HTML error page. Response: ${responseText}`);
   }
 }
