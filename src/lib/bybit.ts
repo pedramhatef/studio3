@@ -1,3 +1,4 @@
+
 export interface BybitBalance {
   coin: string;
   walletBalance: string;
@@ -44,28 +45,34 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   headers.append('X-BAPI-TIMESTAMP', timestamp);
   headers.append('X-BAPI-SIGN', signature);
   headers.append('X-BAPI-RECV-WINDOW', recvWindow);
-  headers.append('Content-Type', 'application/json');
+  
+  const url = `${host}${path}?${params}`;
 
-  const response = await fetch(`${host}${path}?${params}`, {
+  const response = await fetch(url, {
     method: 'GET',
     headers,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Bybit API request failed with status ${response.status}: ${errorText}`);
-  }
-
   const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Bybit API request failed with status ${response.status}: ${responseText}`);
+  }
+  
+  // Bybit can return an HTML error page even with a 200 OK status on error.
+  // We check if the response is valid JSON before parsing.
   try {
     const responseData = JSON.parse(responseText);
     
     if (responseData.retCode !== 0) {
+      // This is an expected API error from Bybit, with a message.
       throw new Error(`Bybit API Error: ${responseData.retMsg} (retCode: ${responseData.retCode})`);
     }
 
     return responseData;
   } catch (error) {
-    throw new Error(`Failed to parse Bybit API response as JSON. Response: ${responseText}`);
+    // This catches JSON parsing errors, which happen on unexpected server responses.
+    console.error("Failed to parse Bybit API response:", responseText);
+    throw new Error(`Failed to parse Bybit API response. The server sent back an unexpected response.`);
   }
 }
