@@ -32,7 +32,6 @@ async function hmac_sha256(secret: string, message: string): Promise<string> {
 export async function fetchWalletBalance(apiKey: string, apiSecret: string): Promise<BybitWalletResponse> {
   const host = 'https://api-testnet.bybit.com';
   const path = '/v5/account/wallet-balance';
-  
   const timestamp = Date.now().toString();
   const recvWindow = '10000';
   const params = 'accountType=UNIFIED';
@@ -45,6 +44,7 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   headers.append('X-BAPI-TIMESTAMP', timestamp);
   headers.append('X-BAPI-SIGN', signature);
   headers.append('X-BAPI-RECV-WINDOW', recvWindow);
+  headers.append('Content-Type', 'application/json');
   
   const url = `${host}${path}?${params}`;
 
@@ -54,12 +54,14 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   });
 
   if (!response.ok) {
-    // Attempt to get more detailed error from response body
     const errorText = await response.text();
     throw new Error(`Bybit API request failed with status ${response.status}: ${errorText}`);
   }
   
   const responseText = await response.text();
+  if (!responseText) {
+    throw new Error('Bybit API returned an empty response.');
+  }
 
   try {
     const responseData = JSON.parse(responseText);
@@ -70,8 +72,8 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
 
     return responseData;
   } catch (error) {
+    console.error("Failed to parse Bybit API response:", responseText);
     if (error instanceof SyntaxError) {
-      console.error("Failed to parse Bybit API response:", responseText);
       throw new Error(`Failed to parse Bybit API response. The server may have sent an error page instead of JSON.`);
     }
     throw error;
