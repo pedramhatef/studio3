@@ -53,30 +53,27 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
     headers,
   });
 
-  const responseText = await response.text();
-
   if (!response.ok) {
-    throw new Error(`Bybit API request failed with status ${response.status}: ${responseText}`);
+    // Attempt to get more detailed error from response body
+    const errorText = await response.text();
+    throw new Error(`Bybit API request failed with status ${response.status}: ${errorText}`);
   }
   
-  // Bybit can return an HTML error page even with a 200 OK status on error.
-  // We check if the response is valid JSON before parsing.
+  const responseText = await response.text();
+
   try {
     const responseData = JSON.parse(responseText);
     
-    // An retCode other than 0 is an API error from Bybit.
     if (responseData.retCode !== 0) {
       throw new Error(`Bybit API Error: ${responseData.retMsg} (retCode: ${responseData.retCode})`);
     }
 
     return responseData;
   } catch (error) {
-    // This catches JSON parsing errors and API errors thrown above.
     if (error instanceof SyntaxError) {
       console.error("Failed to parse Bybit API response:", responseText);
-      throw new Error(`Failed to parse Bybit API response. The server sent back an unexpected response.`);
+      throw new Error(`Failed to parse Bybit API response. The server may have sent an error page instead of JSON.`);
     }
-    // Re-throw other errors (like the ones from retCode checks).
     throw error;
   }
 }
