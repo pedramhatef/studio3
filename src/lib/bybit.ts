@@ -21,9 +21,9 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   const path = '/v5/account/wallet-balance';
   const timestamp = Date.now().toString();
   const recvWindow = '20000';
-  const accountType = 'UNIFIED';
+  const queryString = 'accountType=UNIFIED';
 
-  const toSign = timestamp + apiKey + recvWindow + `accountType=${accountType}`;
+  const toSign = timestamp + apiKey + recvWindow + queryString;
   const signature = CryptoJS.HmacSHA256(toSign, apiSecret).toString(CryptoJS.enc.Hex);
 
   const headers = new Headers();
@@ -33,7 +33,7 @@ export async function fetchWalletBalance(apiKey: string, apiSecret: string): Pro
   headers.append('X-BAPI-RECV-WINDOW', recvWindow);
   headers.append('Content-Type', 'application/json');
 
-  const url = `${host}${path}?accountType=${accountType}`;
+  const url = `${host}${path}?${queryString}`;
 
   const response = await fetch(url, {
     method: 'GET',
