@@ -7,6 +7,16 @@ export interface BybitBalance {
   equity: string;
 }
 
+export interface BybitPosition {
+    symbol: string;
+    side: 'Buy' | 'Sell' | 'None';
+    size: string;
+    avgPrice: string;
+    positionValue: string;
+    leverage: string;
+    unrealisedPnl: string;
+}
+
 export interface BybitWalletResponse {
   retCode: number;
   retMsg: string;
@@ -27,6 +37,11 @@ export interface BybitOrderParameters {
     orderType: 'Market' | 'Limit';
     qty: string;
     price?: string; // Required for Limit orders
+    takeProfit?: string;
+    stopLoss?: string;
+    tpslMode?: 'Full' | 'Partial';
+    tpTriggerBy?: 'LastPrice' | 'MarkPrice' | 'IndexPrice';
+    slTriggerBy?: 'LastPrice' | 'MarkPrice' | 'IndexPrice';
 }
 
 export interface BybitApiResponse {
@@ -46,20 +61,14 @@ async function makeRequest<T>(
 ): Promise<T> {
   const host = 'https://api-demo.bybit.com';
   const timestamp = Date.now().toString();
-  const recvWindow = '5000'; // Bybit's default is 5000ms
+  const recvWindow = '5000';
 
-  let payload: string;
-  let url: string;
-
-  if (method === 'GET') {
-    payload = new URLSearchParams(params).toString();
-    url = `${host}${path}${payload ? `?${payload}` : ''}`;
-  } else { // POST
-    payload = JSON.stringify(params);
-    url = `${host}${path}`;
+  let queryString = '';
+  if (method === 'GET' && Object.keys(params).length > 0) {
+    queryString = new URLSearchParams(params).toString();
   }
 
-  const signPayload = timestamp + apiKey + recvWindow + payload;
+  const signPayload = timestamp + apiKey + recvWindow + (method === 'POST' ? JSON.stringify(params) : queryString);
   const signature = CryptoJS.HmacSHA256(signPayload, apiSecret).toString(CryptoJS.enc.Hex);
 
   const headers = new Headers();
@@ -69,6 +78,8 @@ async function makeRequest<T>(
   headers.append('X-BAPI-SIGN', signature);
   headers.append('X-BAPI-SIGN-TYPE', '2');
   
+  const url = `${host}${path}${queryString ? `?${queryString}` : ''}`;
+  
   const requestOptions: RequestInit = {
     method: method,
     headers: headers,
@@ -76,7 +87,7 @@ async function makeRequest<T>(
 
   if (method === 'POST') {
       headers.append('Content-Type', 'application/json');
-      requestOptions.body = payload;
+      requestOptions.body = JSON.stringify(params);
   }
 
   try {
@@ -85,7 +96,6 @@ async function makeRequest<T>(
 
     if (!response.ok) {
       console.error(`Bybit API Error (${response.status}) for ${method} ${path}:`, responseText);
-      // Try to parse the error for a better message
       try {
         const errorJson = JSON.parse(responseText);
         throw new Error(errorJson.retMsg || `Bybit API request failed with status ${response.status}`);
@@ -106,15 +116,12 @@ async function makeRequest<T>(
 export async function fetchWalletBalance(apiKey: string, apiSecret: string): Promise<BybitWalletResponse> {
     const params = { accountType: 'UNIFIED' };
     const response = await makeRequest<BybitWalletResponse>('GET', '/v5/account/wallet-balance', apiKey, apiSecret, params);
-     // The structure from the user's example is nested differently.
-    // We adapt the response to match what the UI expects.
     if (response.result && response.result.list && response.result.list.length > 0) {
       const adaptedResult = {
         ...response,
         result: {
           list: response.result.list[0].coin.map((c: BybitBalance) => ({
             ...c,
-            // Ensure availableToWithdraw has a value for the UI. Use equity as fallback.
             availableToWithdraw: c.availableToWithdraw || c.equity, 
           }))
         }
@@ -136,4 +143,8 @@ export async function setLeverage(apiKey: string, apiSecret: string, symbol: str
 
 export async function placeOrder(apiKey: string, apiSecret: string, order: BybitOrderParameters): Promise<BybitApiResponse> {
     return makeRequest<BybitApiResponse>('POST', '/v5/order/create', apiKey, apiSecret, order);
+}
+
+export async function getPositions(apiKey: string, apiSecret: string, params: { category: string, symbol?: string, baseCoin?: string, settleCoin?: string }): Promise<BybitApiResponse> {
+    return makeRequest<BybitApiResponse>('GET', '/v5/position/list', apiKey, apiSecret, params);
 }

@@ -278,15 +278,22 @@ export function SignalDashboard() {
                 toast({
                     id: `trade-exec-${newSignal.time}`,
                     title: `⚡ Executing ${newSignal.type} Trade...`,
-                    description: `Leverage: 75x, Size: 10% of balance`,
+                    description: `Leverage: 75x, Size: $2`,
                 });
 
                 executeTrade(apiKey, apiSecret, newSignal, lastPrice).then(result => {
                     if (result.success) {
-                        toast({
-                            title: `✅ Trade Placed Successfully!`,
-                            description: `Order ID: ${result.orderId}`,
-                        });
+                        if (result.orderId === 'EXISTING') {
+                            toast({
+                                title: `FYI: Position Already Open`,
+                                description: result.message,
+                            });
+                        } else {
+                            toast({
+                                title: `✅ Trade Placed Successfully!`,
+                                description: `Order ID: ${result.orderId}`,
+                            });
+                        }
                     } else {
                         toast({
                             variant: "destructive",

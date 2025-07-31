@@ -1,7 +1,7 @@
 'use server';
 
 import type { ChartDataPoint, Signal } from '@/lib/types';
-import { fetchWalletBalance, placeOrder, setLeverage, type BybitBalance } from '@/lib/bybit';
+import { fetchWalletBalance, placeOrder, setLeverage, type BybitBalance, getPositions, BybitPosition } from '@/lib/bybit';
 
 interface BybitKlineResponse {
   retCode: number;
@@ -67,13 +67,24 @@ export async function executeTrade(
 ): Promise<{ success: boolean, message: string, orderId?: string }> {
   try {
     const symbol = 'DOGEUSDT';
-    const side = signal.type === 'BUY' ? 'Buy' : 'Sell';
-    const leverage = '40';
 
-    // 1. Set leverage
+    // 1. Check for existing positions
+    const positionResponse = await getPositions(apiKey, apiSecret, { category: 'linear', symbol });
+    if (positionResponse.retCode !== 0) {
+        throw new Error(`Failed to fetch positions: ${positionResponse.retMsg}`);
+    }
+    const openPositions = positionResponse.result.list.filter((p: BybitPosition) => parseFloat(p.size) > 0);
+    if (openPositions.length > 0) {
+        const message = `An open position of size ${openPositions[0].size} for ${symbol} already exists. No new trade placed.`;
+        console.log(message);
+        return { success: true, message: message, orderId: 'EXISTING' };
+    }
+
+    const side = signal.type === 'BUY' ? 'Buy' : 'Sell';
+    const leverage = '75';
+
+    // 2. Set leverage
     const leverageResponse = await setLeverage(apiKey, apiSecret, symbol, leverage);
-    // Bybit returns retCode 110025 if leverage is already set to the desired value.
-    // We can treat this as a success and continue.
     if (leverageResponse.retCode !== 0 && leverageResponse.retMsg !== 'leverage not modified') {
       console.error('Set Leverage Error:', leverageResponse);
       throw new Error(`Failed to set leverage: ${leverageResponse.retMsg}`);
@@ -82,35 +93,36 @@ export async function executeTrade(
         console.warn(`Leverage already set to ${leverage}. Proceeding with trade.`);
      }
 
-
-    // 2. Fetch wallet balance to calculate quantity
-    const balanceResponse = await fetchWalletBalance(apiKey, apiSecret);
-    if (balanceResponse.retCode !== 0) {
-      console.error('Fetch Balance Error:', balanceResponse);
-      throw new Error(`Failed to fetch balance: ${balanceResponse.retMsg}`);
-    }
-    const usdtBalance = balanceResponse.result.list.find(c => c.coin === 'USDT');
-    if (!usdtBalance) {
-      throw new Error('USDT balance not found.');
-    }
-
-    // 3. Calculate order quantity
-    const walletBalance = parseFloat(usdtBalance.walletBalance);
-    const positionValue = walletBalance * 0.1 * parseFloat(leverage); // 10% of balance with leverage
-    const orderQty = (positionValue / lastPrice).toFixed(0); // DOGE qty, rounded to nearest integer
+    // 3. Calculate order quantity from fixed value
+    const positionValue = 2; // Fixed $2 position value
+    const orderQty = (positionValue * parseFloat(leverage) / lastPrice).toFixed(0);
 
      if (parseFloat(orderQty) <= 0) {
       throw new Error('Calculated order quantity is zero or less. Cannot place trade.');
     }
 
+    // 4. Calculate TP/SL prices
+    const takeProfitPrice = side === 'Buy'
+        ? (lastPrice * (1 + 0.40)).toFixed(5)
+        : (lastPrice * (1 - 0.40)).toFixed(5);
+    
+    const stopLossPrice = side === 'Buy'
+        ? (lastPrice * (1 - 0.65)).toFixed(5)
+        : (lastPrice * (1 + 0.65)).toFixed(5);
 
-    // 4. Place the order
+
+    // 5. Place the order with TP/SL
     const orderResponse = await placeOrder(apiKey, apiSecret, {
       category: 'linear',
       symbol,
       side,
       orderType: 'Market',
       qty: orderQty,
+      takeProfit: takeProfitPrice,
+      stopLoss: stopLossPrice,
+      tpslMode: 'Full', // 'Full' for entire position
+      tpTriggerBy: 'MarkPrice',
+      slTriggerBy: 'MarkPrice',
     });
 
     if (orderResponse.retCode !== 0) {
@@ -120,7 +132,7 @@ export async function executeTrade(
 
     return {
       success: true,
-      message: 'Trade executed successfully!',
+      message: 'Trade executed successfully with TP/SL!',
       orderId: orderResponse.result.orderId,
     };
   } catch (error) {
