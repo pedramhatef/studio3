@@ -56,7 +56,7 @@ export function SignalHistory({ signals }: SignalHistoryProps) {
                   <TableCell>{signal.displayTime}</TableCell>
                   <TableCell>
                     <div className={`flex items-center gap-2 ${signal.type === 'BUY' ? 'text-green-500' : 'text-red-500'}`}>
-                      {signal.type === 'BUY' ? <TrendingUp /> : <TrendingDown />}
+                      {signal.type === 'BUY' ? <TrendingUp className="text-green-500" /> : <TrendingDown className="text-red-500" />}
                       <span className="font-medium">{signal.type}</span>
                     </div>
                   </TableCell>

@@ -50,10 +50,10 @@ export default function Home() {
               <TabsTrigger value="signals">Signal Engine</TabsTrigger>
               <TabsTrigger value="balance">Account Balance</TabsTrigger>
             </TabsList>
-            <TabsContent value="signals">
+            <TabsContent value="signals" forceMount>
               <SignalDashboard />
             </TabsContent>
-            <TabsContent value="balance">
+            <TabsContent value="balance" forceMount>
               <BalanceDashboard 
                 apiKey={credentials.apiKey} 
                 apiSecret={credentials.apiSecret} 

@@ -28,11 +28,11 @@ const chartConfig = {
   },
   buy: {
     label: 'Buy Signal',
-    color: 'hsl(var(--chart-2))',
+    color: 'hsl(142.1 76.2% 36.3%)', // Green
   },
   sell: {
     label: 'Sell Signal',
-    color: 'hsl(var(--chart-1))',
+    color: 'hsl(0 84.2% 60.2%)', // Red
   },
 };
 
