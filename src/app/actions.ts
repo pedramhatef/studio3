@@ -72,10 +72,16 @@ export async function executeTrade(
 
     // 1. Set leverage
     const leverageResponse = await setLeverage(apiKey, apiSecret, symbol, leverage);
-    if (leverageResponse.retCode !== 0) {
+    // Bybit returns retCode 110025 if leverage is already set to the desired value.
+    // We can treat this as a success and continue.
+    if (leverageResponse.retCode !== 0 && leverageResponse.retMsg !== 'leverage not modified') {
       console.error('Set Leverage Error:', leverageResponse);
       throw new Error(`Failed to set leverage: ${leverageResponse.retMsg}`);
     }
+     if (leverageResponse.retCode !== 0 && leverageResponse.retMsg === 'leverage not modified') {
+        console.warn(`Leverage already set to ${leverage}. Proceeding with trade.`);
+     }
+
 
     // 2. Fetch wallet balance to calculate quantity
     const balanceResponse = await fetchWalletBalance(apiKey, apiSecret);
