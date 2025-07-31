@@ -68,7 +68,7 @@ export async function executeTrade(
   try {
     const symbol = 'DOGEUSDT';
     const side = signal.type === 'BUY' ? 'Buy' : 'Sell';
-    const leverage = '75';
+    const leverage = '40';
 
     // 1. Set leverage
     const leverageResponse = await setLeverage(apiKey, apiSecret, symbol, leverage);
