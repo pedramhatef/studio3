@@ -5,10 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { CryptoChart } from './CryptoChart';
 import { SignalHistory } from './SignalHistory';
 import type { ChartDataPoint, Signal } from '@/lib/types';
-import { BarChart2 } from 'lucide-react';
+import { BarChart2, Zap } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getChartData } from '@/app/actions';
+import { getChartData, executeTrade } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 const DATA_REFRESH_INTERVAL = 5000; // 5 seconds
 
@@ -107,6 +109,7 @@ export function SignalDashboard() {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAutoTrading, setIsAutoTrading] = useState(false);
   const { toast } = useToast();
   const prevSignalsRef = useRef<Signal[]>([]);
   const initialLoadToastId = useRef<string | null>(null);
@@ -242,7 +245,7 @@ export function SignalDashboard() {
     return () => clearInterval(intervalId);
   }, [fetchDataAndGenerateSignal]);
 
-  // Effect to show a toast when a new signal is generated
+  // Effect to show a toast and execute a trade when a new signal is generated
   useEffect(() => {
     if (signals.length > 0 && signals[0].time !== (prevSignalsRef.current[0]?.time || 0)) {
         const newSignal = signals[0];
@@ -261,12 +264,48 @@ export function SignalDashboard() {
         }
         
         toast({
+          id: `signal-${newSignal.time}`,
           title: toastTitle,
           description: `A new ${newSignal.level.toLowerCase()}-confidence signal was generated at $${newSignal.price.toFixed(5)}`,
         });
+
+        if (isAutoTrading) {
+            const apiKey = localStorage.getItem('bybit-apiKey');
+            const apiSecret = localStorage.getItem('bybit-apiSecret');
+            const lastPrice = chartData[chartData.length - 1]?.close;
+
+            if (apiKey && apiSecret && lastPrice) {
+                toast({
+                    id: `trade-exec-${newSignal.time}`,
+                    title: `⚡ Executing ${newSignal.type} Trade...`,
+                    description: `Leverage: 75x, Size: 10% of balance`,
+                });
+
+                executeTrade(apiKey, apiSecret, newSignal, lastPrice).then(result => {
+                    if (result.success) {
+                        toast({
+                            title: `✅ Trade Placed Successfully!`,
+                            description: `Order ID: ${result.orderId}`,
+                        });
+                    } else {
+                        toast({
+                            variant: "destructive",
+                            title: "❌ Trade Execution Failed",
+                            description: result.message,
+                        });
+                    }
+                });
+            } else {
+                 toast({
+                    variant: "destructive",
+                    title: "❌ Auto-Trading Disabled",
+                    description: "API credentials or last price not available.",
+                });
+            }
+        }
     }
     prevSignalsRef.current = signals;
-  }, [signals, toast]);
+  }, [signals, toast, isAutoTrading, chartData]);
 
 
   // Separate effect for the initial loading toast.
@@ -292,6 +331,15 @@ export function SignalDashboard() {
                 DOGE/USDT Real-Time Signals
               </CardTitle>
               <CardDescription>High-quality signals generated with the trend using a custom WaveTrend strategy.</CardDescription>
+            </div>
+             <div className="flex items-center space-x-2 bg-muted p-3 rounded-lg">
+                <Zap className="h-5 w-5 text-primary" />
+                <Label htmlFor="autotrade-switch" className="font-bold text-primary">Enable Auto-Trading</Label>
+                <Switch 
+                    id="autotrade-switch"
+                    checked={isAutoTrading}
+                    onCheckedChange={setIsAutoTrading}
+                />
             </div>
           </div>
         </CardHeader>
