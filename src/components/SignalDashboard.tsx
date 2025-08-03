@@ -76,7 +76,12 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
     
     const firstRsiIndex = period;
     if (firstRsiIndex < data.length) {
-        rsiArray[firstRsiIndex] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+        if (avgLoss === 0) {
+            rsiArray[firstRsiIndex] = 100;
+        } else {
+            const rs = avgGain / avgLoss;
+            rsiArray[firstRsiIndex] = 100 - (100 / (1 + rs));
+        }
     }
 
     // Subsequent calculations
@@ -90,7 +95,12 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
         
         const rsiIndex = i + 1; 
         if (rsiIndex < data.length) {
-            rsiArray[rsiIndex] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+            if (avgLoss === 0) {
+                rsiArray[rsiIndex] = 100;
+            } else {
+                const rs = avgGain / avgLoss;
+                rsiArray[rsiIndex] = 100 - (100 / (1 + rs));
+            }
         }
     }
   
@@ -104,6 +114,7 @@ export function SignalDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
   const initialLoadToastId = useRef<string | null>(null);
+  const lastSignalRef = useRef<Signal | null>(null);
 
   // Calculate required data length
   const requiredDataLength = useMemo(() => {
@@ -150,71 +161,69 @@ export function SignalDashboard() {
       const rsi = calculateRSI(closePrices, INDICATOR_PARAMS.RSI_PERIOD);
       const volumeSMA = calculateSMA(volumes, INDICATOR_PARAMS.VOLUME_AVG_PERIOD);
 
-      setSignals(prevSignals => {
-        const lastIndex = formattedData.length - 1;
+      const lastIndex = formattedData.length - 1;
 
-        const lastVolume = volumes[lastIndex];
-        const lastVolumeSMA = volumeSMA[lastIndex];
-        const lastTrendEMA = trendEMA[lastIndex];
-        const lastTci = tci[lastIndex];
-        const prevTci = tci[lastIndex - 1];
-        const lastWt2 = wt2[lastIndex];
-        const prevWt2 = wt2[lastIndex - 1];
-        const lastMacd = macdLine[lastIndex];
-        const lastMacdSignal = signalLine[lastIndex];
-        const lastRsi = rsi[lastIndex];
-        const lastClose = closePrices[lastIndex];
+      const lastVolume = volumes[lastIndex];
+      const lastVolumeSMA = volumeSMA[lastIndex];
+      const lastTrendEMA = trendEMA[lastIndex];
+      const lastTci = tci[lastIndex];
+      const prevTci = tci[lastIndex - 1];
+      const lastWt2 = wt2[lastIndex];
+      const prevWt2 = wt2[lastIndex - 1];
+      const lastMacd = macdLine[lastIndex];
+      const lastMacdSignal = signalLine[lastIndex];
+      const lastRsi = rsi[lastIndex];
+      const lastClose = closePrices[lastIndex];
 
-        if (lastVolumeSMA === null || lastWt2 === null || prevWt2 === null || lastRsi === null) {
-          return prevSignals;
-        }
+      if (lastVolumeSMA === null || lastWt2 === null || prevWt2 === null || lastRsi === null) {
+        return;
+      }
 
-        const lastSignalInState = prevSignals.length > 0 ? prevSignals[prevSignals.length - 1] : null;
-
-        const isUptrend = lastClose > lastTrendEMA;
-        const isDowntrend = lastClose < lastTrendEMA;
-        const isWTBuy = prevTci < prevWt2 && lastTci > lastWt2;
-        const isWTSell = prevTci > prevWt2 && lastTci < lastWt2;
-        const isMACDConfirmBuy = lastMacd > lastMacdSignal;
-        const isRSIConfirmBuy = lastRsi > 50;
-        const isMACDConfirmSell = lastMacd < lastMacdSignal;
-        const isRSIConfirmSell = lastRsi < 50;
-        const isVolumeSpike = lastVolume > lastVolumeSMA * INDICATOR_PARAMS.VOLUME_SPIKE_FACTOR;
-        
-        let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
-        
-        // BUY Signal Logic
-        if (isUptrend && isWTBuy && lastSignalInState?.type !== 'BUY') {
-            const confirmations = (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0);
-            
-            if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
-            else if (confirmations >= 1) newSignal = { type: 'BUY', level: 'Medium' };
-            else newSignal = { type: 'BUY', level: 'Low' };
-        } 
-        // SELL Signal Logic
-        else if (isDowntrend && isWTSell && lastSignalInState?.type !== 'SELL') {
-            const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0);
-            
-            if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
-            else if (confirmations >= 1) newSignal = { type: 'SELL', level: 'Medium' };
-            else newSignal = { type: 'SELL', level: 'Low' };
-        }
-
-        if (newSignal) {
-          const lastDataPoint = formattedData[lastIndex];
-          const fullSignal: Signal = {
-              ...newSignal,
-              price: lastDataPoint.close,
-              time: lastDataPoint.time,
-          };
+      const isUptrend = lastClose > lastTrendEMA;
+      const isDowntrend = lastClose < lastTrendEMA;
+      const isWTBuy = prevTci < prevWt2 && lastTci > lastWt2;
+      const isWTSell = prevTci > prevWt2 && lastTci < lastWt2;
+      const isMACDConfirmBuy = lastMacd > lastMacdSignal;
+      const isRSIConfirmBuy = lastRsi > 50;
+      const isMACDConfirmSell = lastMacd < lastMacdSignal;
+      const isRSIConfirmSell = lastRsi < 50;
+      const isVolumeSpike = lastVolume > lastVolumeSMA * INDICATOR_PARAMS.VOLUME_SPIKE_FACTOR;
+      
+      let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
+      
+      // BUY Signal Logic
+      if (isUptrend && isWTBuy && lastSignalRef.current?.type !== 'BUY') {
+          const confirmations = (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0);
           
-          if (!prevSignals.some(s => s.time === fullSignal.time)) {
-             return [...prevSignals, fullSignal];
-          }
-        }
+          if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
+          else if (confirmations >= 1) newSignal = { type: 'BUY', level: 'Medium' };
+          else newSignal = { type: 'BUY', level: 'Low' };
+      } 
+      // SELL Signal Logic
+      else if (isDowntrend && isWTSell && lastSignalRef.current?.type !== 'SELL') {
+          const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0);
+          
+          if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
+          else if (confirmations >= 1) newSignal = { type: 'SELL', level: 'Medium' };
+          else newSignal = { type: 'SELL', level: 'Low' };
+      }
 
-        return prevSignals;
-      });
+      if (newSignal) {
+        const lastDataPoint = formattedData[lastIndex];
+        const fullSignal: Signal = {
+            ...newSignal,
+            price: lastDataPoint.close,
+            time: lastDataPoint.time,
+        };
+        
+        setSignals(prevSignals => {
+            if (!prevSignals.some(s => s.time === fullSignal.time)) {
+                lastSignalRef.current = fullSignal;
+                return [...prevSignals, fullSignal];
+            }
+            return prevSignals;
+        });
+      }
 
     } catch (error) {
       console.error("Data processing error:", error);
@@ -243,11 +252,12 @@ export function SignalDashboard() {
   useEffect(() => {
     const loadInitialData = async () => {
         setIsLoading(true);
-        const [history] = await Promise.all([
-            getSignalHistoryFromFirestore(),
-            fetchDataAndGenerateSignal()
-        ]);
+        const history = await getSignalHistoryFromFirestore();
+        if (history.length > 0) {
+            lastSignalRef.current = history[history.length - 1];
+        }
         setSignals(history);
+        await fetchDataAndGenerateSignal();
         setIsLoading(false);
     }
     loadInitialData();
@@ -267,7 +277,7 @@ export function SignalDashboard() {
     const latestSignal = displayedSignals[0];
     if (!latestSignal) return;
     
-    // Check if it's a "new" signal vs one loaded from history by checking its timestamp against previous ones
+    // Check if it's a "new" signal vs one loaded from history by comparing its timestamp
     const isNew = !signals.slice(0, -1).some(s => s.time === latestSignal.time);
 
     if (isNew) {
