@@ -12,5 +12,5 @@ export interface Signal {
   level: 'High' | 'Medium' | 'Low';
   price: number;
   time: number;
-  displayTime: string;
+  displayTime?: string;
 }

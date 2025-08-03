@@ -7,7 +7,7 @@ import { SignalHistory } from './SignalHistory';
 import type { ChartDataPoint, Signal } from '@/lib/types';
 import { BarChart2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getChartData, saveSignalToFirestore } from '@/app/actions';
+import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 
 // Constants
@@ -112,6 +112,13 @@ export function SignalDashboard() {
     );
   }, []);
 
+  const displayedSignals = useMemo(() => {
+    return signals.map(s => ({
+        ...s,
+        displayTime: new Date(s.time).toLocaleTimeString(),
+    })).sort((a,b) => b.time - a.time);
+  }, [signals]);
+
   const fetchDataAndGenerateSignal = useCallback(async () => {
     try {
       const formattedData = await getChartData();
@@ -158,8 +165,8 @@ export function SignalDashboard() {
           return prevSignals;
         }
 
-        const lastSignal = prevSignals[0] || null;
-        
+        const lastSignalInState = prevSignals.find(s => s.time === formattedData[formattedData.length - 2].time);
+
         const isUptrend = lastClose > lastTrendEMA;
         const isDowntrend = lastClose < lastTrendEMA;
         const isWTBuy = prevTci < prevWt2 && lastTci > lastWt2;
@@ -170,10 +177,10 @@ export function SignalDashboard() {
         const isRSIConfirmSell = lastRsi < 50;
         const isVolumeSpike = lastVolume > lastVolumeSMA * INDICATOR_PARAMS.VOLUME_SPIKE_FACTOR;
         
-        let newSignal: Omit<Signal, 'price' | 'time' | 'displayTime'> | null = null;
+        let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
         
         // BUY Signal Logic
-        if (isUptrend && isWTBuy && lastSignal?.type !== 'BUY') {
+        if (isUptrend && isWTBuy && lastSignalInState?.type !== 'BUY') {
             const confirmations = (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0);
             
             if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
@@ -181,7 +188,7 @@ export function SignalDashboard() {
             else newSignal = { type: 'BUY', level: 'Low' };
         } 
         // SELL Signal Logic
-        else if (isDowntrend && isWTSell && lastSignal?.type !== 'SELL') {
+        else if (isDowntrend && isWTSell && lastSignalInState?.type !== 'SELL') {
             const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0);
             
             if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
@@ -195,11 +202,10 @@ export function SignalDashboard() {
               ...newSignal,
               price: lastDataPoint.close,
               time: lastDataPoint.time,
-              displayTime: new Date(lastDataPoint.time).toLocaleTimeString(),
           };
           
-          if (prevSignals[0]?.time !== fullSignal.time) {
-            return [fullSignal, ...prevSignals].slice(0, MAX_SIGNALS);
+          if (!prevSignals.some(s => s.time === fullSignal.time)) {
+             return [...prevSignals, fullSignal];
           }
         }
 
@@ -229,42 +235,60 @@ export function SignalDashboard() {
     }
   }, [toast, isLoading, requiredDataLength]);
 
+  // Initial data load
+  useEffect(() => {
+    const loadInitialData = async () => {
+        const [history] = await Promise.all([
+            getSignalHistoryFromFirestore(),
+            fetchDataAndGenerateSignal()
+        ]);
+        setSignals(history);
+    }
+    loadInitialData();
+  }, [fetchDataAndGenerateSignal]);
+
+
   // Fetch data periodically
   useEffect(() => {
-    fetchDataAndGenerateSignal();
     const intervalId = setInterval(fetchDataAndGenerateSignal, DATA_REFRESH_INTERVAL);
     return () => clearInterval(intervalId);
   }, [fetchDataAndGenerateSignal]);
 
   // Show signal toast and save to firestore
   useEffect(() => {
-    if (!signals.length || signals[0]?.time === (signals[1]?.time || 0) ) return;
-    
-    const newSignal = signals[0];
-    
-    const toastTitles = {
-      High: `🚀 High ${newSignal.type} Signal!`,
-      Medium: `🔥 Medium ${newSignal.type} Signal!`,
-      Low: `🤔 Low ${newSignal.type} Signal`
-    };
+    if (signals.length === 0) return;
+  
+    const latestSignal = displayedSignals[0];
+    if (!latestSignal) return;
 
-    toast({
-      id: `signal-${newSignal.time}`,
-      title: toastTitles[newSignal.level],
-      description: `Generated at $${newSignal.price.toFixed(5)}`,
-    });
+    // A bit of a hack to check if it's a "new" signal vs one loaded from history
+    const isNew = signals.length > 0 && !signals.slice(0, -1).some(s => s.time === latestSignal.time);
 
-    const { displayTime, ...signalToSave } = newSignal;
-    saveSignalToFirestore(signalToSave);
+    if (isNew && !isLoading) {
+        const toastTitles = {
+        High: `🚀 High ${latestSignal.type} Signal!`,
+        Medium: `🔥 Medium ${latestSignal.type} Signal!`,
+        Low: `🤔 Low ${latestSignal.type} Signal`
+        };
 
-  }, [signals, toast]);
+        toast({
+        id: `signal-${latestSignal.time}`,
+        title: toastTitles[latestSignal.level],
+        description: `Generated at $${latestSignal.price.toFixed(5)}`,
+        });
+
+        const { displayTime, ...signalToSave } = latestSignal;
+        saveSignalToFirestore(signalToSave);
+    }
+
+  }, [signals, displayedSignals, toast, isLoading]);
 
   // Initial loading toast
   useEffect(() => {
     if (isLoading && chartData.length < requiredDataLength && !initialLoadToastId.current) {
       const { id } = toast({
         title: "Initializing data...",
-        description: "Collecting sufficient data points for analysis",
+        description: "Collecting historical data and generating signals.",
       });
       initialLoadToastId.current = id;
     }
@@ -294,7 +318,7 @@ export function SignalDashboard() {
           )}
         </CardContent>
       </Card>
-      <SignalHistory signals={signals} />
+      <SignalHistory signals={displayedSignals.slice(0, MAX_SIGNALS)} />
     </div>
   );
 }

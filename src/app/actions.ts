@@ -2,7 +2,7 @@
 
 import type { ChartDataPoint, Signal } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from "firebase/firestore"; 
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit } from "firebase/firestore"; 
 
 interface BybitKlineResponse {
   retCode: number;
@@ -72,4 +72,25 @@ export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>)
     console.error("Error adding document: ", e);
     return { success: false, error: (e as Error).message };
   }
+}
+
+export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
+    try {
+      const signalsCol = collection(db, "signals");
+      const q = query(signalsCol, orderBy("serverTime", "desc"), limit(50));
+      const querySnapshot = await getDocs(q);
+      const signals = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          type: data.type,
+          level: data.level,
+          price: data.price,
+          time: data.time,
+        } as Signal;
+      });
+      return signals.reverse(); // reverse to show oldest first on the chart
+    } catch (error) {
+      console.error("Error fetching signal history:", error);
+      return [];
+    }
 }
