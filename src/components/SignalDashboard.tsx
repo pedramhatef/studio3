@@ -7,7 +7,7 @@ import { SignalHistory } from './SignalHistory';
 import type { ChartDataPoint, Signal } from '@/lib/types';
 import { BarChart2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getChartData } from '@/app/actions';
+import { getChartData, saveSignalToFirestore } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 
 // Constants
@@ -199,6 +199,8 @@ export function SignalDashboard() {
           };
           
           if (prevSignals[0]?.time !== fullSignal.time) {
+            const { displayTime, ...signalToSave } = fullSignal;
+            saveSignalToFirestore(signalToSave);
             return [fullSignal, ...prevSignals].slice(0, MAX_SIGNALS);
           }
         }

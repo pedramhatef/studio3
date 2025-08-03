@@ -1,6 +1,8 @@
 'use server';
 
-import type { ChartDataPoint } from '@/lib/types';
+import type { ChartDataPoint, Signal } from '@/lib/types';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, serverTimestamp } from "firebase/firestore"; 
 
 interface BybitKlineResponse {
   retCode: number;
@@ -55,5 +57,19 @@ export async function getChartData(): Promise<ChartDataPoint[]> {
   } catch (error) {
     console.error('Error in getChartData:', error);
     return []; // Return empty array on error
+  }
+}
+
+export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>) {
+  try {
+    const docRef = await addDoc(collection(db, "signals"), {
+      ...signal,
+      serverTime: serverTimestamp(),
+    });
+    console.log("Document written with ID: ", docRef.id);
+    return { success: true, id: docRef.id };
+  } catch (e) {
+    console.error("Error adding document: ", e);
+    return { success: false, error: (e as Error).message };
   }
 }
