@@ -65,7 +65,8 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
     let avgLoss = 0;
 
     // Initial calculation
-    changes.slice(0, period).forEach(change => {
+    const initialChanges = changes.slice(0, period);
+    initialChanges.forEach(change => {
         if (change > 0) avgGain += change;
         else avgLoss -= change;
     });
@@ -73,7 +74,10 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
     avgGain /= period;
     avgLoss /= period;
     
-    rsiArray[period] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+    const firstRsiIndex = period;
+    if (firstRsiIndex < data.length) {
+        rsiArray[firstRsiIndex] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+    }
 
     // Subsequent calculations
     for (let i = period; i < changes.length; i++) {
@@ -165,7 +169,7 @@ export function SignalDashboard() {
           return prevSignals;
         }
 
-        const lastSignalInState = prevSignals.find(s => s.time === formattedData[formattedData.length - 2].time);
+        const lastSignalInState = prevSignals.length > 0 ? prevSignals[prevSignals.length - 1] : null;
 
         const isUptrend = lastClose > lastTrendEMA;
         const isDowntrend = lastClose < lastTrendEMA;
@@ -238,11 +242,13 @@ export function SignalDashboard() {
   // Initial data load
   useEffect(() => {
     const loadInitialData = async () => {
+        setIsLoading(true);
         const [history] = await Promise.all([
             getSignalHistoryFromFirestore(),
             fetchDataAndGenerateSignal()
         ]);
         setSignals(history);
+        setIsLoading(false);
     }
     loadInitialData();
   }, [fetchDataAndGenerateSignal]);
@@ -256,15 +262,15 @@ export function SignalDashboard() {
 
   // Show signal toast and save to firestore
   useEffect(() => {
-    if (signals.length === 0) return;
+    if (signals.length === 0 || isLoading) return;
   
     const latestSignal = displayedSignals[0];
     if (!latestSignal) return;
+    
+    // Check if it's a "new" signal vs one loaded from history by checking its timestamp against previous ones
+    const isNew = !signals.slice(0, -1).some(s => s.time === latestSignal.time);
 
-    // A bit of a hack to check if it's a "new" signal vs one loaded from history
-    const isNew = signals.length > 0 && !signals.slice(0, -1).some(s => s.time === latestSignal.time);
-
-    if (isNew && !isLoading) {
+    if (isNew) {
         const toastTitles = {
         High: `🚀 High ${latestSignal.type} Signal!`,
         Medium: `🔥 Medium ${latestSignal.type} Signal!`,
@@ -285,14 +291,15 @@ export function SignalDashboard() {
 
   // Initial loading toast
   useEffect(() => {
-    if (isLoading && chartData.length < requiredDataLength && !initialLoadToastId.current) {
+    if (isLoading && !initialLoadToastId.current) {
       const { id } = toast({
+        id: `loading-toast`,
         title: "Initializing data...",
         description: "Collecting historical data and generating signals.",
       });
       initialLoadToastId.current = id;
     }
-  }, [isLoading, chartData.length, requiredDataLength, toast]);
+  }, [isLoading, toast]);
 
   return (
     <div className="grid gap-8">
