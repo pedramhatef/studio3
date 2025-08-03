@@ -28,6 +28,11 @@ const RSI_PERIOD = 14;
 // --- Trend Filter ---
 const EMA_TREND_PERIOD = 50;
 
+// --- Volume Confirmation ---
+const VOLUME_AVG_PERIOD = 20;
+const VOLUME_SPIKE_FACTOR = 1.8;
+
+
 // Helper to calculate Exponential Moving Average (EMA)
 const calculateEMA = (data: number[], period: number): number[] => {
   const k = 2 / (period + 1);
@@ -122,7 +127,7 @@ export function SignalDashboard() {
 
       setChartData(formattedData);
       
-      const requiredDataLength = Math.max(WT_CHANNEL_LENGTH + WT_AVERAGE_LENGTH, MACD_SLOW_PERIOD, RSI_PERIOD + 1, EMA_TREND_PERIOD);
+      const requiredDataLength = Math.max(WT_CHANNEL_LENGTH + WT_AVERAGE_LENGTH, MACD_SLOW_PERIOD, RSI_PERIOD + 1, EMA_TREND_PERIOD, VOLUME_AVG_PERIOD);
 
       if (formattedData.length < requiredDataLength) {
         return; // Not enough data yet to generate signals
@@ -130,6 +135,8 @@ export function SignalDashboard() {
       
       // --- Indicator Calculations ---
       const closePrices = formattedData.map(p => p.close);
+      const volumes = formattedData.map(p => p.volume);
+
       const trendEMA = calculateEMA(closePrices, EMA_TREND_PERIOD);
       const ap = formattedData.map(p => (p.high + p.low + p.close) / 3);
       const esa = calculateEMA(ap, WT_CHANNEL_LENGTH);
@@ -142,8 +149,12 @@ export function SignalDashboard() {
       const macdLine = fastEMA.map((val, i) => val - slowEMA[i]);
       const signalLine = calculateEMA(macdLine, MACD_SIGNAL_PERIOD);
       const rsi = calculateRSI(closePrices, RSI_PERIOD);
+      const volumeSMA = calculateSMA(volumes, VOLUME_AVG_PERIOD);
+
 
       setSignals(prevSignals => {
+        const lastVolume = volumes[volumes.length - 1];
+        const lastVolumeSMA = volumeSMA[volumeSMA.length - 1];
         const lastTrendEMA = trendEMA[trendEMA.length - 1];
         const lastTci = tci[tci.length - 1];
         const prevTci = tci[tci.length - 2];
@@ -154,7 +165,7 @@ export function SignalDashboard() {
         const lastRsi = rsi[rsi.length - 1];
         const lastClose = closePrices[closePrices.length - 1];
 
-        if (lastTrendEMA === null || lastTci === null || prevTci === null || lastWt2 === null || prevWt2 === null || lastMacd === null || lastMacdSignal === null || lastRsi === null) {
+        if (lastVolumeSMA === null || lastTrendEMA === null || lastTci === null || prevTci === null || lastWt2 === null || prevWt2 === null || lastMacd === null || lastMacdSignal === null || lastRsi === null) {
           return prevSignals;
         }
 
@@ -168,6 +179,7 @@ export function SignalDashboard() {
         const isRSIConfirmBuy = lastRsi > 50;
         const isMACDConfirmSell = lastMacd < lastMacdSignal;
         const isRSIConfirmSell = lastRsi < 50;
+        const isVolumeSpike = lastVolume > lastVolumeSMA * VOLUME_SPIKE_FACTOR;
         
         let newSignal: Omit<Signal, 'price' | 'time' | 'displayTime'> | null = null;
         
@@ -176,10 +188,11 @@ export function SignalDashboard() {
             let confirmations = 0;
             if (isMACDConfirmBuy) confirmations++;
             if (isRSIConfirmBuy) confirmations++;
-
-            if (confirmations === 2) {
+            
+            // High confidence BUY now requires a volume spike
+            if (confirmations === 2 && isVolumeSpike) {
                 newSignal = { type: 'BUY', level: 'High' };
-            } else if (confirmations === 1) {
+            } else if (confirmations >= 1) { // Medium for 1 or 2 confirmations without volume spike
                 newSignal = { type: 'BUY', level: 'Medium' };
             } else {
                 newSignal = { type: 'BUY', level: 'Low' };
@@ -190,10 +203,11 @@ export function SignalDashboard() {
             let confirmations = 0;
             if (isMACDConfirmSell) confirmations++;
             if (isRSIConfirmSell) confirmations++;
-
-            if (confirmations === 2) {
+            
+            // High confidence SELL also requires a volume spike
+            if (confirmations === 2 && isVolumeSpike) {
                 newSignal = { type: 'SELL', level: 'High' };
-            } else if (confirmations === 1) {
+            } else if (confirmations >= 1) {
                 newSignal = { type: 'SELL', level: 'Medium' };
             } else {
                 newSignal = { type: 'SELL', level: 'Low' };
