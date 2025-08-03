@@ -199,8 +199,6 @@ export function SignalDashboard() {
           };
           
           if (prevSignals[0]?.time !== fullSignal.time) {
-            const { displayTime, ...signalToSave } = fullSignal;
-            saveSignalToFirestore(signalToSave);
             return [fullSignal, ...prevSignals].slice(0, MAX_SIGNALS);
           }
         }
@@ -238,7 +236,7 @@ export function SignalDashboard() {
     return () => clearInterval(intervalId);
   }, [fetchDataAndGenerateSignal]);
 
-  // Show signal toast
+  // Show signal toast and save to firestore
   useEffect(() => {
     if (!signals.length || signals[0]?.time === (signals[1]?.time || 0) ) return;
     
@@ -255,6 +253,10 @@ export function SignalDashboard() {
       title: toastTitles[newSignal.level],
       description: `Generated at $${newSignal.price.toFixed(5)}`,
     });
+
+    const { displayTime, ...signalToSave } = newSignal;
+    saveSignalToFirestore(signalToSave);
+
   }, [signals, toast]);
 
   // Initial loading toast
