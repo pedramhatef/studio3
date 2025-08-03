@@ -9,6 +9,9 @@ import { BarChart2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
+import { db } from '@/lib/firebase';
+import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
+
 
 // Constants
 const DATA_REFRESH_INTERVAL = 5000; // 5 seconds
@@ -134,12 +137,16 @@ export function SignalDashboard() {
     })).sort((a,b) => b.time - a.time);
   }, [signals]);
 
-  const fetchDataAndGenerateSignal = useCallback(async () => {
+  const fetchDataAndGenerateSignal = useCallback(async (isInitialLoad = false) => {
     try {
       const formattedData = await getChartData();
       if (!formattedData?.length) return;
       
       setChartData(formattedData);
+      if (isInitialLoad) {
+        setIsLoading(false);
+      }
+      
       if (formattedData.length < requiredDataLength) return;
       
       // Extract price and volume data
@@ -216,13 +223,9 @@ export function SignalDashboard() {
             time: lastDataPoint.time,
         };
         
-        setSignals(prevSignals => {
-            if (!prevSignals.some(s => s.time === fullSignal.time)) {
-                lastSignalRef.current = fullSignal;
-                return [...prevSignals, fullSignal];
-            }
-            return prevSignals;
-        });
+        lastSignalRef.current = fullSignal;
+        const { displayTime, ...signalToSave } = fullSignal;
+        await saveSignalToFirestore(signalToSave);
       }
 
     } catch (error) {
@@ -233,71 +236,81 @@ export function SignalDashboard() {
         description: "Could not fetch or process chart data.",
       });
     } finally {
-      if (isLoading) {
-          setIsLoading(false);
-          if (initialLoadToastId.current) {
-              toast({
-                  id: initialLoadToastId.current,
-                  variant: "default",
-                  title: "✅ Data Loaded",
-                  description: "Signals are now being generated.",
-              });
-              initialLoadToastId.current = null;
-          }
-      }
+        if (isLoading) {
+            setIsLoading(false);
+            if (initialLoadToastId.current) {
+                toast({
+                    id: initialLoadToastId.current,
+                    variant: "default",
+                    title: "✅ Data Loaded",
+                    description: "Live data feed and signal generation active.",
+                });
+                initialLoadToastId.current = null;
+            }
+        }
     }
   }, [toast, isLoading, requiredDataLength]);
-
-  // Initial data load
+  
+  // Initial data load and listener setup
   useEffect(() => {
-    const loadInitialData = async () => {
-        setIsLoading(true);
-        const history = await getSignalHistoryFromFirestore();
-        if (history.length > 0) {
-            lastSignalRef.current = history[history.length - 1];
+    setIsLoading(true);
+    fetchDataAndGenerateSignal(true);
+    
+    const q = query(collection(db, "signals"), orderBy("serverTime", "desc"), limit(50));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const fetchedSignals: Signal[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        fetchedSignals.push({
+            type: data.type,
+            level: data.level,
+            price: data.price,
+            time: data.time,
+          } as Signal);
+      });
+      
+      const reversedSignals = fetchedSignals.reverse();
+      setSignals(reversedSignals);
+
+      if (reversedSignals.length > 0) {
+        const latestSignal = reversedSignals[reversedSignals.length - 1];
+        if (lastSignalRef.current?.time !== latestSignal.time) {
+            lastSignalRef.current = latestSignal;
+
+            const toastTitles = {
+              High: `🚀 High ${latestSignal.type} Signal!`,
+              Medium: `🔥 Medium ${latestSignal.type} Signal!`,
+              Low: `🤔 Low ${latestSignal.type} Signal`
+            };
+
+            toast({
+              id: `signal-${latestSignal.time}`,
+              title: toastTitles[latestSignal.level],
+              description: `Generated at $${latestSignal.price.toFixed(5)}`,
+            });
         }
-        setSignals(history);
-        await fetchDataAndGenerateSignal();
-        setIsLoading(false);
-    }
-    loadInitialData();
-  }, [fetchDataAndGenerateSignal]);
+      }
+      if (isLoading) setIsLoading(false);
+    }, (error) => {
+      console.error("Firestore snapshot error: ", error);
+      toast({
+        variant: "destructive",
+        title: "Database Listener Error",
+        description: "Could not listen for real-time signal updates.",
+      });
+      setIsLoading(false);
+    });
+    
+    // Cleanup listener on component unmount
+    return () => unsubscribe();
+  }, [toast]); // Removed isLoading from deps to prevent re-subscribing
 
 
-  // Fetch data periodically
+  // Fetch chart data periodically
   useEffect(() => {
-    const intervalId = setInterval(fetchDataAndGenerateSignal, DATA_REFRESH_INTERVAL);
+    const intervalId = setInterval(() => fetchDataAndGenerateSignal(false), DATA_REFRESH_INTERVAL);
     return () => clearInterval(intervalId);
   }, [fetchDataAndGenerateSignal]);
-
-  // Show signal toast and save to firestore
-  useEffect(() => {
-    if (signals.length === 0 || isLoading) return;
-  
-    const latestSignal = displayedSignals[0];
-    if (!latestSignal) return;
-    
-    // Check if it's a "new" signal vs one loaded from history by comparing its timestamp
-    const isNew = !signals.slice(0, -1).some(s => s.time === latestSignal.time);
-
-    if (isNew) {
-        const toastTitles = {
-        High: `🚀 High ${latestSignal.type} Signal!`,
-        Medium: `🔥 Medium ${latestSignal.type} Signal!`,
-        Low: `🤔 Low ${latestSignal.type} Signal`
-        };
-
-        toast({
-        id: `signal-${latestSignal.time}`,
-        title: toastTitles[latestSignal.level],
-        description: `Generated at $${latestSignal.price.toFixed(5)}`,
-        });
-
-        const { displayTime, ...signalToSave } = latestSignal;
-        saveSignalToFirestore(signalToSave);
-    }
-
-  }, [signals, displayedSignals, toast, isLoading]);
 
   // Initial loading toast
   useEffect(() => {
@@ -305,7 +318,7 @@ export function SignalDashboard() {
       const { id } = toast({
         id: `loading-toast`,
         title: "Initializing data...",
-        description: "Collecting historical data and generating signals.",
+        description: "Connecting to data feed and signal history.",
       });
       initialLoadToastId.current = id;
     }

@@ -13,4 +13,5 @@ export interface Signal {
   price: number;
   time: number;
   displayTime?: string;
+  serverTime?: any;
 }
