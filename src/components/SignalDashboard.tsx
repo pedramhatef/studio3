@@ -76,15 +76,15 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
     rsiArray[period] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
 
     // Subsequent calculations
-    for (let i = period; i < data.length; i++) {
-        const change = changes[i - 1]; // Use changes[i-1] for RSI calculation at index i
+    for (let i = period; i < changes.length; i++) {
+        const change = changes[i];
         const gain = change > 0 ? change : 0;
         const loss = change < 0 ? -change : 0;
 
         avgGain = (avgGain * (period - 1) + gain) / period;
         avgLoss = (avgLoss * (period - 1) + loss) / period;
         
-        const rsiIndex = i + 1; // RSI values are shifted by 1
+        const rsiIndex = i + 1; 
         if (rsiIndex < data.length) {
             rsiArray[rsiIndex] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
         }
