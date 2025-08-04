@@ -169,13 +169,27 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
     if (rsi.length > 15) {
         const lookbackPeriod = 14;
         const recentLowPriceIndex = lowPrices.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x < arr[iMin] ? i : iMin, 0) + (lastIndex - lookbackPeriod);
-        const recentLowRsiIndex = rsi.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x! < arr[iMin]! ? i : iMin, 0) + (lastIndex - lookbackPeriod);
-        
-        if (lastClose < lowPrices[recentLowPriceIndex] && rsi[lastIndex]! > rsi[recentLowRsiIndex]!) {
-            isBullishDivergence = true;
+        if (rsi[recentLowPriceIndex] !== null) {
+            const recentLowRsiIndex = rsi.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x! < arr[iMin]! ? i : iMin, 0) + (lastIndex - lookbackPeriod);
+            if (lastClose < lowPrices[recentLowPriceIndex] && rsi[lastIndex]! > rsi[recentLowRsiIndex]!) {
+                isBullishDivergence = true;
+            }
         }
     }
     
+    // RSI Bearish Divergence check (price makes higher high, RSI makes lower high)
+    let isBearishDivergence = false;
+    if (rsi.length > 15) {
+        const lookbackPeriod = 14;
+        const recentHighPriceIndex = highPrices.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0) + (lastIndex - lookbackPeriod);
+        if (rsi[recentHighPriceIndex] !== null) {
+            const recentHighRsiIndex = rsi.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMax, x, i, arr) => x! > arr[iMax]! ? i : iMax, 0) + (lastIndex - lookbackPeriod);
+            if (lastClose > highPrices[recentHighPriceIndex] && rsi[lastIndex]! < rsi[recentHighRsiIndex]!) {
+                isBearishDivergence = true;
+            }
+        }
+    }
+
     let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
     
     // --- Signal Logic ---
@@ -186,8 +200,8 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
         else if (confirmations >= 2) newSignal = { type: 'BUY', level: 'Medium' };
         else newSignal = { type: 'BUY', level: 'Low' };
     } 
-    else if (isWTSellCross || (isDowntrend && isMACDConfirmSell)) {
-        const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0);
+    else if (isWTSellCross || (isDowntrend && isMACDConfirmSell) || (isBearishDivergence && isRSIOverbought)) {
+        const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0) + (isBearishDivergence ? 1 : 0);
         
         if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
         else if (confirmations >= 2) newSignal = { type: 'SELL', level: 'Medium' };
@@ -227,8 +241,8 @@ export async function GET(request: NextRequest) {
         const lastSignal = signalHistory.length > 0 ? signalHistory[signalHistory.length - 1] : null;
 
         if (lastSignal?.time !== newSignal.time) {
-             const { displayTime, ...signalToSave } = newSignal;
-             await saveSignalToFirestore(signalToSave);
+             // We don't want to destructure displayTime here anymore.
+             await saveSignalToFirestore(newSignal);
              return NextResponse.json({ message: `Saved ${newSignal.type} signal.`, signal: newSignal });
         } else {
             return NextResponse.json({ message: 'Signal is a duplicate (same timestamp), not saved.', signal: newSignal });
