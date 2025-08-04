@@ -20,7 +20,6 @@ export function SignalDashboard() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
-  const initialLoadToastId = useRef<string | null>(null);
   const lastSignalRef = useRef<Signal | null>(null);
 
   const displayedSignals = useMemo(() => {
@@ -30,14 +29,11 @@ export function SignalDashboard() {
     })).sort((a,b) => b.time - a.time);
   }, [signals]);
 
-  const fetchChartData = useCallback(async (isInitialLoad = false) => {
+  const fetchChartData = useCallback(async () => {
     try {
       const formattedData = await getChartData();
       if (formattedData?.length) {
         setChartData(formattedData);
-      }
-      if (isInitialLoad) {
-        setIsLoading(false);
       }
     } catch (error) {
       console.error("Chart data fetching error:", error);
@@ -52,7 +48,16 @@ export function SignalDashboard() {
   // Initial data load and listener setup
   useEffect(() => {
     setIsLoading(true);
-    fetchChartData(true);
+    const { id: loadingToastId } = toast({
+      title: "Initializing data...",
+      description: "Connecting to data feed and signal history.",
+    });
+
+    const initialFetch = async () => {
+        await fetchChartData();
+    };
+
+    initialFetch();
     
     const q = query(collection(db, "signals"), orderBy("serverTime", "desc"), limit(50));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -88,7 +93,17 @@ export function SignalDashboard() {
             });
         }
       }
-      if (isLoading) setIsLoading(false);
+      
+      if (isLoading) {
+        setIsLoading(false);
+        toast({
+            id: loadingToastId,
+            variant: "default",
+            title: "✅ Data Loaded",
+            description: "Live data feed and signal generation active.",
+        });
+      }
+
     }, (error) => {
       console.error("Firestore snapshot error: ", error);
       toast({
@@ -101,34 +116,15 @@ export function SignalDashboard() {
     
     // Cleanup listener on component unmount
     return () => unsubscribe();
-  }, [toast, isLoading, fetchChartData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast, fetchChartData]);
 
 
   // Fetch chart data periodically
   useEffect(() => {
-    const intervalId = setInterval(() => fetchChartData(false), 5000); // refresh chart data every 5 seconds
+    const intervalId = setInterval(() => fetchChartData(), 5000); // refresh chart data every 5 seconds
     return () => clearInterval(intervalId);
   }, [fetchChartData]);
-
-  // Initial loading toast
-  useEffect(() => {
-    if (isLoading && !initialLoadToastId.current) {
-      const { id } = toast({
-        id: `loading-toast`,
-        title: "Initializing data...",
-        description: "Connecting to data feed and signal history.",
-      });
-      initialLoadToastId.current = id;
-    } else if (!isLoading && initialLoadToastId.current) {
-        toast({
-            id: initialLoadToastId.current,
-            variant: "default",
-            title: "✅ Data Loaded",
-            description: "Live data feed and signal generation active.",
-        });
-        initialLoadToastId.current = null;
-    }
-  }, [isLoading, toast]);
 
   return (
     <div className="grid gap-8">
