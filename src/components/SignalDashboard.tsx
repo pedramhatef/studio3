@@ -47,81 +47,79 @@ export function SignalDashboard() {
 
   // Initial data load and listener setup
   useEffect(() => {
+    let unsubscribe: () => void;
+    
     const initialFetch = async () => {
-        setIsLoading(true);
-        const { id: loadingToastId } = toast({
-          title: "Initializing data...",
-          description: "Connecting to data feed and signal history.",
-        });
+      setIsLoading(true);
+      
+      await fetchChartData();
 
-        await fetchChartData();
-
-        const q = query(collection(db, "signals"), orderBy("serverTime", "desc"), limit(50));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-          const fetchedSignals: Signal[] = [];
-          querySnapshot.forEach((doc) => {
-            const data = doc.data();
-            fetchedSignals.push({
-                type: data.type,
-                level: data.level,
-                price: data.price,
-                time: data.time,
-            } as Signal);
-          });
-          
-          const reversedSignals = fetchedSignals.reverse();
-          setSignals(reversedSignals);
-
-          if (reversedSignals.length > 0) {
-            const latestSignal = reversedSignals[reversedSignals.length - 1];
-            // Only show toast and refetch data for NEW signals
-            if (lastSignalRef.current?.time !== latestSignal.time) {
-                lastSignalRef.current = latestSignal;
-
-                // Refresh chart data to align with the new signal
-                fetchChartData();
-
-                const toastTitles = {
-                  High: `🚀 High ${latestSignal.type} Signal!`,
-                  Medium: `🔥 Medium ${latestSignal.type} Signal!`,
-                  Low: `🤔 Low ${latestSignal.type} Signal`
-                };
-
-                toast({
-                  id: `signal-${latestSignal.time}`,
-                  title: toastTitles[latestSignal.level],
-                  description: `Generated at $${latestSignal.price.toFixed(5)}`,
-                });
-            }
-          }
-          
-          if (isLoading) {
-            setIsLoading(false);
-            toast({
-                id: loadingToastId,
-                variant: "default",
-                title: "✅ Data Loaded",
-                description: "Live data feed and signal generation active.",
-            });
-          }
-
-        }, (error) => {
-          console.error("Firestore snapshot error: ", error);
-          toast({
-            variant: "destructive",
-            title: "Database Listener Error",
-            description: "Could not listen for real-time signal updates.",
-          });
-          setIsLoading(false);
+      // Optimize: Only fetch the number of signals we are going to display initially.
+      const q = query(collection(db, "signals"), orderBy("serverTime", "desc"), limit(MAX_SIGNALS));
+      
+      unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const fetchedSignals: Signal[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          fetchedSignals.push({
+              type: data.type,
+              level: data.level,
+              price: data.price,
+              time: data.time,
+          } as Signal);
         });
         
-        // Cleanup listener on component unmount
-        return () => unsubscribe();
+        // The query is desc, so we need to reverse to get chronological order for the state
+        const chronologicalSignals = fetchedSignals.reverse();
+        setSignals(chronologicalSignals);
+
+        if (isLoading) {
+          setIsLoading(false);
+        }
+
+        if (chronologicalSignals.length > 0) {
+          const latestSignal = chronologicalSignals[chronologicalSignals.length - 1];
+          // Only show toast and refetch data for NEW signals
+          if (lastSignalRef.current?.time !== latestSignal.time) {
+              lastSignalRef.current = latestSignal;
+
+              // Refresh chart data to align with the new signal
+              fetchChartData();
+
+              const toastTitles = {
+                High: `🚀 High ${latestSignal.type} Signal!`,
+                Medium: `🔥 Medium ${latestSignal.type} Signal!`,
+                Low: `🤔 Low ${latestSignal.type} Signal`
+              };
+
+              toast({
+                id: `signal-${latestSignal.time}`,
+                title: toastTitles[latestSignal.level],
+                description: `Generated at $${latestSignal.price.toFixed(5)}`,
+              });
+          }
+        }
+      }, (error) => {
+        console.error("Firestore snapshot error: ", error);
+        toast({
+          variant: "destructive",
+          title: "Database Listener Error",
+          description: "Could not listen for real-time signal updates.",
+        });
+        setIsLoading(false);
+      });
     };
     
     initialFetch();
+    
+    // Cleanup listener on component unmount
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, [fetchChartData]); // fetchChartData is memoized with useCallback
 
   return (
     <div className="grid gap-8">

@@ -77,7 +77,8 @@ export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>)
 export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
     try {
       const signalsCol = collection(db, "signals");
-      const q = query(signalsCol, orderBy("serverTime", "desc"), limit(50));
+      // Fetch only the single most recent document
+      const q = query(signalsCol, orderBy("serverTime", "desc"), limit(1));
       const querySnapshot = await getDocs(q);
       const signals = querySnapshot.docs.map(doc => {
         const data = doc.data();
@@ -88,7 +89,7 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
           time: data.time,
         } as Signal;
       });
-      return signals.reverse(); // reverse to show oldest first on the chart
+      return signals; // No need to reverse, it's just one or zero items
     } catch (error) {
       console.error("Error fetching signal history:", error);
       return [];
