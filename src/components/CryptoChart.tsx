@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -32,7 +33,7 @@ const chartConfig = {
   },
   sell: {
     label: 'Sell Signal',
-    color: 'hsl(var(--chart-1))',
+    color: '#ef4444', // Changed to a consistent red color
   },
 };
 
