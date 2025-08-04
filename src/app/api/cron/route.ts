@@ -206,16 +206,21 @@ export async function GET(request: NextRequest) {
         const signalHistory = await getSignalHistoryFromFirestore();
         const lastSignal = signalHistory.length > 0 ? signalHistory[signalHistory.length - 1] : null;
 
-        if (lastSignal?.time !== newSignal.time && lastSignal?.type !== newSignal.type) {
+        // Check only for duplicate time to prevent saving the same signal multiple times.
+        if (lastSignal?.time !== newSignal.time) {
              const { displayTime, ...signalToSave } = newSignal;
              await saveSignalToFirestore(signalToSave);
              return NextResponse.json({ message: `Saved ${newSignal.type} signal.`, signal: newSignal });
         } else {
-            return NextResponse.json({ message: 'Signal is a duplicate or same type as previous, not saved.', signal: newSignal });
+            return NextResponse.json({ message: 'Signal is a duplicate (same timestamp), not saved.', signal: newSignal });
         }
     }
 
     return NextResponse.json({ message: 'No new signal generated.' });
   } catch (error) {
     console.error('Cron job error:', error);
-    return new NextResponse('Internal
+    return new NextResponse('Internal Server Error', { status: 500, statusText: (error as Error).message });
+  }
+}
+
+    
