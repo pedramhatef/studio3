@@ -17,6 +17,8 @@ const INDICATOR_PARAMS = {
     EMA_TREND_PERIOD: 50,
     VOLUME_AVG_PERIOD: 20,
     VOLUME_SPIKE_FACTOR: 1.8,
+    RSI_OB: 70, // RSI Overbought threshold
+    RSI_OS: 30, // RSI Oversold threshold
 };
 
 // --- Helper Functions ---
@@ -110,6 +112,8 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
     if (chartData.length < requiredDataLength) return null;
 
     const closePrices = chartData.map(p => p.close);
+    const lowPrices = chartData.map(p => p.low);
+    const highPrices = chartData.map(p => p.high);
     const volumes = chartData.map(p => p.volume);
 
     // --- Indicator Calculations ---
@@ -129,6 +133,8 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
 
     const lastIndex = chartData.length - 1;
 
+    if (!wt2 || !rsi || !volumeSMA || !tci) return null;
+    
     const lastVolume = volumes[lastIndex];
     const lastVolumeSMA = volumeSMA[lastIndex];
     const lastTrendEMA = trendEMA[lastIndex];
@@ -145,32 +151,46 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
       return null;
     }
 
+    // --- Condition Checks ---
     const isUptrend = lastClose > lastTrendEMA;
     const isDowntrend = lastClose < lastTrendEMA;
-    const isWTBuy = prevTci < prevWt2 && lastTci > lastWt2;
-    const isWTSell = prevTci > prevWt2 && lastTci < lastWt2;
+    const isWTBuyCross = prevTci < prevWt2 && lastTci > lastWt2;
+    const isWTSellCross = prevTci > prevWt2 && lastTci < lastWt2;
     const isMACDConfirmBuy = lastMacd > lastMacdSignal;
     const isRSIConfirmBuy = lastRsi > 50;
     const isMACDConfirmSell = lastMacd < lastMacdSignal;
     const isRSIConfirmSell = lastRsi < 50;
     const isVolumeSpike = lastVolume > lastVolumeSMA * INDICATOR_PARAMS.VOLUME_SPIKE_FACTOR;
+    const isRSIOversold = lastRsi < INDICATOR_PARAMS.RSI_OS;
+    const isRSIOverbought = lastRsi > INDICATOR_PARAMS.RSI_OB;
+
+    // RSI Bullish Divergence check (price makes lower low, RSI makes higher low)
+    let isBullishDivergence = false;
+    if (rsi.length > 15) {
+        const lookbackPeriod = 14;
+        const recentLowPriceIndex = lowPrices.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x < arr[iMin] ? i : iMin, 0) + (lastIndex - lookbackPeriod);
+        const recentLowRsiIndex = rsi.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x! < arr[iMin]! ? i : iMin, 0) + (lastIndex - lookbackPeriod);
+        
+        if (lastClose < lowPrices[recentLowPriceIndex] && rsi[lastIndex]! > rsi[recentLowRsiIndex]!) {
+            isBullishDivergence = true;
+        }
+    }
     
     let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
     
-    // BUY Signal Logic
-    if (isUptrend && isWTBuy) {
-        const confirmations = (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0);
+    // --- Signal Logic ---
+    if (isWTBuyCross || (isUptrend && isMACDConfirmBuy) || (isBullishDivergence && isRSIOversold)) {
+        const confirmations = (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0) + (isUptrend ? 1 : 0) + (isBullishDivergence ? 1 : 0);
         
-        if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
-        else if (confirmations >= 1) newSignal = { type: 'BUY', level: 'Medium' };
+        if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
+        else if (confirmations >= 2) newSignal = { type: 'BUY', level: 'Medium' };
         else newSignal = { type: 'BUY', level: 'Low' };
     } 
-    // SELL Signal Logic
-    else if (isDowntrend && isWTSell) {
-        const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0);
+    else if (isWTSellCross || (isDowntrend && isMACDConfirmSell)) {
+        const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0);
         
-        if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
-        else if (confirmations >= 1) newSignal = { type: 'SELL', level: 'Medium' };
+        if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
+        else if (confirmations >= 2) newSignal = { type: 'SELL', level: 'Medium' };
         else newSignal = { type: 'SELL', level: 'Low' };
     }
     
@@ -188,7 +208,7 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (process.env.NODE_ENV === 'production' && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new NextResponse('Unauthorized', {
       status: 401,
     });
@@ -206,7 +226,6 @@ export async function GET(request: NextRequest) {
         const signalHistory = await getSignalHistoryFromFirestore();
         const lastSignal = signalHistory.length > 0 ? signalHistory[signalHistory.length - 1] : null;
 
-        // Check only for duplicate time to prevent saving the same signal multiple times.
         if (lastSignal?.time !== newSignal.time) {
              const { displayTime, ...signalToSave } = newSignal;
              await saveSignalToFirestore(signalToSave);
