@@ -199,7 +199,7 @@ export function SignalDashboard() {
       let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
       
       // BUY Signal Logic
-      if (isUptrend && isWTBuy && lastSignalRef.current?.type !== 'BUY') {
+      if (isUptrend && isWTBuy) {
           const confirmations = (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0);
           
           if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
@@ -207,16 +207,16 @@ export function SignalDashboard() {
           else newSignal = { type: 'BUY', level: 'Low' };
       } 
       // SELL Signal Logic
-      else if (isDowntrend && isWTSell && lastSignalRef.current?.type !== 'SELL') {
+      else if (isDowntrend && isWTSell) {
           const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0);
           
           if (confirmations === 2 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
           else if (confirmations >= 1) newSignal = { type: 'SELL', level: 'Medium' };
           else newSignal = { type: 'SELL', level: 'Low' };
       }
-
-      if (newSignal) {
-        const lastDataPoint = formattedData[lastIndex];
+      
+      const lastDataPoint = formattedData[lastIndex];
+      if (newSignal && lastSignalRef.current?.time !== lastDataPoint.time) {
         const fullSignal: Signal = {
             ...newSignal,
             price: lastDataPoint.close,
