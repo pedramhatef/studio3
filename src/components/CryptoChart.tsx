@@ -64,19 +64,14 @@ const CustomTooltipContent = ({ active, payload, label }: any) => {
 
 export function CryptoChart({ data, signals }: CryptoChartProps) {
 
-  const { yDomain, yPadding } = useMemo(() => {
-    if (!data.length) return { yDomain: ['auto', 'auto'], yPadding: 0 };
+  const yDomain = useMemo(() => {
+    if (!data.length) return ['auto', 'auto'];
 
     const prices = data.map(d => d.close);
     const min = Math.min(...prices);
     const max = Math.max(...prices);
     const padding = (max - min) * 0.1;
-    const domain = [min - padding, max + padding];
-    
-    return { 
-        yDomain: domain, 
-        yPadding: (max - min) * 0.05 
-    };
+    return [min - padding, max + padding];
   }, [data]);
 
   const getSignalColor = (level: Signal['level'], type: 'BUY' | 'SELL') => {
@@ -136,8 +131,6 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
           fill="url(#colorClose)"
         />
         {signals.map((signal, index) => {
-           const isBuy = signal.type === 'BUY';
-           const yPosition = isBuy ? signal.price - yPadding : signal.price + yPadding;
            const signalColor = getSignalColor(signal.level, signal.type);
            const fillOpacity = signal.level === 'High' ? 1 : 0.3;
 
@@ -145,7 +138,7 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
             <ReferenceDot
               key={`signal-${index}`}
               x={signal.time}
-              y={yPosition}
+              y={signal.price}
               r={8}
               fill={signalColor}
               fillOpacity={fillOpacity}
