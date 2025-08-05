@@ -132,8 +132,33 @@ export function SignalDashboard() {
                 DOGE/USDT Real-Time Signals
               </CardTitle>
               <CardDescription>
-                Algorithmic signals using enhanced WaveTrend strategy with volume confirmation
+                Algorithmic signals using enhanced WaveTrend strategy with volume confirmation.
               </CardDescription>
+            </div>
+            <div className="text-xs text-muted-foreground border rounded-lg p-2 flex flex-col gap-2">
+                <div className='font-bold'>Chart Legend:</div>
+                <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-full bg-green-500" />
+                        <span>Buy Signal</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-full bg-red-500" />
+                        <span>Sell Signal</span>
+                    </div>
+                     <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-full bg-yellow-400" />
+                        <span>Low Confidence</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-full bg-green-500" />
+                        <span>High (Solid)</span>
+                    </div>
+                     <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-full ring-2 ring-offset-2 ring-offset-background ring-green-500" />
+                        <span>Medium (Ring)</span>
+                    </div>
+                </div>
             </div>
           </div>
         </CardHeader>
