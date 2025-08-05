@@ -5,34 +5,39 @@ import type { ChartDataPoint, Signal } from '@/lib/types';
 
 export const revalidate = 0;
 
-// Indicator Parameters
+// -- Indicator Parameters --
 const INDICATOR_PARAMS = {
-    WT_CHANNEL_LENGTH: 10,
-    WT_AVERAGE_LENGTH: 21,
-    WT_SIGNAL_LENGTH: 4,
-    MACD_FAST_PERIOD: 12,
-    MACD_SLOW_PERIOD: 26,
-    MACD_SIGNAL_PERIOD: 9,
     RSI_PERIOD: 14,
-    EMA_TREND_PERIOD: 50,
+    RSI_OVERBOUGHT: 70,
+    RSI_OVERSOLD: 30,
+    RSI_PULLBACK_BUY: 40,
+    RSI_PULLBACK_SELL: 60,
+    EMA_SLOW_PERIOD: 50,
+    EMA_FAST_PERIOD: 21,
+    ATR_PERIOD: 14,
+    ATR_STOP_MULTIPLIER: 1.5,
+    ATR_PROFIT_MULTIPLIER: 2.5,
     VOLUME_AVG_PERIOD: 20,
-    VOLUME_SPIKE_FACTOR: 1.8,
-    RSI_OB: 70, // RSI Overbought threshold
-    RSI_OS: 30, // RSI Oversold threshold
+    VOLUME_SPIKE_FACTOR: 1.5,
 };
 
 // --- Helper Functions ---
 const calculateEMA = (data: number[], period: number): number[] => {
-    if (data.length === 0) return [];
+    if (data.length < period) return Array(data.length).fill(0);
   
     const k = 2 / (period + 1);
-    const emaArray: number[] = [data[0]];
+    const emaArray: number[] = new Array(period - 1).fill(0);
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+        sum += data[i];
+    }
+    emaArray.push(sum / period);
   
-    for (let i = 1; i < data.length; i++) {
+    for (let i = period; i < data.length; i++) {
       emaArray[i] = data[i] * k + emaArray[i - 1] * (1 - k);
     }
     return emaArray;
-  };
+};
   
 const calculateSMA = (data: number[], period: number): (number | null)[] => {
     const smaArray: (number | null)[] = Array(data.length).fill(null);
@@ -46,177 +51,171 @@ const calculateSMA = (data: number[], period: number): (number | null)[] => {
       smaArray[i] = sum / period;
     }
     return smaArray;
-  };
-  
+};
+
+// Wilder's Smoothing for a more standard RSI calculation
 const calculateRSI = (data: number[], period: number): (number | null)[] => {
-      if (data.length < period + 1) return Array(data.length).fill(null);
-      
-      const rsiArray: (number | null)[] = new Array(data.length).fill(null);
-      const changes = data.slice(1).map((val, i) => val - data[i]);
-  
-      let avgGain = 0;
-      let avgLoss = 0;
-  
-      // Initial calculation
-      const initialChanges = changes.slice(0, period);
-      initialChanges.forEach(change => {
-          if (change > 0) avgGain += change;
-          else avgLoss -= change;
-      });
-  
-      avgGain /= period;
-      avgLoss /= period;
-      
-      const firstRsiIndex = period;
-      if (firstRsiIndex < data.length) {
-          if (avgLoss === 0) {
-              rsiArray[firstRsiIndex] = 100;
-          } else {
-              const rs = avgGain / avgLoss;
-              rsiArray[firstRsiIndex] = 100 - (100 / (1 + rs));
-          }
-      }
-  
-      // Subsequent calculations
-      for (let i = period; i < changes.length; i++) {
-          const change = changes[i];
-          const gain = change > 0 ? change : 0;
-          const loss = change < 0 ? -change : 0;
-  
-          avgGain = (avgGain * (period - 1) + gain) / period;
-          avgLoss = (avgLoss * (period - 1) + loss) / period;
-          
-          const rsiIndex = i + 1; 
-          if (rsiIndex < data.length) {
-              if (avgLoss === 0) {
-                  rsiArray[rsiIndex] = 100;
-              } else {
-                  const rs = avgGain / avgLoss;
-                  rsiArray[rsiIndex] = 100 - (100 / (1 + rs));
-              }
-          }
-      }
+    if (data.length < period + 1) return Array(data.length).fill(null);
     
-      return rsiArray;
-  };
+    const rsiArray: (number | null)[] = new Array(data.length).fill(null);
+    const changes = data.slice(1).map((val, i) => val - data[i]);
+
+    let avgGain = 0;
+    let avgLoss = 0;
+
+    // Initial calculation
+    const initialChanges = changes.slice(0, period);
+    initialChanges.forEach(change => {
+        if (change > 0) avgGain += change;
+        else avgLoss -= change;
+    });
+
+    avgGain /= period;
+    avgLoss /= period;
+    
+    const firstRsiIndex = period;
+    if (firstRsiindex < data.length) {
+        if (avgLoss === 0) {
+            rsiArray[firstRsiIndex] = 100;
+        } else {
+            const rs = avgGain / avgLoss;
+            rsiArray[firstRsiIndex] = 100 - (100 / (1 + rs));
+        }
+    }
+
+    // Subsequent calculations using Wilder's smoothing
+    for (let i = period; i < changes.length; i++) {
+        const change = changes[i];
+        const gain = change > 0 ? change : 0;
+        const loss = change < 0 ? -change : 0;
+
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+        
+        const rsiIndex = i + 1; 
+        if (rsiIndex < data.length) {
+            if (avgLoss === 0) {
+                rsiArray[rsiIndex] = 100;
+            } else {
+                const rs = avgGain / avgLoss;
+                rsiArray[rsiIndex] = 100 - (100 / (1 + rs));
+            }
+        }
+    }
+  
+    return rsiArray;
+};
+
+// ATR calculation for dynamic stop-loss and take-profit
+const calculateATR = (chartData: ChartDataPoint[], period: number): (number | null)[] => {
+    if (chartData.length < period) return Array(chartData.length).fill(null);
+
+    const atrArray: (number | null)[] = Array(chartData.length).fill(null);
+    const trs: number[] = [];
+
+    for (let i = 1; i < chartData.length; i++) {
+        const high = chartData[i].high;
+        const low = chartData[i].low;
+        const prevClose = chartData[i - 1].close;
+        const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+        trs.push(tr);
+    }
+    
+    if (trs.length < period) return atrArray;
+
+    // Wilder's Smoothing for ATR
+    let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    atrArray[period] = atr;
+
+    for (let i = period; i < trs.length; i++) {
+      atr = (atr * (period - 1) + trs[i]) / period;
+      atrArray[i + 1] = atr;
+    }
+
+    return atrArray;
+}
+
 
 async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null> {
     const requiredDataLength = Math.max(
-        INDICATOR_PARAMS.WT_CHANNEL_LENGTH + INDICATOR_PARAMS.WT_AVERAGE_LENGTH,
-        INDICATOR_PARAMS.MACD_SLOW_PERIOD,
+        INDICATOR_PARAMS.EMA_SLOW_PERIOD,
         INDICATOR_PARAMS.RSI_PERIOD + 1,
-        INDICATOR_PARAMS.EMA_TREND_PERIOD,
+        INDICATOR_PARAMS.ATR_PERIOD + 1,
         INDICATOR_PARAMS.VOLUME_AVG_PERIOD
     );
 
     if (chartData.length < requiredDataLength) return null;
 
     const closePrices = chartData.map(p => p.close);
-    const lowPrices = chartData.map(p => p.low);
-    const highPrices = chartData.map(p => p.high);
     const volumes = chartData.map(p => p.volume);
 
     // --- Indicator Calculations ---
-    const trendEMA = calculateEMA(closePrices, INDICATOR_PARAMS.EMA_TREND_PERIOD);
-    const ap = chartData.map(p => (p.high + p.low + p.close) / 3);
-    const esa = calculateEMA(ap, INDICATOR_PARAMS.WT_CHANNEL_LENGTH);
-    const d = calculateEMA(ap.map((val, i) => Math.abs(val - esa[i])), INDICATOR_PARAMS.WT_CHANNEL_LENGTH);
-    const ci = ap.map((val, i) => (d[i] === 0) ? 0 : (val - esa[i]) / (0.015 * d[i]));
-    const tci = calculateEMA(ci, INDICATOR_PARAMS.WT_AVERAGE_LENGTH);
-    const wt2 = calculateSMA(tci, INDICATOR_PARAMS.WT_SIGNAL_LENGTH);
-    const fastEMA = calculateEMA(closePrices, INDICATOR_PARAMS.MACD_FAST_PERIOD);
-    const slowEMA = calculateEMA(closePrices, INDICATOR_PARAMS.MACD_SLOW_PERIOD);
-    const macdLine = fastEMA.map((val, i) => val - slowEMA[i]);
-    const signalLine = calculateEMA(macdLine, INDICATOR_PARAMS.MACD_SIGNAL_PERIOD);
+    const emaSlow = calculateEMA(closePrices, INDICATOR_PARAMS.EMA_SLOW_PERIOD);
+    const emaFast = calculateEMA(closePrices, INDICATOR_PARAMS.EMA_FAST_PERIOD);
     const rsi = calculateRSI(closePrices, INDICATOR_PARAMS.RSI_PERIOD);
+    const atr = calculateATR(chartData, INDICATOR_PARAMS.ATR_PERIOD);
     const volumeSMA = calculateSMA(volumes, INDICATOR_PARAMS.VOLUME_AVG_PERIOD);
-
+    
     const lastIndex = chartData.length - 1;
 
-    if (!wt2 || !rsi || !volumeSMA || !tci) return null;
-    
-    const lastVolume = volumes[lastIndex];
-    const lastVolumeSMA = volumeSMA[lastIndex];
-    const lastTrendEMA = trendEMA[lastIndex];
-    const lastTci = tci[lastIndex];
-    const prevTci = tci[lastIndex - 1];
-    const lastWt2 = wt2[lastIndex];
-    const prevWt2 = wt2[lastIndex - 1];
-    const lastMacd = macdLine[lastIndex];
-    const lastMacdSignal = signalLine[lastIndex];
-    const lastRsi = rsi[lastIndex];
-    const lastClose = closePrices[lastIndex];
-
-    if (lastVolumeSMA === null || lastWt2 === null || prevWt2 === null || lastRsi === null) {
+    // Ensure all indicator values for the current candle are available
+    if (emaSlow[lastIndex] === 0 || emaFast[lastIndex] === 0 || rsi[lastIndex] === null || atr[lastIndex] === null || volumeSMA[lastIndex] === null) {
       return null;
     }
 
-    // --- Condition Checks ---
-    const isUptrend = lastClose > lastTrendEMA;
-    const isDowntrend = lastClose < lastTrendEMA;
-    const isWTBuyCross = prevTci < prevWt2 && lastTci > lastWt2;
-    const isWTSellCross = prevTci > prevWt2 && lastTci < lastWt2;
-    const isMACDConfirmBuy = lastMacd > lastMacdSignal;
-    const isRSIConfirmBuy = lastRsi > 50;
-    const isMACDConfirmSell = lastMacd < lastMacdSignal;
-    const isRSIConfirmSell = lastRsi < 50;
-    const isVolumeSpike = lastVolume > lastVolumeSMA * INDICATOR_PARAMS.VOLUME_SPIKE_FACTOR;
-    const isRSIOversold = lastRsi < INDICATOR_PARAMS.RSI_OS;
-    const isRSIOverbought = lastRsi > INDICATOR_PARAMS.RSI_OB;
+    const lastCandle = chartData[lastIndex];
+    const prevRsi = rsi[lastIndex - 1];
+    const lastRsi = rsi[lastIndex];
+    const lastAtr = atr[lastIndex]!; // Non-null assertion as we've checked above
 
-    // RSI Bullish Divergence check (price makes lower low, RSI makes higher low)
-    let isBullishDivergence = false;
-    if (rsi.length > 15) {
-        const lookbackPeriod = 14;
-        const recentLowPriceIndex = lowPrices.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x < arr[iMin] ? i : iMin, 0) + (lastIndex - lookbackPeriod);
-        if (rsi[recentLowPriceIndex] !== null) {
-            const recentLowRsiIndex = rsi.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x! < arr[iMin]! ? i : iMin, 0) + (lastIndex - lookbackPeriod);
-            if (lastClose < lowPrices[recentLowPriceIndex] && rsi[lastIndex]! > rsi[recentLowRsiIndex]!) {
-                isBullishDivergence = true;
-            }
+    // --- Signal Logic: Mean Reversion Pullback Strategy ---
+    
+    // BUY Signal Conditions (Pullback in an Uptrend)
+    const isUptrend = lastCandle.close > emaSlow[lastIndex];
+    const isInBuyPullback = lastCandle.close < emaFast[lastIndex];
+    const isRsiBuyTrigger = prevRsi !== null && prevRsi <= INDICATOR_PARAMS.RSI_PULLBACK_BUY && lastRsi > INDICATOR_PARAMS.RSI_PULLBACK_BUY;
+
+    if (isUptrend && isInBuyPullback && isRsiBuyTrigger) {
+        let level: Signal['level'] = 'Medium';
+        const isVolumeSpike = lastCandle.volume > volumeSMA[lastIndex]! * INDICATOR_PARAMS.VOLUME_SPIKE_FACTOR;
+        const isDeepPullback = lastCandle.low < (emaFast[lastIndex] - lastAtr); // Deeper pullback = higher confidence
+        if (isDeepPullback && isVolumeSpike) {
+            level = 'High';
         }
+
+        return {
+            type: 'BUY',
+            level: level,
+            price: lastCandle.close,
+            time: lastCandle.time,
+            stopLoss: lastCandle.close - (lastAtr * INDICATOR_PARAMS.ATR_STOP_MULTIPLIER),
+            takeProfit: lastCandle.close + (lastAtr * INDICATOR_PARAMS.ATR_PROFIT_MULTIPLIER)
+        };
     }
-    
-    // RSI Bearish Divergence check (price makes higher high, RSI makes lower high)
-    let isBearishDivergence = false;
-    if (rsi.length > 15) {
-        const lookbackPeriod = 14;
-        const recentHighPriceIndex = highPrices.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0) + (lastIndex - lookbackPeriod);
-        if (rsi[recentHighPriceIndex] !== null) {
-            const recentHighRsiIndex = rsi.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMax, x, i, arr) => x! > arr[iMax]! ? i : iMax, 0) + (lastIndex - lookbackPeriod);
-            if (lastClose > highPrices[recentHighPriceIndex] && rsi[lastIndex]! < rsi[recentHighRsiIndex]!) {
-                isBearishDivergence = true;
-            }
+
+    // SELL Signal Conditions (Pullback in a Downtrend)
+    const isDowntrend = lastCandle.close < emaSlow[lastIndex];
+    const isInSellPullback = lastCandle.close > emaFast[lastIndex];
+    const isRsiSellTrigger = prevRsi !== null && prevRsi >= INDICATOR_PARAMS.RSI_PULLBACK_SELL && lastRsi < INDICATOR_PARAMS.RSI_PULLBACK_SELL;
+
+    if (isDowntrend && isInSellPullback && isRsiSellTrigger) {
+        let level: Signal['level'] = 'Medium';
+        const isVolumeSpike = lastCandle.volume > volumeSMA[lastIndex]! * INDICATOR_PARAMS.VOLUME_SPIKE_FACTOR;
+        const isDeepRally = lastCandle.high > (emaFast[lastIndex] + lastAtr); // Deeper rally = higher confidence for short
+        if (isDeepRally && isVolumeSpike) {
+            level = 'High';
         }
-    }
 
-    let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
-    
-    // --- Signal Logic ---
-    if (isWTBuyCross || (isUptrend && isMACDConfirmBuy) || (isBullishDivergence && isRSIOversold)) {
-        const confirmations = (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0) + (isUptrend ? 1 : 0) + (isBullishDivergence ? 1 : 0);
-        
-        if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
-        else if (confirmations >= 2) newSignal = { type: 'BUY', level: 'Medium' };
-        else newSignal = { type: 'BUY', level: 'Low' };
-    } 
-    else if (isWTSellCross || (isDowntrend && isMACDConfirmSell) || (isBearishDivergence && isRSIOverbought)) {
-        const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0) + (isBearishDivergence ? 1 : 0);
-        
-        if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
-        else if (confirmations >= 2) newSignal = { type: 'SELL', level: 'Medium' };
-        else newSignal = { type: 'SELL', level: 'Low' };
+        return {
+            type: 'SELL',
+            level: level,
+            price: lastCandle.close,
+            time: lastCandle.time,
+            stopLoss: lastCandle.close + (lastAtr * INDICATOR_PARAMS.ATR_STOP_MULTIPLIER),
+            takeProfit: lastCandle.close - (lastAtr * INDICATOR_PARAMS.ATR_PROFIT_MULTIPLIER)
+        };
     }
     
-    if (newSignal) {
-      const lastDataPoint = chartData[lastIndex];
-      return {
-          ...newSignal,
-          price: lastDataPoint.close,
-          time: lastDataPoint.time,
-      };
-    }
-
     return null;
 }
 
@@ -240,8 +239,8 @@ export async function GET(request: NextRequest) {
         const signalHistory = await getSignalHistoryFromFirestore();
         const lastSignal = signalHistory.length > 0 ? signalHistory[signalHistory.length - 1] : null;
 
+        // Cooldown: Ensure we don't fire signals on consecutive candles
         if (lastSignal?.time !== newSignal.time) {
-             // We don't want to destructure displayTime here anymore.
              await saveSignalToFirestore(newSignal);
              return NextResponse.json({ message: `Saved ${newSignal.type} signal.`, signal: newSignal });
         } else {
@@ -255,5 +254,3 @@ export async function GET(request: NextRequest) {
     return new NextResponse('Internal Server Error', { status: 500, statusText: (error as Error).message });
   }
 }
-
-    

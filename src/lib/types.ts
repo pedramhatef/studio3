@@ -14,4 +14,6 @@ export interface Signal {
   time: number;
   displayTime?: string;
   serverTime?: any;
+  stopLoss?: number;
+  takeProfit?: number;
 }
