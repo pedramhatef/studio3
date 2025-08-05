@@ -33,7 +33,11 @@ const chartConfig = {
   },
   sell: {
     label: 'Sell Signal',
-    color: '#ef4444', // Changed to a consistent red color
+    color: '#ef4444',
+  },
+  lowConfidence: {
+    label: 'Low Confidence',
+    color: '#FFC107', // Yellow for low confidence
   },
 };
 
@@ -73,6 +77,13 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
     const padding = (max - min) * 0.1;
     return { yDomain: [min - padding, max + padding], yPadding: (max - min) * 0.05 };
   }, [data]);
+
+  const getSignalColor = (signal: Signal) => {
+    if (signal.level === 'Low') {
+      return chartConfig.lowConfidence.color;
+    }
+    return signal.type === 'BUY' ? chartConfig.buy.color : chartConfig.sell.color;
+  };
 
   return (
     <ChartContainer config={chartConfig} className="min-h-[400px] w-full">
@@ -123,15 +134,18 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
            const displayTime = new Date(dataPoint.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
            const isBuy = signal.type === 'BUY';
            const yPosition = isBuy ? signal.price - yPadding : signal.price + yPadding;
+           const signalColor = getSignalColor(signal);
+           const fillOpacity = signal.level === 'High' ? 1 : 0.3;
+
            return (
             <ReferenceDot
               key={index}
               x={displayTime}
               y={yPosition}
               r={10}
-              fill={isBuy ? chartConfig.buy.color : chartConfig.sell.color}
-              fillOpacity={0.3}
-              stroke={isBuy ? chartConfig.buy.color : chartConfig.sell.color}
+              fill={signalColor}
+              fillOpacity={fillOpacity}
+              stroke={signalColor}
               strokeWidth={2}
               isFront={true}
             />
