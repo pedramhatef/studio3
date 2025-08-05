@@ -44,9 +44,10 @@ const chartConfig = {
 const CustomTooltipContent = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
+      const time = new Date(data.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       return (
         <div className="p-2 rounded-lg border bg-background/90 shadow-lg backdrop-blur-lg">
-          <p className="font-bold text-foreground">{`Time: ${label}`}</p>
+          <p className="font-bold text-foreground">{`Time: ${time}`}</p>
           <p className="text-sm text-primary">{`Price: $${data.close.toFixed(5)}`}</p>
           <div className="mt-1 text-xs text-muted-foreground">
             <p>{`Open: $${data.open.toFixed(5)}`}</p>
@@ -62,12 +63,6 @@ const CustomTooltipContent = ({ active, payload, label }: any) => {
   };
 
 export function CryptoChart({ data, signals }: CryptoChartProps) {
-  const chartData = useMemo(() => {
-    return data.map(d => ({
-      ...d,
-      time: new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    }));
-  }, [data]);
 
   const { yDomain, yPadding } = useMemo(() => {
     if (!data.length) return { yDomain: ['auto', 'auto'], yPadding: 0 };
@@ -85,10 +80,14 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
     return signal.type === 'BUY' ? chartConfig.buy.color : chartConfig.sell.color;
   };
 
+  const formatTime = (time: number) => {
+    return new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
   return (
     <ChartContainer config={chartConfig} className="min-h-[400px] w-full">
       <AreaChart
-        data={chartData}
+        data={data}
         margin={{
           top: 10,
           right: 30,
@@ -107,7 +106,9 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
             dataKey="time" 
             tickMargin={10} 
             tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} 
-            interval="preserveStartEnd"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tickFormatter={formatTime}
         />
         <YAxis 
             domain={yDomain} 
@@ -129,20 +130,19 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
           fill="url(#colorClose)"
         />
         {signals.map((signal, index) => {
-           const dataPoint = data.find(d => d.time === signal.time);
-           if (!dataPoint) return null;
-           const displayTime = new Date(dataPoint.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
            const isBuy = signal.type === 'BUY';
+           // Place BUY signals below the price line and SELL signals above.
            const yPosition = isBuy ? signal.price - yPadding : signal.price + yPadding;
            const signalColor = getSignalColor(signal);
+           // High confidence is solid, others are rings.
            const fillOpacity = signal.level === 'High' ? 1 : 0.3;
 
            return (
             <ReferenceDot
               key={index}
-              x={displayTime}
+              x={signal.time}
               y={yPosition}
-              r={10}
+              r={8}
               fill={signalColor}
               fillOpacity={fillOpacity}
               stroke={signalColor}
