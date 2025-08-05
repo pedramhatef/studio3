@@ -65,13 +65,13 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
     }));
   }, [data]);
 
-  const yDomain = useMemo(() => {
-    if (!data.length) return ['auto', 'auto'];
+  const { yDomain, yPadding } = useMemo(() => {
+    if (!data.length) return { yDomain: ['auto', 'auto'], yPadding: 0 };
     const prices = data.map(d => d.close);
     const min = Math.min(...prices);
     const max = Math.max(...prices);
     const padding = (max - min) * 0.1;
-    return [min - padding, max + padding];
+    return { yDomain: [min - padding, max + padding], yPadding: (max - min) * 0.05 };
   }, [data]);
 
   return (
@@ -122,11 +122,12 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
            if (!dataPoint) return null;
            const displayTime = new Date(dataPoint.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
            const isBuy = signal.type === 'BUY';
+           const yPosition = isBuy ? signal.price - yPadding : signal.price + yPadding;
            return (
             <ReferenceDot
               key={index}
               x={displayTime}
-              y={signal.price}
+              y={yPosition}
               r={10}
               fill={isBuy ? chartConfig.buy.color : chartConfig.sell.color}
               fillOpacity={0.3}
