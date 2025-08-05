@@ -64,20 +64,43 @@ const CustomTooltipContent = ({ active, payload, label }: any) => {
 
 export function CryptoChart({ data, signals }: CryptoChartProps) {
 
-  const { yDomain, yPadding } = useMemo(() => {
-    if (!data.length) return { yDomain: ['auto', 'auto'], yPadding: 0 };
+  const { chartData, yDomain, yPadding } = useMemo(() => {
+    if (!data.length) return { chartData: [], yDomain: ['auto', 'auto'], yPadding: 0 };
+
     const prices = data.map(d => d.close);
     const min = Math.min(...prices);
     const max = Math.max(...prices);
     const padding = (max - min) * 0.1;
-    return { yDomain: [min - padding, max + padding], yPadding: (max - min) * 0.05 };
-  }, [data]);
+    const domain = [min - padding, max + padding];
+    
+    // Create a map for quick lookup of data by time
+    const dataMap = new Map(data.map(d => [d.time, { ...d, buySignal: null, sellSignal: null, signalLevel: null }]));
 
-  const getSignalColor = (signal: Signal) => {
-    if (signal.level === 'Low') {
+    // Integrate signals into the data map
+    signals.forEach(signal => {
+        if (dataMap.has(signal.time)) {
+            const point = dataMap.get(signal.time)!;
+            if (signal.type === 'BUY') {
+                point.buySignal = signal.price;
+            } else {
+                point.sellSignal = signal.price;
+            }
+            point.signalLevel = signal.level;
+        }
+    });
+
+    return { 
+        chartData: Array.from(dataMap.values()),
+        yDomain: domain, 
+        yPadding: (max - min) * 0.05 
+    };
+  }, [data, signals]);
+
+  const getSignalColor = (level: Signal['level'], type: 'BUY' | 'SELL') => {
+    if (level === 'Low') {
       return chartConfig.lowConfidence.color;
     }
-    return signal.type === 'BUY' ? chartConfig.buy.color : chartConfig.sell.color;
+    return type === 'BUY' ? chartConfig.buy.color : chartConfig.sell.color;
   };
 
   const formatTime = (time: number) => {
@@ -87,7 +110,7 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
   return (
     <ChartContainer config={chartConfig} className="min-h-[400px] w-full">
       <AreaChart
-        data={data}
+        data={chartData}
         margin={{
           top: 10,
           right: 30,
@@ -129,18 +152,21 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
           fillOpacity={1}
           fill="url(#colorClose)"
         />
-        {signals.map((signal, index) => {
-           const isBuy = signal.type === 'BUY';
-           // Place BUY signals below the price line and SELL signals above.
-           const yPosition = isBuy ? signal.price - yPadding : signal.price + yPadding;
-           const signalColor = getSignalColor(signal);
-           // High confidence is solid, others are rings.
-           const fillOpacity = signal.level === 'High' ? 1 : 0.3;
+        {chartData.map((point, index) => {
+           if (!point.buySignal && !point.sellSignal) return null;
+
+           const isBuy = !!point.buySignal;
+           const signalPrice = isBuy ? point.buySignal! : point.sellSignal!;
+           const signalLevel = point.signalLevel as Signal['level'];
+           
+           const yPosition = isBuy ? signalPrice - yPadding : signalPrice + yPadding;
+           const signalColor = getSignalColor(signalLevel, isBuy ? 'BUY' : 'SELL');
+           const fillOpacity = signalLevel === 'High' ? 1 : 0.3;
 
            return (
             <ReferenceDot
-              key={index}
-              x={signal.time}
+              key={`signal-${index}`}
+              x={point.time}
               y={yPosition}
               r={8}
               fill={signalColor}
