@@ -142,7 +142,8 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
         />
         {signals.map((signal, index) => {
            const signalColor = getSignalColor(signal.level, signal.type);
-           const fillOpacity = signal.level === 'High' ? 0.3 : 1;
+           // High confidence is a solid circle, Medium/Low are rings.
+           const fillOpacity = signal.level === 'High' ? 1 : 0.3;
            const chartPrice = priceDataMap.get(signal.time);
           
            // Render dot only if its time exists in the chart data
