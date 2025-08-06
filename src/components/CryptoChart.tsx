@@ -37,7 +37,7 @@ const chartConfig = {
   },
   lowConfidence: {
     label: 'Low Confidence',
-    color: '#FFC107', // Yellow for low confidence
+    color: '#FFC107',
   },
 };
 
@@ -84,6 +84,16 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
   const formatTime = (time: number) => {
     return new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
+
+  // Create a map for quick lookup of close prices by time
+  const priceDataMap = useMemo(() => {
+    const map = new Map<number, number>();
+    data.forEach(d => {
+      map.set(d.time, d.close);
+    });
+    return map;
+  }, [data]);
+
 
   return (
     <ChartContainer config={chartConfig} className="min-h-[400px] w-full">
@@ -132,13 +142,20 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
         />
         {signals.map((signal, index) => {
            const signalColor = getSignalColor(signal.level, signal.type);
+           // High confidence is a solid circle, Medium/Low are rings.
            const fillOpacity = signal.level === 'High' ? 1 : 0.3;
+           const chartPrice = priceDataMap.get(signal.time);
+          
+           // Render dot only if its time exists in the chart data
+           if (chartPrice === undefined) {
+             return null;
+           }
 
            return (
             <ReferenceDot
               key={`signal-${index}`}
               x={signal.time}
-              y={signal.price}
+              y={chartPrice}
               r={8}
               fill={signalColor}
               fillOpacity={fillOpacity}
