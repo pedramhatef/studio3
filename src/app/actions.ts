@@ -74,6 +74,11 @@ export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>)
   }
 }
 
+/**
+ * Fetches the single most recent signal from Firestore.
+ * This is used by the cron job to check the last signal's direction ('BUY' or 'SELL')
+ * to prevent saving consecutive signals in the same direction.
+ */
 export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
     try {
       const signalsCol = collection(db, "signals");
