@@ -1,15 +1,10 @@
 // src/app/api/cron/route.ts
 
-import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } from '@/app/actions';
-import type { ChartDataPoint, Signal } from '@/lib/types';
 import { NextResponse } from 'next/server';
 
-// This function can be marked `async` if using `await` inside
+// This function is intentionally left blank to disable signal generation.
+// The cron job will still run every minute, but it will no longer execute any trading logic.
 export function GET() {
-  // Placeholder for signal generation logic.
-  // We will build the new trading strategy here.
-  
-  console.log("Cron job executed at:", new Date().toISOString());
-
-  return NextResponse.json({ message: 'Cron job executed successfully.' });
+  console.log("Signal generation is currently disabled.");
+  return NextResponse.json({ message: 'Signal generation is disabled.' });
 }
