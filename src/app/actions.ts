@@ -77,17 +77,18 @@ export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>)
 /**
  * Fetches the single most recent signal from Firestore.
  * This is used by the cron job to check the last signal's direction ('BUY' or 'SELL')
- * to prevent saving consecutive signals in the same direction.
+ * and confidence level to prevent saving consecutive identical signals.
  */
 export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
     try {
       const signalsCol = collection(db, "signals");
-      // Fetch only the single most recent document, which is the only one we need to prevent duplicates.
+      // Fetch only the single most recent document.
       const q = query(signalsCol, orderBy("serverTime", "desc"), limit(1));
       const querySnapshot = await getDocs(q);
       
       const signals = querySnapshot.docs.map(doc => {
         const data = doc.data();
+        // Ensure all required fields are returned for the duplicate check
         return {
           type: data.type,
           level: data.level,
@@ -96,7 +97,6 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
         } as Signal;
       });
       
-      // The query returns an array with 0 or 1 item, already in the correct order (most recent).
       return signals; 
     } catch (error) {
       console.error("Error fetching signal history:", error);

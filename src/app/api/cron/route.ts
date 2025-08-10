@@ -192,14 +192,14 @@ export async function GET() {
     const lastSignal = lastSignals.length > 0 ? lastSignals[0] : null;
 
     if (lastSignal) {
-      console.log(`Last signal was '${lastSignal.type}'. New signal is '${newSignal.type}'.`);
+      console.log(`Last signal was '${lastSignal.type}' with '${lastSignal.level}' confidence. New signal is '${newSignal.type}' with '${newSignal.level}' confidence.`);
     } else {
       console.log('No previous signals found in history.');
     }
 
-    // We prevent ANY consecutive signal in the same direction, regardless of confidence level.
-    if (lastSignal && newSignal.type === lastSignal.type) {
-        const message = `Skipping save. New signal type '${newSignal.type}' is same as last signal.`;
+    // Prevent a signal if the type AND level are the same as the last one.
+    if (lastSignal && newSignal.type === lastSignal.type && newSignal.level === lastSignal.level) {
+        const message = `Skipping save. New signal '${newSignal.type} (${newSignal.level})' is identical to the last signal.`;
         console.log(`❌ ${message}`);
         return NextResponse.json({ message });
     }
@@ -219,5 +219,3 @@ export async function GET() {
     return NextResponse.json({ message: 'Error executing cron job', error: (error as Error).message }, { status: 500 });
   }
 }
-
-    
