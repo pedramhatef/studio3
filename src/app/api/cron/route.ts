@@ -21,6 +21,10 @@ const RSI_OVERSOLD_THRESHOLD = 30;
 const BBANDS_PERIOD = 14;
 const BBANDS_STD_DEV = 1.5;
 
+// System 3: Momentum Shift (Low Probability)
+// RSI_PERIOD is already defined above.
+const RSI_CENTERLINE = 50;
+
 
 /**
  * This function is the entry point for the cron job, executed every minute.
@@ -49,7 +53,7 @@ export async function GET() {
     const pSar = indicators.calculateParabolicSAR(chartData, PARABOLIC_SAR_STEP, PARABOLIC_SAR_MAX);
     const vwap = indicators.calculateVWAP(chartData);
 
-    // Momentum-Reversal Indicators
+    // Momentum-Reversal & Momentum Shift Indicators
     const rsi = indicators.calculateRSI(closePrices, RSI_PERIOD);
     const bbands = indicators.calculateBollingerBands(closePrices, BBANDS_PERIOD, BBANDS_STD_DEV);
 
@@ -89,30 +93,64 @@ export async function GET() {
 
     let newSignal: Omit<Signal, 'displayTime' | 'serverTime'> | null = null;
 
-    // 3. Apply Trading Logic, prioritizing as requested (Medium -> High)
+    // 3. Apply Trading Logic, prioritizing as requested (Low -> Medium -> High)
     // =================================================================
-    // System 2: Momentum-Reversal System (Medium Probability)
-    // Check this first as it is more common.
+    // System 3: Momentum Shift (Low Probability)
+    // Check this first as it is the most common.
     // =================================================================
-    const isReversalBuySignal = previousRsi! < RSI_OVERSOLD_THRESHOLD && latestRsi! > RSI_OVERSOLD_THRESHOLD && latestDataPoint.low <= latestLowerBB! && latestDataPoint.close > latestVwap!;
-    
-    console.log("\nEvaluating Momentum-Reversal System (Medium):");
-    console.log(`  - BUY Condition: PrevRSI<30 AND CurrRSI>30 AND Low<=LowerBB AND Price>VWAP`);
-    console.log(`    - Result: ${previousRsi! < RSI_OVERSOLD_THRESHOLD} AND ${latestRsi! > RSI_OVERSOLD_THRESHOLD} AND ${latestDataPoint.low <= latestLowerBB!} AND ${latestDataPoint.close > latestVwap!} -> ${isReversalBuySignal}`);
+    const isRsiBuyCross = previousRsi! < RSI_CENTERLINE && latestRsi! > RSI_CENTERLINE;
+    const isRsiSellCross = previousRsi! > RSI_CENTERLINE && latestRsi! < RSI_CENTERLINE;
 
-    if (isReversalBuySignal) {
+    console.log("\nEvaluating Momentum Shift System (Low):");
+    console.log(`  - BUY Condition: PrevRSI<50 AND CurrRSI>50`);
+    console.log(`    - Result: ${previousRsi! < RSI_CENTERLINE} AND ${latestRsi! > RSI_CENTERLINE} -> ${isRsiBuyCross}`);
+    console.log(`  - SELL Condition: PrevRSI>50 AND CurrRSI<50`);
+    console.log(`    - Result: ${previousRsi! > RSI_CENTERLINE} AND ${latestRsi! < RSI_CENTERLINE} -> ${isRsiSellCross}`);
+    
+    if (isRsiBuyCross) {
         newSignal = {
             type: 'BUY',
-            level: 'Medium', // This is the Momentum-Reversal system
+            level: 'Low',
             price: latestDataPoint.close,
             time: latestDataPoint.time,
         };
-        console.log('✅ New MEDIUM-CONFIDENCE BUY signal generated.');
+        console.log('✅ New LOW-CONFIDENCE BUY signal generated.');
+    } else if (isRsiSellCross) {
+        newSignal = {
+            type: 'SELL',
+            level: 'Low',
+            price: latestDataPoint.close,
+            time: latestDataPoint.time,
+        };
+        console.log('✅ New LOW-CONFIDENCE SELL signal generated.');
     }
 
     // =================================================================
+    // System 2: Momentum-Reversal System (Medium Probability)
+    // Only check if no low-probability signal was found.
+    // =================================================================
+    if (!newSignal) {
+        const isReversalBuySignal = previousRsi! < RSI_OVERSOLD_THRESHOLD && latestRsi! > RSI_OVERSOLD_THRESHOLD && latestDataPoint.low <= latestLowerBB! && latestDataPoint.close > latestVwap!;
+        
+        console.log("\nEvaluating Momentum-Reversal System (Medium):");
+        console.log(`  - BUY Condition: PrevRSI<30 AND CurrRSI>30 AND Low<=LowerBB AND Price>VWAP`);
+        console.log(`    - Result: ${previousRsi! < RSI_OVERSOLD_THRESHOLD} AND ${latestRsi! > RSI_OVERSOLD_THRESHOLD} AND ${latestDataPoint.low <= latestLowerBB!} AND ${latestDataPoint.close > latestVwap!} -> ${isReversalBuySignal}`);
+
+        if (isReversalBuySignal) {
+            newSignal = {
+                type: 'BUY',
+                level: 'Medium', // This is the Momentum-Reversal system
+                price: latestDataPoint.close,
+                time: latestDataPoint.time,
+            };
+            console.log('✅ New MEDIUM-CONFIDENCE BUY signal generated.');
+        }
+    }
+
+
+    // =================================================================
     // System 1: Core Trend-Following System (High Probability)
-    // Only check if no medium-probability signal was found.
+    // Only check if no other signal was found.
     // =================================================================
     if (!newSignal) {
         const isCoreBuySignal = latestEmaFast! > latestEmaSlow! && latestDataPoint.close > latestVwap! && latestDataPoint.close > latestPSar!;
@@ -181,3 +219,5 @@ export async function GET() {
     return NextResponse.json({ message: 'Error executing cron job', error: (error as Error).message }, { status: 500 });
   }
 }
+
+    
