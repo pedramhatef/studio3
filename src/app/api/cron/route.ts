@@ -22,7 +22,6 @@ const BBANDS_STD_DEV = 1.2;
 
 // System 3: Momentum Shift (Low Probability)
 const RSI_CENTERLINE = 50;
-const SIGNAL_COOLDOWN = 60 * 1;  // 3 minutes
 
 /**
  * This function is the entry point for the cron job, executed every minute.
@@ -214,16 +213,38 @@ export async function GET() {
         console.log('✅ New LOW-CONFIDENCE SELL signal generated.');
       } else {
         console.log("❌ Shift system: No signal.");
-      }
+      } 
     }
 
+    if (!newSignal) {
+      console.log('\nNo new signal generated. Conditions not met for any system.');
+      return NextResponse.json({ message: 'No new signal generated based on current strategy.' });
+  }
+
+  // 4. Prevent Consecutive Duplicate Signals
+  const lastSignals = await getSignalHistoryFromFirestore();
+  const lastSignal = lastSignals.length > 0 ? lastSignals[0] : null;
+
+  if (lastSignal) {
+    console.log(`Last signal was '${lastSignal.type}' with '${lastSignal.level}' confidence. New signal is '${newSignal.type}' with '${newSignal.level}' confidence.`);
+  } else {
+    console.log('No previous signals found in history.');
+  }
+
+  // Prevent a signal if the type AND level are the same as the last one.
+  if (lastSignal && newSignal.type === lastSignal.type && newSignal.level === lastSignal.level) {
+      const message = `Skipping save. New signal '${newSignal.type} (${newSignal.level})' is identical to the last signal.`;
+      console.log(`❌ ${message}`);
+      return NextResponse.json({ message });
+  }
+    
     // Optionally: Save signal to Firestore, or return it
     if (newSignal) {
       await saveSignalToFirestore(newSignal);
       return NextResponse.json({ signal: newSignal });
     } else {
       return NextResponse.json({ message: 'No signal generated.' });
-    }
+    }    
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: String(error) });
