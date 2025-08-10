@@ -7,6 +7,8 @@ import { getFirestore } from "firebase/firestore";
 // In the Firebase Console (https://console.firebase.google.com/), you can find
 // this project by looking for the project ID "bybit-balance-view" under the project name.
 const firebaseConfig = {
+  // This is the unique ID for your project. In the Firebase Console, this ID is listed
+  // under the project's display name. Use this ID to find the correct project.
   "projectId": "bybit-balance-view",
   "appId": "1:701023944234:web:fc234862537d441eae0d53",
   "storageBucket": "bybit-balance-view.firebasestorage.app",
