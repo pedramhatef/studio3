@@ -89,57 +89,57 @@ export async function GET() {
 
     let newSignal: Omit<Signal, 'displayTime' | 'serverTime'> | null = null;
 
-    // 3. Apply Trading Logic, starting with highest probability system
-    // =================================================================
-    // System 1: Core Trend-Following System (High Probability)
-    // =================================================================
-    const isCoreBuySignal = latestEmaFast! > latestEmaSlow! && latestDataPoint.close > latestVwap! && latestDataPoint.close > latestPSar!;
-    const isCoreSellSignal = latestEmaFast! < latestEmaSlow! || latestDataPoint.close < latestPSar!;
-    
-    console.log("\nEvaluating Core Trend-Following System (High):");
-    console.log(`  - BUY Condition: EMA(5)>EMA(15) AND Price>VWAP AND Price>PSAR`);
-    console.log(`    - Result: ${latestEmaFast! > latestEmaSlow!} AND ${latestDataPoint.close > latestVwap!} AND ${latestDataPoint.close > latestPSar!} -> ${isCoreBuySignal}`);
-    console.log(`  - SELL Condition: EMA(5)<EMA(15) OR Price<PSAR`);
-    console.log(`    - Result: ${latestEmaFast! < latestEmaSlow!} OR ${latestDataPoint.close < latestPSar!} -> ${isCoreSellSignal}`);
-
-    if (isCoreBuySignal) {
-        newSignal = {
-            type: 'BUY',
-            level: 'High', // This is the Core Trend-Following system
-            price: latestDataPoint.close,
-            time: latestDataPoint.time,
-        };
-        console.log('✅ New HIGH-CONFIDENCE BUY signal generated.');
-    } else if (isCoreSellSignal) {
-        newSignal = {
-            type: 'SELL',
-            level: 'High', // This is the Core Trend-Following system
-            price: latestDataPoint.close,
-            time: latestDataPoint.time,
-        };
-        console.log('✅ New HIGH-CONFIDENCE SELL signal generated.');
-    }
-    
+    // 3. Apply Trading Logic, prioritizing as requested (Medium -> High)
     // =================================================================
     // System 2: Momentum-Reversal System (Medium Probability)
-    // Only check if no high-probability signal was found.
+    // Check this first as it is more common.
+    // =================================================================
+    const isReversalBuySignal = previousRsi! < RSI_OVERSOLD_THRESHOLD && latestRsi! > RSI_OVERSOLD_THRESHOLD && latestDataPoint.low <= latestLowerBB! && latestDataPoint.close > latestVwap!;
+    
+    console.log("\nEvaluating Momentum-Reversal System (Medium):");
+    console.log(`  - BUY Condition: PrevRSI<30 AND CurrRSI>30 AND Low<=LowerBB AND Price>VWAP`);
+    console.log(`    - Result: ${previousRsi! < RSI_OVERSOLD_THRESHOLD} AND ${latestRsi! > RSI_OVERSOLD_THRESHOLD} AND ${latestDataPoint.low <= latestLowerBB!} AND ${latestDataPoint.close > latestVwap!} -> ${isReversalBuySignal}`);
+
+    if (isReversalBuySignal) {
+        newSignal = {
+            type: 'BUY',
+            level: 'Medium', // This is the Momentum-Reversal system
+            price: latestDataPoint.close,
+            time: latestDataPoint.time,
+        };
+        console.log('✅ New MEDIUM-CONFIDENCE BUY signal generated.');
+    }
+
+    // =================================================================
+    // System 1: Core Trend-Following System (High Probability)
+    // Only check if no medium-probability signal was found.
     // =================================================================
     if (!newSignal) {
-        // Entry Logic: Buy when RSI crosses above 30, price touches lower BB, and closes above VWAP
-        const isReversalBuySignal = previousRsi! < RSI_OVERSOLD_THRESHOLD && latestRsi! > RSI_OVERSOLD_THRESHOLD && latestDataPoint.low <= latestLowerBB! && latestDataPoint.close > latestVwap!;
+        const isCoreBuySignal = latestEmaFast! > latestEmaSlow! && latestDataPoint.close > latestVwap! && latestDataPoint.close > latestPSar!;
+        const isCoreSellSignal = latestEmaFast! < latestEmaSlow! || latestDataPoint.close < latestPSar!;
         
-        console.log("\nEvaluating Momentum-Reversal System (Medium):");
-        console.log(`  - BUY Condition: PrevRSI<30 AND CurrRSI>30 AND Low<=LowerBB AND Price>VWAP`);
-        console.log(`    - Result: ${previousRsi! < RSI_OVERSOLD_THRESHOLD} AND ${latestRsi! > RSI_OVERSOLD_THRESHOLD} AND ${latestDataPoint.low <= latestLowerBB!} AND ${latestDataPoint.close > latestVwap!} -> ${isReversalBuySignal}`);
-
-        if (isReversalBuySignal) {
+        console.log("\nEvaluating Core Trend-Following System (High):");
+        console.log(`  - BUY Condition: EMA(5)>EMA(15) AND Price>VWAP AND Price>PSAR`);
+        console.log(`    - Result: ${latestEmaFast! > latestEmaSlow!} AND ${latestDataPoint.close > latestVwap!} AND ${latestDataPoint.close > latestPSar!} -> ${isCoreBuySignal}`);
+        console.log(`  - SELL Condition: EMA(5)<EMA(15) OR Price<PSAR`);
+        console.log(`    - Result: ${latestEmaFast! < latestEmaSlow!} OR ${latestDataPoint.close < latestPSar!} -> ${isCoreSellSignal}`);
+    
+        if (isCoreBuySignal) {
             newSignal = {
                 type: 'BUY',
-                level: 'Medium', // This is the Momentum-Reversal system
+                level: 'High', // This is the Core Trend-Following system
                 price: latestDataPoint.close,
                 time: latestDataPoint.time,
             };
-            console.log('✅ New MEDIUM-CONFIDENCE BUY signal generated.');
+            console.log('✅ New HIGH-CONFIDENCE BUY signal generated.');
+        } else if (isCoreSellSignal) {
+            newSignal = {
+                type: 'SELL',
+                level: 'High', // This is the Core Trend-Following system
+                price: latestDataPoint.close,
+                time: latestDataPoint.time,
+            };
+            console.log('✅ New HIGH-CONFIDENCE SELL signal generated.');
         }
     }
 
@@ -181,5 +181,3 @@ export async function GET() {
     return NextResponse.json({ message: 'Error executing cron job', error: (error as Error).message }, { status: 500 });
   }
 }
-
-    
