@@ -5,37 +5,41 @@ import type { Signal } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 
 // =================================================================================
-// TRADING STRATEGY CONFIGURATION
+// TRADING STRATEGY CONFIGURATION - PARAMETERS OPTIMIZED FOR VOLATILITY
 // =================================================================================
 
 // System 1: Core Trend-Following (High Probability)
-const EMA_FAST_PERIOD = 5;
-const EMA_SLOW_PERIOD = 15;
+const EMA_FAST_PERIOD = 3;  // More responsive to price changes
+const EMA_SLOW_PERIOD = 10;  // Reduced from 15 for faster trend detection
 const PARABOLIC_SAR_STEP = 0.02;
 const PARABOLIC_SAR_MAX = 0.2;
 
 // System 2: Momentum-Reversal (Medium Probability)
-const RSI_PERIOD = 9;
-const RSI_OVERSOLD_THRESHOLD = 30;
-const RSI_OVERBOUGHT_THRESHOLD = 70;
-const BBANDS_PERIOD = 14;
-const BBANDS_STD_DEV = 1.5;
+const RSI_PERIOD = 7;  // More sensitive RSI
+const RSI_OVERSOLD_THRESHOLD = 35;  // Relaxed from 30
+const RSI_OVERBOUGHT_THRESHOLD = 65;  // Relaxed from 70
+const BBANDS_PERIOD = 12;  // More responsive bands
+const BBANDS_STD_DEV = 1.2;  // Tighter bands for volatile markets
 
 // System 3: Momentum Shift (Low Probability)
 const RSI_CENTERLINE = 50;
 
+// Signal cooldown (minutes)
+const SIGNAL_COOLDOWN = 3;  // Allow new signals every 3 minutes
+
 /**
- * This function is the entry point for the cron job, executed every minute.
- * It implements the trading strategies to generate signals.
+ * Cron job with optimized parameters for volatile markets
  */
 export async function GET() {
   console.log(`\n--- Cron job triggered at ${new Date().toISOString()} ---`);
 
   try {
-    // 1. Fetch Latest Market Data
+    // 1. Fetch Market Data
     const chartData = await getChartData();
-    if (chartData.length < Math.max(EMA_SLOW_PERIOD, BBANDS_PERIOD, RSI_PERIOD)) {
-      const message = 'Not enough data to calculate indicators.';
+    const minDataLength = Math.max(EMA_SLOW_PERIOD, BBANDS_PERIOD, RSI_PERIOD);
+    
+    if (chartData.length < minDataLength) {
+      const message = `Not enough data (${chartData.length}/${minDataLength}).`;
       console.log(message);
       return NextResponse.json({ message });
     }
@@ -44,7 +48,7 @@ export async function GET() {
     const latestDataPoint = chartData[chartData.length - 1];
     const previousDataPoint = chartData[chartData.length - 2];
 
-    // 2. Calculate All Necessary Indicators
+    // 2. Calculate Indicators
     const emaFast = indicators.calculateEMA(closePrices, EMA_FAST_PERIOD);
     const emaSlow = indicators.calculateEMA(closePrices, EMA_SLOW_PERIOD);
     const pSar = indicators.calculateParabolicSAR(chartData, PARABOLIC_SAR_STEP, PARABOLIC_SAR_MAX);
@@ -62,196 +66,151 @@ export async function GET() {
     const latestLowerBB = bbands.lower[bbands.lower.length - 1];
     const latestUpperBB = bbands.upper[bbands.upper.length - 1];
     
-    // Log indicator values for debugging
-    console.log("Latest Data Point:", {
+    // Log indicator values
+    console.log("Latest Data:", {
         price: latestDataPoint.close.toFixed(5),
-        high: latestDataPoint.high.toFixed(5),
-        low: latestDataPoint.low.toFixed(5),
-        volume: latestDataPoint.volume,
-        time: new Date(latestDataPoint.time).toLocaleTimeString()
-    });
-    console.log("Calculated Indicators:", {
-        emaFast: latestEmaFast?.toFixed(5) || 'N/A',
-        emaSlow: latestEmaSlow?.toFixed(5) || 'N/A',
-        pSar: latestPSar?.toFixed(5) || 'N/A',
-        vwap: latestVwap?.toFixed(5) || 'N/A',
-        rsi: latestRsi?.toFixed(2) || 'N/A',
-        previousRsi: previousRsi?.toFixed(2) || 'N/A',
-        lowerBB: latestLowerBB?.toFixed(5) || 'N/A',
-        upperBB: latestUpperBB?.toFixed(5) || 'N/A',
+        time: new Date(latestDataPoint.time).toLocaleTimeString(),
+        emaFast: latestEmaFast?.toFixed(5),
+        emaSlow: latestEmaSlow?.toFixed(5),
+        rsi: latestRsi?.toFixed(2),
+        bb_low: latestLowerBB?.toFixed(5),
+        bb_up: latestUpperBB?.toFixed(5),
+        sar: latestPSar?.toFixed(5),
+        vwap: latestVwap?.toFixed(5),
+        volume: latestDataPoint.volume
     });
 
-    // Ensure all required indicator values are calculated
-    const allIndicatorsAvailable = [latestEmaFast, latestEmaSlow, latestPSar, latestVwap, latestRsi, previousRsi, latestLowerBB, latestUpperBB].every(v => v !== null && v !== undefined);
-    if (!allIndicatorsAvailable) {
-      const message = 'Could not calculate all required indicator values.';
-      console.log(message);
-      return NextResponse.json({ message });
+    // Validate indicator calculations
+    const requiredIndicators = [latestEmaFast, latestEmaSlow, latestPSar, latestVwap, latestRsi, previousRsi, latestLowerBB, latestUpperBB];
+    if (requiredIndicators.some(v => v === null || v === undefined)) {
+      console.log('Missing indicator values. Skipping signal generation.');
+      return NextResponse.json({ message: 'Incomplete indicator data' });
     }
 
     let newSignal: Omit<Signal, 'displayTime' | 'serverTime'> | null = null;
 
     // =================================================================
-    // System 1: Core Trend-Following (High Probability) - FIRST PRIORITY
+    // System 1: Core Trend-Following (High Probability)
     // =================================================================
-    // Add RSI filter to avoid overbought/oversold zones
     const isCoreBuySignal = 
       latestEmaFast! > latestEmaSlow! &&
       latestDataPoint.close > latestVwap! &&
       latestDataPoint.close > latestPSar! &&
-      latestRsi! < 65;  // Avoid buying in overbought territory
+      latestRsi! < 65;  // Slightly relaxed RSI filter
     
     const isCoreSellSignal = 
       latestEmaFast! < latestEmaSlow! &&
       latestDataPoint.close < latestVwap! &&
       latestDataPoint.close < latestPSar! &&
-      latestRsi! > 35;  // Avoid selling in oversold territory
+      latestRsi! > 35;  // Slightly relaxed RSI filter
 
-    console.log("\nEvaluating Core Trend-Following System (High):");
-    console.log(`  - BUY Condition: EMA(5)>EMA(15) AND Price>VWAP AND Price>PSAR AND RSI<65`);
-    console.log(`    - Result: ${latestEmaFast! > latestEmaSlow!} AND ${latestDataPoint.close > latestVwap!} AND ${latestDataPoint.close > latestPSar!} AND ${latestRsi! < 65} -> ${isCoreBuySignal}`);
-    console.log(`  - SELL Condition: EMA(5)<EMA(15) AND Price<VWAP AND Price<PSAR AND RSI>35`);
-    console.log(`    - Result: ${latestEmaFast! < latestEmaSlow!} AND ${latestDataPoint.close < latestVwap!} AND ${latestDataPoint.close < latestPSar!} AND ${latestRsi! > 35} -> ${isCoreSellSignal}`);
+    console.log("\nCore System (High):");
+    console.log(`  BUY: EMA↑(${latestEmaFast! > latestEmaSlow!}) VWAP↑(${latestDataPoint.close > latestVwap!}) SAR↑(${latestDataPoint.close > latestPSar!}) RSI<65(${latestRsi! < 65}) → ${isCoreBuySignal}`);
+    console.log(`  SELL: EMA↓(${latestEmaFast! < latestEmaSlow!}) VWAP↓(${latestDataPoint.close < latestVwap!}) SAR↓(${latestDataPoint.close < latestPSar!}) RSI>35(${latestRsi! > 35}) → ${isCoreSellSignal}`);
 
     if (isCoreBuySignal) {
-      newSignal = {
-        type: 'BUY',
-        level: 'High',
-        price: latestDataPoint.close,
-        time: latestDataPoint.time,
-      };
-      console.log('✅ New HIGH-CONFIDENCE BUY signal generated.');
+      newSignal = { type: 'BUY', level: 'High', price: latestDataPoint.close, time: latestDataPoint.time };
+      console.log('✅ HIGH Buy Signal');
     } else if (isCoreSellSignal) {
-      newSignal = {
-        type: 'SELL',
-        level: 'High',
-        price: latestDataPoint.close,
-        time: latestDataPoint.time,
-      };
-      console.log('✅ New HIGH-CONFIDENCE SELL signal generated.');
+      newSignal = { type: 'SELL', level: 'High', price: latestDataPoint.close, time: latestDataPoint.time };
+      console.log('✅ HIGH Sell Signal');
     }
 
     // =================================================================
-    // System 2: Momentum-Reversal (Medium Probability) - SECOND PRIORITY
+    // System 2: Momentum-Reversal (Medium Probability)
     // =================================================================
     if (!newSignal) {
-      // Add EMA confirmation for stronger reversal signals
       const isReversalBuySignal = 
         previousRsi! < RSI_OVERSOLD_THRESHOLD && 
         latestRsi! > RSI_OVERSOLD_THRESHOLD &&
         latestDataPoint.low <= latestLowerBB! && 
         latestDataPoint.close > latestVwap! &&
-        latestDataPoint.close > latestEmaSlow!;  // Confirm above slow EMA
+        latestDataPoint.close > latestEmaSlow!;
       
       const isReversalSellSignal = 
         previousRsi! > RSI_OVERBOUGHT_THRESHOLD && 
         latestRsi! < RSI_OVERBOUGHT_THRESHOLD &&
         latestDataPoint.high >= latestUpperBB! && 
         latestDataPoint.close < latestVwap! &&
-        latestDataPoint.close < latestEmaSlow!;  // Confirm below slow EMA
+        latestDataPoint.close < latestEmaSlow!;
 
-      console.log("\nEvaluating Momentum-Reversal System (Medium):");
-      console.log(`  - BUY Condition: PrevRSI<30 AND CurrRSI>30 AND Low<=LowerBB AND Price>VWAP AND Price>EMA(15)`);
-      console.log(`    - Result: ${previousRsi! < RSI_OVERSOLD_THRESHOLD} AND ${latestRsi! > RSI_OVERSOLD_THRESHOLD} AND ${latestDataPoint.low <= latestLowerBB!} AND ${latestDataPoint.close > latestVwap!} AND ${latestDataPoint.close > latestEmaSlow!} -> ${isReversalBuySignal}`);
-      console.log(`  - SELL Condition: PrevRSI>70 AND CurrRSI<70 AND High>=UpperBB AND Price<VWAP AND Price<EMA(15)`);
-      console.log(`    - Result: ${previousRsi! > RSI_OVERBOUGHT_THRESHOLD} AND ${latestRsi! < RSI_OVERBOUGHT_THRESHOLD} AND ${latestDataPoint.high >= latestUpperBB!} AND ${latestDataPoint.close < latestVwap!} AND ${latestDataPoint.close < latestEmaSlow!} -> ${isReversalSellSignal}`);
+      console.log("\nReversal System (Medium):");
+      console.log(`  BUY: RSI↑(${previousRsi! < RSI_OVERSOLD_THRESHOLD && latestRsi! > RSI_OVERSOLD_THRESHOLD}) BB↓(${latestDataPoint.low <= latestLowerBB!}) VWAP↑(${latestDataPoint.close > latestVwap!}) EMA↑(${latestDataPoint.close > latestEmaSlow!}) → ${isReversalBuySignal}`);
+      console.log(`  SELL: RSI↓(${previousRsi! > RSI_OVERBOUGHT_THRESHOLD && latestRsi! < RSI_OVERBOUGHT_THRESHOLD}) BB↑(${latestDataPoint.high >= latestUpperBB!}) VWAP↓(${latestDataPoint.close < latestVwap!}) EMA↓(${latestDataPoint.close < latestEmaSlow!}) → ${isReversalSellSignal}`);
 
       if (isReversalBuySignal) {
-        newSignal = {
-          type: 'BUY',
-          level: 'Medium',
-          price: latestDataPoint.close,
-          time: latestDataPoint.time,
-        };
-        console.log('✅ New MEDIUM-CONFIDENCE BUY signal generated.');
+        newSignal = { type: 'BUY', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
+        console.log('✅ MEDIUM Buy Signal');
       } else if (isReversalSellSignal) {
-        newSignal = {
-          type: 'SELL',
-          level: 'Medium',
-          price: latestDataPoint.close,
-          time: latestDataPoint.time,
-        };
-        console.log('✅ New MEDIUM-CONFIDENCE SELL signal generated.');
+        newSignal = { type: 'SELL', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
+        console.log('✅ MEDIUM Sell Signal');
       }
     }
 
     // =================================================================
-    // System 3: Momentum Shift (Low Probability) - LAST PRIORITY
+    // System 3: Momentum Shift (Low Probability)
     // =================================================================
     if (!newSignal) {
-      // Add volume and VWAP filters for reliability
-      const volumeUp = latestDataPoint.volume > (previousDataPoint?.volume || 0);
+      const volumeUp = latestDataPoint.volume > (previousDataPoint?.volume || 0) * 1.3;  // Require 30% volume increase
+      
       const isRsiBuyCross = 
         previousRsi! < RSI_CENTERLINE && 
         latestRsi! > RSI_CENTERLINE &&
-        volumeUp &&  // Volume confirmation
-        latestDataPoint.close > latestVwap!;  // Above value area
+        volumeUp &&
+        latestDataPoint.close > latestVwap!;
       
       const isRsiSellCross = 
         previousRsi! > RSI_CENTERLINE && 
         latestRsi! < RSI_CENTERLINE &&
-        volumeUp &&  // Volume confirmation
-        latestDataPoint.close < latestVwap!;  // Below value area
+        volumeUp &&
+        latestDataPoint.close < latestVwap!;
 
-      console.log("\nEvaluating Momentum Shift System (Low):");
-      console.log(`  - BUY Condition: PrevRSI<50 AND CurrRSI>50 AND VolumeUp AND Price>VWAP`);
-      console.log(`    - Result: ${previousRsi! < RSI_CENTERLINE} AND ${latestRsi! > RSI_CENTERLINE} AND ${volumeUp} AND ${latestDataPoint.close > latestVwap!} -> ${isRsiBuyCross}`);
-      console.log(`  - SELL Condition: PrevRSI>50 AND CurrRSI<50 AND VolumeUp AND Price<VWAP`);
-      console.log(`    - Result: ${previousRsi! > RSI_CENTERLINE} AND ${latestRsi! < RSI_CENTERLINE} AND ${volumeUp} AND ${latestDataPoint.close < latestVwap!} -> ${isRsiSellCross}`);
+      console.log("\nMomentum System (Low):");
+      console.log(`  BUY: RSI✚(${previousRsi! < RSI_CENTERLINE && latestRsi! > RSI_CENTERLINE}) VOL↑(${volumeUp}) VWAP↑(${latestDataPoint.close > latestVwap!}) → ${isRsiBuyCross}`);
+      console.log(`  SELL: RSI✖(${previousRsi! > RSI_CENTERLINE && latestRsi! < RSI_CENTERLINE}) VOL↑(${volumeUp}) VWAP↓(${latestDataPoint.close < latestVwap!}) → ${isRsiSellCross}`);
       
       if (isRsiBuyCross) {
-        newSignal = {
-          type: 'BUY',
-          level: 'Low',
-          price: latestDataPoint.close,
-          time: latestDataPoint.time,
-        };
-        console.log('✅ New LOW-CONFIDENCE BUY signal generated.');
+        newSignal = { type: 'BUY', level: 'Low', price: latestDataPoint.close, time: latestDataPoint.time };
+        console.log('✅ LOW Buy Signal');
       } else if (isRsiSellCross) {
-        newSignal = {
-          type: 'SELL',
-          level: 'Low',
-          price: latestDataPoint.close,
-          time: latestDataPoint.time,
-        };
-        console.log('✅ New LOW-CONFIDENCE SELL signal generated.');
+        newSignal = { type: 'SELL', level: 'Low', price: latestDataPoint.close, time: latestDataPoint.time };
+        console.log('✅ LOW Sell Signal');
       }
     }
 
+    // 4. Signal Management
     if (!newSignal) {
-        console.log('\nNo new signal generated. Conditions not met for any system.');
-        return NextResponse.json({ message: 'No new signal generated based on current strategy.' });
+      console.log('No signal conditions met');
+      return NextResponse.json({ message: 'No signal generated' });
     }
 
-    // 4. Prevent Consecutive Duplicate Signals
+    // Time-based cooldown instead of type-based blocking
     const lastSignals = await getSignalHistoryFromFirestore();
-    const lastSignal = lastSignals.length > 0 ? lastSignals[0] : null;
-
+    const lastSignal = lastSignals[0];
+    
     if (lastSignal) {
-      console.log(`Last signal was '${lastSignal.type}' with '${lastSignal.level}' confidence. New signal is '${newSignal.type}' with '${newSignal.level}' confidence.`);
-    } else {
-      console.log('No previous signals found in history.');
+      const lastSignalTime = new Date(lastSignal.serverTime).getTime();
+      const currentTime = Date.now();
+      const minutesDiff = (currentTime - lastSignalTime) / (1000 * 60);
+      
+      if (minutesDiff < SIGNAL_COOLDOWN) {
+        console.log(`Cooldown active: ${minutesDiff.toFixed(1)}/${SIGNAL_COOLDOWN} minutes`);
+        return NextResponse.json({ message: 'Signal skipped: Cooldown period' });
+      }
     }
 
-    // Prevent a signal if the type AND level are the same as the last one.
-    if (lastSignal && newSignal.type === lastSignal.type && newSignal.level === lastSignal.level) {
-        const message = `Skipping save. New signal '${newSignal.type} (${newSignal.level})' is identical to the last signal.`;
-        console.log(`❌ ${message}`);
-        return NextResponse.json({ message });
-    }
-
-    // 5. Save the New, Unique Signal to Firestore
+    // Save the signal
     const result = await saveSignalToFirestore(newSignal);
-    if(result.success) {
-      console.log(`🚀 Successfully saved ${newSignal.type} signal (${newSignal.level} confidence) to Firestore.`);
-      return NextResponse.json({ message: 'Signal generated and saved successfully', signal: newSignal });
+    if (result.success) {
+      console.log(`Signal saved: ${newSignal.type} (${newSignal.level})`);
+      return NextResponse.json({ message: 'Signal saved', signal: newSignal });
     } else {
-      console.error('Failed to save signal to Firestore:', result.error);
-      return NextResponse.json({ message: 'Failed to save signal', error: result.error }, { status: 500 });
+      console.error('Save failed:', result.error);
+      return NextResponse.json({ message: 'Save error', error: result.error }, { status: 500 });
     }
 
   } catch (error) {
-    console.error('Error in cron job:', error);
-    return NextResponse.json({ message: 'Error executing cron job', error: (error as Error).message }, { status: 500 });
+    console.error('Cron error:', error);
+    return NextResponse.json({ message: 'Server error', error: (error as Error).message }, { status: 500 });
   }
 }
