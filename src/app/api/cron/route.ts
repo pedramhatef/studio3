@@ -2,7 +2,7 @@
 // src/app/api/cron/route.ts
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } from '@/app/actions';
-import type { ChartDataPoint, Signal } from '@/lib/types';
+import type { Signal } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 
 // =================================================================================
