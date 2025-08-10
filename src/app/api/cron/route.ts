@@ -120,8 +120,6 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
     const shouldGenerateSell = !lastSignal || lastSignal.type !== 'SELL';
 
     const closePrices = chartData.map(p => p.close);
-    const lowPrices = chartData.map(p => p.low);
-    const highPrices = chartData.map(p => p.high);
     const volumes = chartData.map(p => p.volume);
     
     // --- Indicator Calculations ---
@@ -143,7 +141,12 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
 
     if (!wt2 || !rsi || !volumeSMA || !tci) return null;
 
-    // Ensure access to previous data points is within bounds
+    // Basic check if required previous data exists
+    if (lastIndex < 1 || trendEMA.length <= lastIndex || tci.length <= lastIndex || !wt2[lastIndex-1] || !wt2[lastIndex] || macdLine.length <= lastIndex || signalLine.length <= lastIndex || !rsi[lastIndex] || volumeSMA.length <= lastIndex) {
+        console.error("Insufficient data points for calculating all indicators and signals.");
+        return null;
+    }
+
     const lastVolume = volumes[lastIndex];
     const lastVolumeSMA = volumeSMA[lastIndex];
     const lastTrendEMA = trendEMA[lastIndex];
@@ -156,11 +159,6 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
     const lastRsi = rsi[lastIndex];
     const lastClose = closePrices[lastIndex];
 
-    // Basic check if required previous data exists
-    if (lastIndex < 1 || trendEMA.length <= lastIndex || tci.length <= lastIndex || wt2.length <= lastIndex || macdLine.length <= lastIndex || signalLine.length <= lastIndex || rsi.length <= lastIndex || volumeSMA.length <= lastIndex) {
-        console.error("Insufficient data points for calculating all indicators and signals.");
-        return null;
-    }
 
     if (lastVolumeSMA === null || lastWt2 === null || prevWt2 === null || lastRsi === null) {
       return null;
