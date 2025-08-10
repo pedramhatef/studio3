@@ -140,29 +140,19 @@ export function SignalDashboard() {
                 <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
                     <div className="flex items-center gap-2">
                         <div className="h-3 w-3 rounded-full bg-green-500" />
-                        <span>Buy Signal</span>
+                        <span>Buy Signal (High)</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="h-3 w-3 rounded-full bg-red-500" />
-                        <span>Sell Signal</span>
+                        <span>Sell Signal (High)</span>
                     </div>
                      <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded-full bg-yellow-400" />
-                        <span>Low Confidence</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1">
-                            <div className="h-3 w-3 rounded-full bg-green-500" />
-                            <div className="h-3 w-3 rounded-full bg-red-500" />
-                        </div>
-                        <span>High (Solid)</span>
-                    </div>
-                     <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1">
-                          <div className="h-3 w-3 rounded-full ring-2 ring-offset-2 ring-offset-background ring-green-500" />
-                          <div className="h-3 w-3 rounded-full ring-2 ring-offset-2 ring-offset-background ring-red-500" />
-                        </div>
+                        <div className="h-3 w-3 rounded-full ring-2 ring-offset-2 ring-offset-background ring-green-500" />
                         <span>Medium (Ring)</span>
+                    </div>
+                     <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-full ring-2 ring-offset-2 ring-offset-background ring-yellow-400" />
+                        <span>Low (Ring)</span>
                     </div>
                 </div>
             </div>
