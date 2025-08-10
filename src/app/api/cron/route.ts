@@ -32,7 +32,7 @@ const calculateEMA = (data: number[], period: number): number[] => {
       emaArray[i] = data[i] * k + emaArray[i - 1] * (1 - k);
     }
     return emaArray;
-  };
+};
   
 const calculateSMA = (data: number[], period: number): (number | null)[] => {
     const smaArray: (number | null)[] = Array(data.length).fill(null);
@@ -46,60 +46,61 @@ const calculateSMA = (data: number[], period: number): (number | null)[] => {
       smaArray[i] = sum / period;
     }
     return smaArray;
-  };
+};
   
 const calculateRSI = (data: number[], period: number): (number | null)[] => {
-      if (data.length < period + 1) return Array(data.length).fill(null);
-      
-      const rsiArray: (number | null)[] = new Array(data.length).fill(null);
-      const changes = data.slice(1).map((val, i) => val - data[i]);
-  
-      let avgGain = 0;
-      let avgLoss = 0;
-  
-      // Initial calculation
-      const initialChanges = changes.slice(0, period);
-      initialChanges.forEach(change => {
-          if (change > 0) avgGain += change;
-          else avgLoss -= change;
-      });
-  
-      avgGain /= period;
-      avgLoss /= period;
-      
-      const firstRsiIndex = period; // The first valid RSI value is at index 'period'
-      if (firstRsiIndex < rsiArray.length) {
-          if (avgLoss === 0) {
-              rsiArray[firstRsiIndex] = 100; // Avoid division by zero for RS calculation
-          } else {
-              const rs = avgGain / avgLoss;
-              rsiArray[firstRsiIndex] = 100 - (100 / (1 + rs));
-          }
-      }
-  
-      // Subsequent calculations using Wilder's smoothing
-      for (let i = firstRsiIndex; i < data.length - 1; i++) {
-          const change = changes[i];
-          const gain = change > 0 ? change : 0;
-          const loss = change < 0 ? -change : 0;
-  
-          avgGain = (avgGain * (period - 1) + gain) / period;
-          avgLoss = (avgLoss * (period - 1) + loss) / period;
-
-          const rsiIndex = i + 1;
-          if (rsiIndex < data.length) {
-              if (avgLoss === 0) {
-                  rsiArray[rsiIndex] = 100;
-              } else {
-                  const rs = avgGain / avgLoss;
-                  rsiArray[rsiIndex] = 100 - (100 / (1 + rs));
-              }
-          }
-      }
+    if (data.length < period + 1) return Array(data.length).fill(null);
     
-      return rsiArray;
-  };
+    const rsiArray: (number | null)[] = new Array(data.length).fill(null);
+    const changes = data.slice(1).map((val, i) => val - data[i]);
 
+    let avgGain = 0;
+    let avgLoss = 0;
+
+    // Initial calculation
+    const initialChanges = changes.slice(0, period);
+    initialChanges.forEach(change => {
+        if (change > 0) avgGain += change;
+        else avgLoss -= change;
+    });
+
+    avgGain /= period;
+    avgLoss /= period;
+    
+    const firstRsiIndex = period; // The first valid RSI value is at index 'period'
+    if (firstRsiIndex < rsiArray.length) {
+        if (avgLoss === 0) {
+            rsiArray[firstRsiIndex] = 100; // Avoid division by zero for RS calculation
+        } else {
+            const rs = avgGain / avgLoss;
+            rsiArray[firstRsiIndex] = 100 - (100 / (1 + rs));
+        }
+    }
+
+    // Subsequent calculations using Wilder's smoothing
+    for (let i = firstRsiIndex; i < data.length - 1; i++) {
+        const change = changes[i];
+        const gain = change > 0 ? change : 0;
+        const loss = change < 0 ? -change : 0;
+
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+
+        const rsiIndex = i + 1;
+        if (rsiIndex < data.length) {
+            if (avgLoss === 0) {
+                rsiArray[rsiIndex] = 100;
+            } else {
+                const rs = avgGain / avgLoss;
+                rsiArray[rsiIndex] = 100 - (100 / (1 + rs));
+            }
+        }
+    }
+  
+    return rsiArray;
+};
+
+// --- CORE SIGNAL GENERATION LOGIC ---
 async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | null): Promise<Signal | null> {
     const requiredDataLength = Math.max(
         INDICATOR_PARAMS.WT_CHANNEL_LENGTH + INDICATOR_PARAMS.WT_AVERAGE_LENGTH,
@@ -111,14 +112,9 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
 
     if (chartData.length < requiredDataLength) return null;
 
-    // --- Definitive Duplicate Prevention ---
-    // This is the absolute rule: only generate a signal if its type is different from the last one.
-    const shouldGenerateBuy = !lastSignal || lastSignal.type !== 'BUY';
-    const shouldGenerateSell = !lastSignal || lastSignal.type !== 'SELL';
-
     const closePrices = chartData.map(p => p.close);
     const volumes = chartData.map(p => p.volume);
-    
+
     // --- Indicator Calculations ---
     const trendEMA = calculateEMA(closePrices, INDICATOR_PARAMS.EMA_TREND_PERIOD);
     const ap = chartData.map(p => (p.high + p.low + p.close) / 3);
@@ -139,10 +135,20 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
     if (!wt2 || !rsi || !volumeSMA || !tci) return null;
 
     // Basic check if required previous data exists
-    if (lastIndex < 1 || trendEMA.length <= lastIndex || tci.length <= lastIndex || !wt2[lastIndex-1] || !wt2[lastIndex] || macdLine.length <= lastIndex || signalLine.length <= lastIndex || !rsi[lastIndex] || volumeSMA.length <= lastIndex) {
+    if (
+        lastIndex < 1 ||
+        trendEMA.length <= lastIndex ||
+        tci.length <= lastIndex ||
+        !wt2[lastIndex-1] ||
+        !wt2[lastIndex] ||
+        macdLine.length <= lastIndex ||
+        signalLine.length <= lastIndex ||
+        !rsi[lastIndex] ||
+        volumeSMA.length <= lastIndex
+    ) {
         return null;
     }
-
+    
     const lastVolume = volumes[lastIndex];
     const lastVolumeSMA = volumeSMA[lastIndex];
     const lastTrendEMA = trendEMA[lastIndex];
@@ -156,7 +162,7 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
     const lastClose = closePrices[lastIndex];
 
     if (lastVolumeSMA === null || lastWt2 === null || prevWt2 === null || lastRsi === null) {
-      return null;
+        return null;
     }
 
     // --- Condition Checks ---
@@ -173,69 +179,74 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
     const isRSIOverbought = lastRsi > INDICATOR_PARAMS.RSI_OB;
 
     let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
-    
-    // The logic is now gated by the definitive duplicate prevention flags
-    if (shouldGenerateBuy && (isWTBuyCross || (isUptrend && isMACDConfirmBuy) || isRSIOversold)) {
-        const confirmations = (isWTBuyCross ? 1 : 0) + (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0) + (isUptrend ? 1 : 0);
-        
-        if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
-        else if (confirmations >= 2) newSignal = { type: 'BUY', level: 'Medium' };
-        else if (isWTBuyCross || isRSIOversold) newSignal = { type: 'BUY', level: 'Low' };
-    } 
-    else if (shouldGenerateSell && (isWTSellCross || (isDowntrend && isMACDConfirmSell) || isRSIOverbought)) {
-        const confirmations = (isWTSellCross ? 1 : 0) + (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0);
-        
-        if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
-        else if (confirmations >= 2) newSignal = { type: 'SELL', level: 'Medium' };
-        else if (isWTSellCross || isRSIOverbought) newSignal = { type: 'SELL', level: 'Low' };
+
+    // --- STRICT OPPOSITE-DIRECTION LOGIC ---
+    if (!lastSignal || lastSignal.type === 'SELL') {
+        // Only allow BUY signal
+        if (isWTBuyCross || (isUptrend && isMACDConfirmBuy) || isRSIOversold) {
+            const confirmations = (isWTBuyCross ? 1 : 0) + (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0) + (isUptrend ? 1 : 0);
+            if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
+            else if (confirmations >= 2) newSignal = { type: 'BUY', level: 'Medium' };
+            else if (isWTBuyCross || isRSIOversold) newSignal = { type: 'BUY', level: 'Low' };
+        }
+    } else if (lastSignal.type === 'BUY') {
+        // Only allow SELL signal
+        if (isWTSellCross || (isDowntrend && isMACDConfirmSell) || isRSIOverbought) {
+            const confirmations = (isWTSellCross ? 1 : 0) + (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0);
+            if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
+            else if (confirmations >= 2) newSignal = { type: 'SELL', level: 'Medium' };
+            else if (isWTSellCross || isRSIOverbought) newSignal = { type: 'SELL', level: 'Low' };
+        }
     }
-    
+
     if (newSignal) {
-      const lastDataPoint = chartData[lastIndex];
-      // Final check: Do not save if the signal is for the same exact time as the last one.
-      // This is a secondary guard. The primary guard is the shouldGenerateBuy/Sell logic.
-      if (lastSignal?.time === lastDataPoint.time) {
-          console.log(`Preventing duplicate signal for the same timestamp: ${lastDataPoint.time}`);
-          return null;
-      }
-      return {
-          ...newSignal,
-          price: lastDataPoint.close,
-          time: lastDataPoint.time,
-      };
+        const lastDataPoint = chartData[lastIndex];
+        // Final check: Do not save if the signal is for the same exact time as the last one.
+        if (lastSignal?.time === lastDataPoint.time) {
+            console.log(`Preventing duplicate signal for the same timestamp: ${lastDataPoint.time}`);
+            return null;
+        }
+        return {
+            ...newSignal,
+            price: lastDataPoint.close,
+            time: lastDataPoint.time,
+        };
     }
 
     return null;
 }
 
+
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  if (process.env.NODE_ENV === 'production' && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return new NextResponse('Unauthorized', {
-      status: 401,
-    });
-  }
-
-  try {
-    const chartData = await getChartData();
-    if (!chartData || chartData.length < 2) { 
-      return NextResponse.json({ message: 'No chart data fetched.' });
+    const authHeader = request.headers.get('authorization');
+    if (process.env.NODE_ENV === 'production' && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return new NextResponse('Unauthorized', {
+            status: 401,
+        });
     }
 
-    // Get only the single most recent signal from Firestore
-    const signalHistory = await getSignalHistoryFromFirestore();
-    const lastSignal = signalHistory.length > 0 ? signalHistory[0] : null;
+    try {
+        const chartData = await getChartData();
+        if (!chartData || chartData.length < 2) { 
+            return NextResponse.json({ message: 'No chart data fetched.' });
+        }
 
-    const newSignal = await getNewSignal(chartData, lastSignal);
+        // Get only the single most recent signal from Firestore
+        const signalHistory = await getSignalHistoryFromFirestore();
+        const lastSignal = signalHistory.length > 0 ? signalHistory[0] : null;
 
-    if (newSignal) {
-        await saveSignalToFirestore(newSignal);
-        return NextResponse.json({ message: `Saved ${newSignal.type} signal.`, signal: newSignal });
+        const newSignal = await getNewSignal(chartData, lastSignal);
+
+        if (newSignal) {
+            await saveSignalToFirestore(newSignal);
+            return NextResponse.json({ message: `Saved ${newSignal.type} signal.`, signal: newSignal });
+        }
+
+        return NextResponse.json({ message: 'No new signal generated.' });
+    } catch (error) {
+        console.error('Cron job error:', error);
+        return new NextResponse('Internal Server Error', { status: 500, statusText: (error as Error).message });
     }
-
-    return NextResponse.json({ message: 'No new signal generated.' });
-  } catch (error) {
-    console.error('Cron job error:', error);
-    return new NextResponse('Internal Server Error', { status: 500, statusText: (error as Error).message });
-  }
 }
+
+    
