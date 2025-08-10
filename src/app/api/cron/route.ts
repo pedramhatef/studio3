@@ -6,28 +6,98 @@ import type { ChartDataPoint, Signal } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 
 // =================================================================================
-// TRADING LOGIC & INDICATOR CALCULATIONS
+// TRADING STRATEGY CONFIGURATION
 // =================================================================================
-// The new trading logic will be implemented here in subsequent steps.
-// This is currently a placeholder to ensure the cron job runs successfully.
-// =================================================================================
-
+const EMA_FAST_PERIOD = 5;
+const EMA_SLOW_PERIOD = 15;
+const PARABOLIC_SAR_STEP = 0.02;
+const PARABOLIC_SAR_MAX = 0.2;
 
 /**
- * This function is the entry point for the cron job.
- * It is executed every minute.
- * 
- * This is a placeholder and will be replaced with the new signal generation logic.
+ * This function is the entry point for the cron job, executed every minute.
+ * It implements the Core Trend-Following System to generate trading signals.
  */
 export async function GET() {
-  console.log("Cron job triggered. New signal generation logic is not yet implemented.");
-  
-  // In the future, this function will:
-  // 1. Fetch the latest market data.
-  // 2. Calculate technical indicators using the 'indicators' library.
-  // 3. Generate a BUY or SELL signal based on the strategy.
-  // 4. Check against the last signal to prevent duplicates.
-  // 5. Save the new, unique signal to Firestore.
+  console.log(`Cron job triggered at ${new Date().toISOString()}`);
 
-  return NextResponse.json({ message: 'New signal generation logic is not yet implemented.' });
+  try {
+    // 1. Fetch Latest Market Data
+    const chartData = await getChartData();
+    if (chartData.length < EMA_SLOW_PERIOD) {
+      return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
+    }
+
+    const closePrices = chartData.map(d => d.close);
+    const latestDataPoint = chartData[chartData.length - 1];
+
+    // 2. Calculate Technical Indicators
+    const emaFast = indicators.calculateEMA(closePrices, EMA_FAST_PERIOD);
+    const emaSlow = indicators.calculateEMA(closePrices, EMA_SLOW_PERIOD);
+    const pSar = indicators.calculateParabolicSAR(chartData, PARABOLIC_SAR_STEP, PARABOLIC_SAR_MAX);
+    const vwap = indicators.calculateVWAP(chartData);
+
+    const latestEmaFast = emaFast[emaFast.length - 1];
+    const latestEmaSlow = emaSlow[emaSlow.length - 1];
+    const latestPSar = pSar[pSar.length - 1];
+    const latestVwap = vwap[vwap.length - 1];
+
+    // Ensure all latest indicator values are calculated
+    if (latestEmaFast === null || latestEmaSlow === null || latestPSar === null || latestVwap === null) {
+      return NextResponse.json({ message: 'Could not calculate latest indicator values.' });
+    }
+
+    let newSignal: Omit<Signal, 'displayTime' | 'serverTime'> | null = null;
+
+    // 3. Apply Trading Logic
+    // BUY Condition: EMA(5) > EMA(15) > VWAP and price above Parabolic SAR
+    const isBuySignal = latestEmaFast > latestEmaSlow && latestEmaSlow > latestVwap && latestDataPoint.close > latestPSar;
+    
+    // SELL Condition: EMA(5) crosses below EMA(15) or price crosses Parabolic SAR
+    const isSellSignal = latestEmaFast < latestEmaSlow || latestDataPoint.close < latestPSar;
+
+    if (isBuySignal) {
+        newSignal = {
+            type: 'BUY',
+            level: 'High',
+            price: latestDataPoint.close,
+            time: latestDataPoint.time,
+        };
+        console.log('New BUY signal generated:', newSignal);
+    } else if (isSellSignal) {
+        newSignal = {
+            type: 'SELL',
+            level: 'High',
+            price: latestDataPoint.close,
+            time: latestDataPoint.time,
+        };
+        console.log('New SELL signal generated:', newSignal);
+    }
+
+    if (!newSignal) {
+        return NextResponse.json({ message: 'No new signal generated based on current strategy.' });
+    }
+
+    // 4. Prevent Consecutive Duplicate Signals
+    const lastSignals = await getSignalHistoryFromFirestore();
+    const lastSignal = lastSignals.length > 0 ? lastSignals[0] : null;
+
+    if (lastSignal && newSignal.type === lastSignal.type) {
+        console.log(`Skipping save. New signal type '${newSignal.type}' is same as last signal.`);
+        return NextResponse.json({ message: `Duplicate signal (${newSignal.type}) suppressed.` });
+    }
+
+    // 5. Save the New, Unique Signal to Firestore
+    const result = await saveSignalToFirestore(newSignal);
+    if(result.success) {
+      console.log(`Successfully saved ${newSignal.type} signal to Firestore.`);
+      return NextResponse.json({ message: 'Signal generated and saved successfully', signal: newSignal });
+    } else {
+      console.error('Failed to save signal to Firestore:', result.error);
+      return NextResponse.json({ message: 'Failed to save signal', error: result.error }, { status: 500 });
+    }
+
+  } catch (error) {
+    console.error('Error in cron job:', error);
+    return NextResponse.json({ message: 'Error executing cron job', error: (error as Error).message }, { status: 500 });
+  }
 }
