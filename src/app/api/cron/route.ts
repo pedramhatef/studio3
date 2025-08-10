@@ -64,14 +64,11 @@ export async function GET() {
 
     let newSignal: Omit<Signal, 'displayTime' | 'serverTime'> | null = null;
 
-    // 3. Apply Trading Logic
+    // 3. Apply Trading Logic for Core Trend-Following System
     const isBuySignal = latestEmaFast > latestEmaSlow && latestDataPoint.close > latestVwap && latestDataPoint.close > latestPSar;
     const isSellSignal = latestEmaFast < latestEmaSlow || latestDataPoint.close < latestPSar;
     
-    console.log("Evaluating Conditions:", {
-      isBuySignal,
-      isSellSignal
-    });
+    console.log("Evaluating Conditions for Core Trend-Following System:");
     console.log(`  - EMA(5) > EMA(15)? ${latestEmaFast > latestEmaSlow}`);
     console.log(`  - Price > VWAP? ${latestDataPoint.close > latestVwap}`);
     console.log(`  - Price > PSAR? ${latestDataPoint.close > latestPSar}`);
@@ -82,6 +79,8 @@ export async function GET() {
     if (isBuySignal) {
         newSignal = {
             type: 'BUY',
+            // This is the Core Trend-Following system, which is high-probability.
+            // Other systems will generate 'Medium' or 'Low' confidence signals.
             level: 'High',
             price: latestDataPoint.close,
             time: latestDataPoint.time,
@@ -90,6 +89,7 @@ export async function GET() {
     } else if (isSellSignal) {
         newSignal = {
             type: 'SELL',
+            // This is the Core Trend-Following system, which is high-probability.
             level: 'High',
             price: latestDataPoint.close,
             time: latestDataPoint.time,
