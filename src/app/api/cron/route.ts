@@ -1,12 +1,14 @@
+
 // src/app/api/cron/route.ts
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } from '@/app/actions';
 import type { ChartDataPoint, Signal } from '@/lib/types';
+import * as indicators from '@/lib/indicators';
 
 // =================================================================================
 // TRADING LOGIC & INDICATOR CALCULATIONS
 // =================================================================================
-// Note: The new trading logic will be implemented here in subsequent steps.
+// The new trading logic will be implemented here in subsequent steps.
 // This is currently a placeholder to ensure the cron job runs successfully.
 // =================================================================================
 
@@ -22,9 +24,10 @@ export async function GET() {
   
   // In the future, this function will:
   // 1. Fetch the latest market data.
-  // 2. Calculate technical indicators.
+  // 2. Calculate technical indicators using the 'indicators' library.
   // 3. Generate a BUY or SELL signal based on the strategy.
-  // 4. Save the signal to Firestore.
+  // 4. Check against the last signal to prevent duplicates.
+  // 5. Save the new, unique signal to Firestore.
 
   return NextResponse.json({ message: 'New signal generation logic is not yet implemented.' });
 }
