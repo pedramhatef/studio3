@@ -113,6 +113,12 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
 
     if (chartData.length < requiredDataLength) return null;
 
+    // --- Signal Logic ---
+    // Rule: Do not generate a new signal if it's the same type as the last one.
+    // This is the primary fix to prevent back-to-back signals of the same type.
+    const shouldGenerateBuy = !lastSignal || lastSignal.type !== 'BUY';
+    const shouldGenerateSell = !lastSignal || lastSignal.type !== 'SELL';
+
     const closePrices = chartData.map(p => p.close);
     const lowPrices = chartData.map(p => p.low);
     const highPrices = chartData.map(p => p.high);
@@ -175,12 +181,6 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
 
     let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
     
-    // --- Signal Logic ---
-    // Rule: Do not generate a new signal if it's the same type as the last one
-    // This is the primary fix to prevent back-to-back signals of the same type.
-    const shouldGenerateBuy = lastSignal?.type !== 'BUY';
-    const shouldGenerateSell = lastSignal?.type !== 'SELL';
-
     if (shouldGenerateBuy && (isWTBuyCross || (isUptrend && isMACDConfirmBuy) || isRSIOversold)) {
         const confirmations = (isWTBuyCross ? 1 : 0) + (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0) + (isUptrend ? 1 : 0);
         
