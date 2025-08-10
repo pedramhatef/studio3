@@ -3,8 +3,8 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
-  title: 'Bybit Balance View',
-  description: 'View your Bybit unified account balance.',
+  title: 'Signal-DOGEUSDT',
+  description: 'Signal Generator.',
 };
 
 export default function RootLayout({
