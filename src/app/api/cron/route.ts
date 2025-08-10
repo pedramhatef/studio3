@@ -78,7 +78,6 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
       }
   
       // Subsequent calculations using Wilder's smoothing
-      // The loop should start from the first index where a valid RSI was calculated + 1
       for (let i = firstRsiIndex; i < data.length - 1; i++) {
           const change = changes[i];
           const gain = change > 0 ? change : 0;
@@ -87,7 +86,6 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
           avgGain = (avgGain * (period - 1) + gain) / period;
           avgLoss = (avgLoss * (period - 1) + loss) / period;
 
-          // The RSI value corresponds to the data point at index i + 1
           const rsiIndex = i + 1;
           if (rsiIndex < data.length) {
               if (avgLoss === 0) {
@@ -113,9 +111,8 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
 
     if (chartData.length < requiredDataLength) return null;
 
-    // --- Signal Logic ---
-    // Rule: Do not generate a new signal if it's the same type as the last one.
-    // This is the primary fix to prevent back-to-back signals of the same type.
+    // --- Definitive Duplicate Prevention ---
+    // This is the absolute rule: only generate a signal if its type is different from the last one.
     const shouldGenerateBuy = !lastSignal || lastSignal.type !== 'BUY';
     const shouldGenerateSell = !lastSignal || lastSignal.type !== 'SELL';
 
@@ -143,7 +140,6 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
 
     // Basic check if required previous data exists
     if (lastIndex < 1 || trendEMA.length <= lastIndex || tci.length <= lastIndex || !wt2[lastIndex-1] || !wt2[lastIndex] || macdLine.length <= lastIndex || signalLine.length <= lastIndex || !rsi[lastIndex] || volumeSMA.length <= lastIndex) {
-        console.error("Insufficient data points for calculating all indicators and signals.");
         return null;
     }
 
@@ -158,7 +154,6 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
     const lastMacdSignal = signalLine[lastIndex];
     const lastRsi = rsi[lastIndex];
     const lastClose = closePrices[lastIndex];
-
 
     if (lastVolumeSMA === null || lastWt2 === null || prevWt2 === null || lastRsi === null) {
       return null;
@@ -179,24 +174,26 @@ async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | nu
 
     let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
     
+    // The logic is now gated by the definitive duplicate prevention flags
     if (shouldGenerateBuy && (isWTBuyCross || (isUptrend && isMACDConfirmBuy) || isRSIOversold)) {
         const confirmations = (isWTBuyCross ? 1 : 0) + (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0) + (isUptrend ? 1 : 0);
         
         if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
         else if (confirmations >= 2) newSignal = { type: 'BUY', level: 'Medium' };
-        else if (isWTBuyCross || isRSIOversold) newSignal = { type: 'BUY', level: 'Low' }; // Allow low confidence for primary triggers
+        else if (isWTBuyCross || isRSIOversold) newSignal = { type: 'BUY', level: 'Low' };
     } 
     else if (shouldGenerateSell && (isWTSellCross || (isDowntrend && isMACDConfirmSell) || isRSIOverbought)) {
         const confirmations = (isWTSellCross ? 1 : 0) + (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0);
         
         if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
         else if (confirmations >= 2) newSignal = { type: 'SELL', level: 'Medium' };
-        else if (isWTSellCross || isRSIOverbought) newSignal = { type: 'SELL', level: 'Low' }; // Allow low confidence for primary triggers
+        else if (isWTSellCross || isRSIOverbought) newSignal = { type: 'SELL', level: 'Low' };
     }
     
     if (newSignal) {
       const lastDataPoint = chartData[lastIndex];
       // Final check: Do not save if the signal is for the same exact time as the last one.
+      // This is a secondary guard. The primary guard is the shouldGenerateBuy/Sell logic.
       if (lastSignal?.time === lastDataPoint.time) {
           console.log(`Preventing duplicate signal for the same timestamp: ${lastDataPoint.time}`);
           return null;
@@ -225,7 +222,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: 'No chart data fetched.' });
     }
 
-    // Get the last signal from Firestore
+    // Get only the single most recent signal from Firestore
     const signalHistory = await getSignalHistoryFromFirestore();
     const lastSignal = signalHistory.length > 0 ? signalHistory[0] : null;
 

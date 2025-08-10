@@ -77,9 +77,10 @@ export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>)
 export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
     try {
       const signalsCol = collection(db, "signals");
-      // Fetch only the single most recent document
+      // Fetch only the single most recent document, which is the only one we need to prevent duplicates.
       const q = query(signalsCol, orderBy("serverTime", "desc"), limit(1));
       const querySnapshot = await getDocs(q);
+      
       const signals = querySnapshot.docs.map(doc => {
         const data = doc.data();
         return {
@@ -89,7 +90,9 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
           time: data.time,
         } as Signal;
       });
-      return signals; // No need to reverse, it's just one or zero items
+      
+      // The query returns an array with 0 or 1 item, already in the correct order (most recent).
+      return signals; 
     } catch (error) {
       console.error("Error fetching signal history:", error);
       return [];
