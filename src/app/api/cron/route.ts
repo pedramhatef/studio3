@@ -67,26 +67,28 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
       avgGain /= period;
       avgLoss /= period;
       
-      const firstRsiIndex = period;
-      if (firstRsiIndex < data.length) {
+      const firstRsiIndex = period; // The first valid RSI value is at index 'period'
+      if (firstRsiIndex < rsiArray.length) {
           if (avgLoss === 0) {
-              rsiArray[firstRsiIndex] = 100;
+              rsiArray[firstRsiIndex] = 100; // Avoid division by zero for RS calculation
           } else {
               const rs = avgGain / avgLoss;
               rsiArray[firstRsiIndex] = 100 - (100 / (1 + rs));
           }
       }
   
-      // Subsequent calculations
-      for (let i = period; i < changes.length; i++) {
+      // Subsequent calculations using Wilder's smoothing
+      // The loop should start from the first index where a valid RSI was calculated + 1
+      for (let i = firstRsiIndex; i < data.length - 1; i++) {
           const change = changes[i];
           const gain = change > 0 ? change : 0;
           const loss = change < 0 ? -change : 0;
   
           avgGain = (avgGain * (period - 1) + gain) / period;
           avgLoss = (avgLoss * (period - 1) + loss) / period;
-          
-          const rsiIndex = i + 1; 
+
+          // The RSI value corresponds to the data point at index i + 1
+          const rsiIndex = i + 1;
           if (rsiIndex < data.length) {
               if (avgLoss === 0) {
                   rsiArray[rsiIndex] = 100;
@@ -134,7 +136,8 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
     const lastIndex = chartData.length - 1;
 
     if (!wt2 || !rsi || !volumeSMA || !tci) return null;
-    
+
+    // Ensure access to previous data points is within bounds
     const lastVolume = volumes[lastIndex];
     const lastVolumeSMA = volumeSMA[lastIndex];
     const lastTrendEMA = trendEMA[lastIndex];
@@ -145,7 +148,14 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
     const lastMacd = macdLine[lastIndex];
     const lastMacdSignal = signalLine[lastIndex];
     const lastRsi = rsi[lastIndex];
+    const prevRsi = rsi[lastIndex - 1]; // Get previous RSI for potential divergence check
     const lastClose = closePrices[lastIndex];
+
+    // Basic check if required previous data exists
+    if (lastIndex < 1 || trendEMA.length <= lastIndex || tci.length <= lastIndex || wt2.length <= lastIndex || macdLine.length <= lastIndex || signalLine.length <= lastIndex || rsi.length <= lastIndex || volumeSMA.length <= lastIndex) {
+        console.error("Insufficient data points for calculating all indicators and signals.");
+        return null;
+    }
 
     if (lastVolumeSMA === null || lastWt2 === null || prevWt2 === null || lastRsi === null) {
       return null;
@@ -166,27 +176,40 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
 
     // RSI Bullish Divergence check (price makes lower low, RSI makes higher low)
     let isBullishDivergence = false;
-    if (rsi.length > 15) {
-        const lookbackPeriod = 14;
-        const recentLowPriceIndex = lowPrices.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x < arr[iMin] ? i : iMin, 0) + (lastIndex - lookbackPeriod);
-        if (rsi[recentLowPriceIndex] !== null) {
-            const recentLowRsiIndex = rsi.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMin, x, i, arr) => x! < arr[iMin]! ? i : iMin, 0) + (lastIndex - lookbackPeriod);
-            if (lastClose < lowPrices[recentLowPriceIndex] && rsi[lastIndex]! > rsi[recentLowRsiIndex]!) {
-                isBullishDivergence = true;
+    // Check for at least a few candles before the last one to find a potential lower low
+    const lookbackPeriod = 20; // Increased lookback for divergence
+    if (lastIndex > lookbackPeriod) {
+        const recentLowSlice = lowPrices.slice(lastIndex - lookbackPeriod, lastIndex);
+        const recentLowPrice = Math.min(...recentLowSlice);
+        const recentLowPriceIndex = lowPrices.lastIndexOf(recentLowPrice, lastIndex - 1); // Find the index of that recent low
+
+        // Ensure the recent low price index is valid and within the lookback
+        if (recentLowPriceIndex !== -1 && recentLowPriceIndex >= lastIndex - lookbackPeriod && rsi[recentLowPriceIndex] !== null) {
+             // Find the corresponding lowest RSI in the same lookback period
+            const recentRsiSlice = rsi.slice(lastIndex - lookbackPeriod, lastIndex);
+             // Filter out nulls before finding the min RSI value and its index
+            const nonNullRecentRsiSlice = recentRsiSlice.filter((val): val is number => val !== null);
+            if (nonNullRecentRsiSlice.length > 0) {
+                 const recentLowRsi = Math.min(...nonNullRecentRsiSlice);
+                 const recentLowRsiIndex = rsi.lastIndexOf(recentLowRsi, lastIndex - 1); // Find the index of that recent low RSI
+
+                 if (recentLowRsiIndex !== -1 && recentLowRsiIndex >= lastIndex - lookbackPeriod && lastClose < recentLowPrice && lastRsi > rsi[recentLowRsiIndex]!) {
+                     isBullishDivergence = true;
+                 }
             }
         }
     }
-    
+
     // RSI Bearish Divergence check (price makes higher high, RSI makes lower high)
     let isBearishDivergence = false;
-    if (rsi.length > 15) {
-        const lookbackPeriod = 14;
-        const recentHighPriceIndex = highPrices.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMax, x, i, arr) => x > arr[iMax] ? i : iMax, 0) + (lastIndex - lookbackPeriod);
-        if (rsi[recentHighPriceIndex] !== null) {
-            const recentHighRsiIndex = rsi.slice(lastIndex - lookbackPeriod, lastIndex).reduce((iMax, x, i, arr) => x! > arr[iMax]! ? i : iMax, 0) + (lastIndex - lookbackPeriod);
-            if (lastClose > highPrices[recentHighPriceIndex] && rsi[lastIndex]! < rsi[recentHighRsiIndex]!) {
-                isBearishDivergence = true;
-            }
+    if (lastIndex > lookbackPeriod) {
+        const recentHighSlice = highPrices.slice(lastIndex - lookbackPeriod, lastIndex);
+        const recentHighPrice = Math.max(...recentHighSlice);
+        const recentHighPriceIndex = highPrices.lastIndexOf(recentHighPrice, lastIndex - 1);
+
+        // Simplified check for bearish divergence (price higher high, RSI lower high)
+        if (recentHighPriceIndex !== -1 && recentHighPriceIndex >= lastIndex - lookbackPeriod && rsi[recentHighPriceIndex] !== null && lastClose > recentHighPrice && lastRsi < rsi[recentHighPriceIndex]!) {
+            isBearishDivergence = true;
         }
     }
 
