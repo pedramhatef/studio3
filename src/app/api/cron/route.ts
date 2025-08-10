@@ -102,7 +102,7 @@ const calculateRSI = (data: number[], period: number): (number | null)[] => {
       return rsiArray;
   };
 
-async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null> {
+async function getNewSignal(chartData: ChartDataPoint[], lastSignal: Signal | null): Promise<Signal | null> {
     const requiredDataLength = Math.max(
         INDICATOR_PARAMS.WT_CHANNEL_LENGTH + INDICATOR_PARAMS.WT_AVERAGE_LENGTH,
         INDICATOR_PARAMS.MACD_SLOW_PERIOD,
@@ -117,7 +117,7 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
     const lowPrices = chartData.map(p => p.low);
     const highPrices = chartData.map(p => p.high);
     const volumes = chartData.map(p => p.volume);
-
+    
     // --- Indicator Calculations ---
     const trendEMA = calculateEMA(closePrices, INDICATOR_PARAMS.EMA_TREND_PERIOD);
     const ap = chartData.map(p => (p.high + p.low + p.close) / 3);
@@ -148,7 +148,6 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
     const lastMacd = macdLine[lastIndex];
     const lastMacdSignal = signalLine[lastIndex];
     const lastRsi = rsi[lastIndex];
-    const prevRsi = rsi[lastIndex - 1]; // Get previous RSI for potential divergence check
     const lastClose = closePrices[lastIndex];
 
     // Basic check if required previous data exists
@@ -174,65 +173,36 @@ async function getNewSignal(chartData: ChartDataPoint[]): Promise<Signal | null>
     const isRSIOversold = lastRsi < INDICATOR_PARAMS.RSI_OS;
     const isRSIOverbought = lastRsi > INDICATOR_PARAMS.RSI_OB;
 
-    // RSI Bullish Divergence check (price makes lower low, RSI makes higher low)
-    let isBullishDivergence = false;
-    // Check for at least a few candles before the last one to find a potential lower low
-    const lookbackPeriod = 20; // Increased lookback for divergence
-    if (lastIndex > lookbackPeriod) {
-        const recentLowSlice = lowPrices.slice(lastIndex - lookbackPeriod, lastIndex);
-        const recentLowPrice = Math.min(...recentLowSlice);
-        const recentLowPriceIndex = lowPrices.lastIndexOf(recentLowPrice, lastIndex - 1); // Find the index of that recent low
-
-        // Ensure the recent low price index is valid and within the lookback
-        if (recentLowPriceIndex !== -1 && recentLowPriceIndex >= lastIndex - lookbackPeriod && rsi[recentLowPriceIndex] !== null) {
-             // Find the corresponding lowest RSI in the same lookback period
-            const recentRsiSlice = rsi.slice(lastIndex - lookbackPeriod, lastIndex);
-             // Filter out nulls before finding the min RSI value and its index
-            const nonNullRecentRsiSlice = recentRsiSlice.filter((val): val is number => val !== null);
-            if (nonNullRecentRsiSlice.length > 0) {
-                 const recentLowRsi = Math.min(...nonNullRecentRsiSlice);
-                 const recentLowRsiIndex = rsi.lastIndexOf(recentLowRsi, lastIndex - 1); // Find the index of that recent low RSI
-
-                 if (recentLowRsiIndex !== -1 && recentLowRsiIndex >= lastIndex - lookbackPeriod && lastClose < recentLowPrice && lastRsi > rsi[recentLowRsiIndex]!) {
-                     isBullishDivergence = true;
-                 }
-            }
-        }
-    }
-
-    // RSI Bearish Divergence check (price makes higher high, RSI makes lower high)
-    let isBearishDivergence = false;
-    if (lastIndex > lookbackPeriod) {
-        const recentHighSlice = highPrices.slice(lastIndex - lookbackPeriod, lastIndex);
-        const recentHighPrice = Math.max(...recentHighSlice);
-        const recentHighPriceIndex = highPrices.lastIndexOf(recentHighPrice, lastIndex - 1);
-
-        // Simplified check for bearish divergence (price higher high, RSI lower high)
-        if (recentHighPriceIndex !== -1 && recentHighPriceIndex >= lastIndex - lookbackPeriod && rsi[recentHighPriceIndex] !== null && lastClose > recentHighPrice && lastRsi < rsi[recentHighPriceIndex]!) {
-            isBearishDivergence = true;
-        }
-    }
-
     let newSignal: Omit<Signal, 'price' | 'time'> | null = null;
     
     // --- Signal Logic ---
-    if (isWTBuyCross || (isUptrend && isMACDConfirmBuy) || (isBullishDivergence && isRSIOversold)) {
-        const confirmations = (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0) + (isUptrend ? 1 : 0) + (isBullishDivergence ? 1 : 0);
+    // Rule: Do not generate a new signal if it's the same type as the last one
+    // This is the primary fix to prevent back-to-back signals of the same type.
+    const shouldGenerateBuy = lastSignal?.type !== 'BUY';
+    const shouldGenerateSell = lastSignal?.type !== 'SELL';
+
+    if (shouldGenerateBuy && (isWTBuyCross || (isUptrend && isMACDConfirmBuy) || isRSIOversold)) {
+        const confirmations = (isWTBuyCross ? 1 : 0) + (isMACDConfirmBuy ? 1 : 0) + (isRSIConfirmBuy ? 1 : 0) + (isUptrend ? 1 : 0);
         
         if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'BUY', level: 'High' };
         else if (confirmations >= 2) newSignal = { type: 'BUY', level: 'Medium' };
-        else newSignal = { type: 'BUY', level: 'Low' };
+        else if (isWTBuyCross || isRSIOversold) newSignal = { type: 'BUY', level: 'Low' }; // Allow low confidence for primary triggers
     } 
-    else if (isWTSellCross || (isDowntrend && isMACDConfirmSell) || (isBearishDivergence && isRSIOverbought)) {
-        const confirmations = (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0) + (isBearishDivergence ? 1 : 0);
+    else if (shouldGenerateSell && (isWTSellCross || (isDowntrend && isMACDConfirmSell) || isRSIOverbought)) {
+        const confirmations = (isWTSellCross ? 1 : 0) + (isMACDConfirmSell ? 1 : 0) + (isRSIConfirmSell ? 1 : 0) + (isDowntrend ? 1 : 0);
         
         if (confirmations >= 3 && isVolumeSpike) newSignal = { type: 'SELL', level: 'High' };
         else if (confirmations >= 2) newSignal = { type: 'SELL', level: 'Medium' };
-        else newSignal = { type: 'SELL', level: 'Low' };
+        else if (isWTSellCross || isRSIOverbought) newSignal = { type: 'SELL', level: 'Low' }; // Allow low confidence for primary triggers
     }
     
     if (newSignal) {
       const lastDataPoint = chartData[lastIndex];
+      // Final check: Do not save if the signal is for the same exact time as the last one.
+      if (lastSignal?.time === lastDataPoint.time) {
+          console.log(`Preventing duplicate signal for the same timestamp: ${lastDataPoint.time}`);
+          return null;
+      }
       return {
           ...newSignal,
           price: lastDataPoint.close,
@@ -253,23 +223,19 @@ export async function GET(request: NextRequest) {
 
   try {
     const chartData = await getChartData();
-    if (!chartData || chartData.length === 0) {
+    if (!chartData || chartData.length < 2) { 
       return NextResponse.json({ message: 'No chart data fetched.' });
     }
 
-    const newSignal = await getNewSignal(chartData);
+    // Get the last signal from Firestore
+    const signalHistory = await getSignalHistoryFromFirestore();
+    const lastSignal = signalHistory.length > 0 ? signalHistory[0] : null;
+
+    const newSignal = await getNewSignal(chartData, lastSignal);
 
     if (newSignal) {
-        const signalHistory = await getSignalHistoryFromFirestore();
-        const lastSignal = signalHistory.length > 0 ? signalHistory[signalHistory.length - 1] : null;
-
-        if (lastSignal?.time !== newSignal.time) {
-             // We don't want to destructure displayTime here anymore.
-             await saveSignalToFirestore(newSignal);
-             return NextResponse.json({ message: `Saved ${newSignal.type} signal.`, signal: newSignal });
-        } else {
-            return NextResponse.json({ message: 'Signal is a duplicate (same timestamp), not saved.', signal: newSignal });
-        }
+        await saveSignalToFirestore(newSignal);
+        return NextResponse.json({ message: `Saved ${newSignal.type} signal.`, signal: newSignal });
     }
 
     return NextResponse.json({ message: 'No new signal generated.' });
@@ -278,5 +244,3 @@ export async function GET(request: NextRequest) {
     return new NextResponse('Internal Server Error', { status: 500, statusText: (error as Error).message });
   }
 }
-
-    
