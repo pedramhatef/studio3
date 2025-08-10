@@ -18,13 +18,15 @@ const PARABOLIC_SAR_MAX = 0.2;
  * It implements the Core Trend-Following System to generate trading signals.
  */
 export async function GET() {
-  console.log(`Cron job triggered at ${new Date().toISOString()}`);
+  console.log(`\n--- Cron job triggered at ${new Date().toISOString()} ---`);
 
   try {
     // 1. Fetch Latest Market Data
     const chartData = await getChartData();
     if (chartData.length < EMA_SLOW_PERIOD) {
-      return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
+      const message = 'Not enough data to calculate indicators.';
+      console.log(message);
+      return NextResponse.json({ message });
     }
 
     const closePrices = chartData.map(d => d.close);
@@ -40,20 +42,42 @@ export async function GET() {
     const latestEmaSlow = emaSlow[emaSlow.length - 1];
     const latestPSar = pSar[pSar.length - 1];
     const latestVwap = vwap[vwap.length - 1];
+    
+    console.log("Latest Data Point:", {
+        price: latestDataPoint.close.toFixed(5),
+        time: new Date(latestDataPoint.time).toLocaleTimeString()
+    });
+    console.log("Calculated Indicators:", {
+        emaFast: latestEmaFast?.toFixed(5) || 'N/A',
+        emaSlow: latestEmaSlow?.toFixed(5) || 'N/A',
+        pSar: latestPSar?.toFixed(5) || 'N/A',
+        vwap: latestVwap?.toFixed(5) || 'N/A',
+    });
+
 
     // Ensure all latest indicator values are calculated
     if (latestEmaFast === null || latestEmaSlow === null || latestPSar === null || latestVwap === null) {
-      return NextResponse.json({ message: 'Could not calculate latest indicator values.' });
+      const message = 'Could not calculate latest indicator values.';
+      console.log(message);
+      return NextResponse.json({ message });
     }
 
     let newSignal: Omit<Signal, 'displayTime' | 'serverTime'> | null = null;
 
     // 3. Apply Trading Logic
-    // BUY Condition: EMA(5) > EMA(15) > VWAP and price above Parabolic SAR
-    const isBuySignal = latestEmaFast > latestEmaSlow && latestEmaSlow > latestVwap && latestDataPoint.close > latestPSar;
-    
-    // SELL Condition: EMA(5) crosses below EMA(15) or price crosses Parabolic SAR
+    const isBuySignal = latestEmaFast > latestEmaSlow && latestDataPoint.close > latestVwap && latestDataPoint.close > latestPSar;
     const isSellSignal = latestEmaFast < latestEmaSlow || latestDataPoint.close < latestPSar;
+    
+    console.log("Evaluating Conditions:", {
+      isBuySignal,
+      isSellSignal
+    });
+    console.log(`  - EMA(5) > EMA(15)? ${latestEmaFast > latestEmaSlow}`);
+    console.log(`  - Price > VWAP? ${latestDataPoint.close > latestVwap}`);
+    console.log(`  - Price > PSAR? ${latestDataPoint.close > latestPSar}`);
+    console.log(`  - EMA(5) < EMA(15)? ${latestEmaFast < latestEmaSlow}`);
+    console.log(`  - Price < PSAR? ${latestDataPoint.close < latestPSar}`);
+
 
     if (isBuySignal) {
         newSignal = {
@@ -62,7 +86,7 @@ export async function GET() {
             price: latestDataPoint.close,
             time: latestDataPoint.time,
         };
-        console.log('New BUY signal generated:', newSignal);
+        console.log('✅ New BUY signal generated based on logic.');
     } else if (isSellSignal) {
         newSignal = {
             type: 'SELL',
@@ -70,10 +94,11 @@ export async function GET() {
             price: latestDataPoint.close,
             time: latestDataPoint.time,
         };
-        console.log('New SELL signal generated:', newSignal);
+        console.log('✅ New SELL signal generated based on logic.');
     }
 
     if (!newSignal) {
+        console.log('No new signal generated. Conditions not met.');
         return NextResponse.json({ message: 'No new signal generated based on current strategy.' });
     }
 
@@ -81,15 +106,22 @@ export async function GET() {
     const lastSignals = await getSignalHistoryFromFirestore();
     const lastSignal = lastSignals.length > 0 ? lastSignals[0] : null;
 
+    if (lastSignal) {
+      console.log(`Last signal was '${lastSignal.type}'. New signal is '${newSignal.type}'.`);
+    } else {
+      console.log('No previous signals found in history.');
+    }
+
     if (lastSignal && newSignal.type === lastSignal.type) {
-        console.log(`Skipping save. New signal type '${newSignal.type}' is same as last signal.`);
-        return NextResponse.json({ message: `Duplicate signal (${newSignal.type}) suppressed.` });
+        const message = `Skipping save. New signal type '${newSignal.type}' is same as last signal.`;
+        console.log(`❌ ${message}`);
+        return NextResponse.json({ message });
     }
 
     // 5. Save the New, Unique Signal to Firestore
     const result = await saveSignalToFirestore(newSignal);
     if(result.success) {
-      console.log(`Successfully saved ${newSignal.type} signal to Firestore.`);
+      console.log(`🚀 Successfully saved ${newSignal.type} signal to Firestore.`);
       return NextResponse.json({ message: 'Signal generated and saved successfully', signal: newSignal });
     } else {
       console.error('Failed to save signal to Firestore:', result.error);
