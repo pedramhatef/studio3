@@ -1,6 +1,4 @@
 
-'use server';
-
 import type { ChartDataPoint } from './types';
 
 // =================================================================================
@@ -281,4 +279,3 @@ export function calculateATR(data: ChartDataPoint[], period: number): (number | 
     
     return result;
 }
-
