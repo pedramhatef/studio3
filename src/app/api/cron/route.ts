@@ -10,13 +10,14 @@ import * as indicators from '@/lib/indicators';
 // System 1: Core Trend-Following (High Probability)
 const EMA_FAST_PERIOD = 3;
 const EMA_SLOW_PERIOD = 9;
+const EMA_MEDIUM_PERIOD = 20;  // ADDED: Medium-term trend filter
 const PARABOLIC_SAR_STEP = 0.02;
 const PARABOLIC_SAR_MAX = 0.2;
 
 // System 2: Momentum-Reversal (Medium Probability)
 const RSI_PERIOD = 7;
 const RSI_OVERSOLD_THRESHOLD = 35;
-const RSI_OVERBOUGHT_THRESHOLD = 65;
+const RSI_OVERBOUGHT_THRESHOLD = 70;  // CHANGED: 65 → 70 to reduce false sells
 const BBANDS_PERIOD = 12;
 const BBANDS_STD_DEV = 1.2;
 
@@ -46,6 +47,7 @@ export async function GET() {
     // 2. Calculate All Necessary Indicators
     const emaFast = indicators.calculateEMA(closePrices, EMA_FAST_PERIOD);
     const emaSlow = indicators.calculateEMA(closePrices, EMA_SLOW_PERIOD);
+    const emaMedium = indicators.calculateEMA(closePrices, EMA_MEDIUM_PERIOD); // ADDED
     const pSar = indicators.calculateParabolicSAR(chartData, PARABOLIC_SAR_STEP, PARABOLIC_SAR_MAX);
     const vwap = indicators.calculateVWAP(chartData);
     const rsi = indicators.calculateRSI(closePrices, RSI_PERIOD);
@@ -54,6 +56,7 @@ export async function GET() {
     // Get latest values
     const latestEmaFast = emaFast[emaFast.length - 1];
     const latestEmaSlow = emaSlow[emaSlow.length - 1];
+    const latestEmaMedium = emaMedium[emaMedium.length - 1]; // ADDED
     const latestPSar = pSar[pSar.length - 1];
     const latestVwap = vwap[vwap.length - 1];
     const latestRsi = rsi[rsi.length - 1];
@@ -72,6 +75,7 @@ export async function GET() {
     console.log("Calculated Indicators:", {
         emaFast: latestEmaFast?.toFixed(5) || 'N/A',
         emaSlow: latestEmaSlow?.toFixed(5) || 'N/A',
+        emaMedium: latestEmaMedium?.toFixed(5) || 'N/A', // ADDED
         pSar: latestPSar?.toFixed(5) || 'N/A',
         vwap: latestVwap?.toFixed(5) || 'N/A',
         rsi: latestRsi?.toFixed(2) || 'N/A',
@@ -81,7 +85,8 @@ export async function GET() {
     });
 
     // Ensure all required indicator values are calculated
-    const allIndicatorsAvailable = [latestEmaFast, latestEmaSlow, latestPSar, latestVwap, latestRsi, previousRsi, latestLowerBB, latestUpperBB].every(v => v !== null && v !== undefined);
+    const allIndicatorsAvailable = [latestEmaFast, latestEmaSlow,   latestEmaMedium  // ADDED
+      , latestPSar, latestVwap, latestRsi, previousRsi, latestLowerBB, latestUpperBB].every(v => v !== null && v !== undefined);
     if (!allIndicatorsAvailable) {
       const message = 'Could not calculate all required indicator values.';
       console.log(message);
@@ -115,13 +120,18 @@ export async function GET() {
     const coreSellC1 = latestEmaFast! < latestEmaSlow!;
     const coreSellC2 = latestDataPoint.close < latestVwap!;
     const coreSellC3 = latestDataPoint.close < latestPSar!;
-    const coreSellC4 = latestRsi! > 35;
+    const coreSellC4 = latestRsi! > 40;
+    const coreSellC5 = latestDataPoint.close < latestEmaMedium!;  // ADDED: Medium-term trend filter
 
-    const isCoreSellSignal = coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4;
+
+    const isCoreSellSignal = coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4 && coreSellC5;
     logCondition("EMA(3) < EMA(9)", coreSellC1, `${latestEmaFast!.toFixed(5)} vs ${latestEmaSlow!.toFixed(5)}`);
     logCondition("Price < VWAP", coreSellC2, `${latestDataPoint.close.toFixed(5)} vs ${latestVwap!.toFixed(5)}`);
     logCondition("Price < PSAR", coreSellC3, `${latestDataPoint.close.toFixed(5)} vs ${latestPSar!.toFixed(5)}`);
-    logCondition("RSI > 35", coreSellC4, latestRsi!.toFixed(2));
+    logCondition("RSI > 40", coreSellC4, latestRsi!.toFixed(2));
+    logCondition("Price < EMA(20)", coreSellC5, `${latestDataPoint.close.toFixed(5)} vs ${latestEmaMedium!.toFixed(5)}`); // ADDED
+
+    
 
     if (isCoreBuySignal) {
       newSignal = { type: 'BUY', level: 'High', price: latestDataPoint.close, time: latestDataPoint.time };
@@ -157,13 +167,18 @@ export async function GET() {
       const revSellC3 = latestDataPoint.high >= latestUpperBB!;
       const revSellC4 = latestDataPoint.close < latestVwap!;
       const revSellC5 = latestDataPoint.close < latestEmaSlow!;
+      const revSellC6 = latestDataPoint.close < latestEmaMedium!; 
 
-      const isReversalSellSignal = revSellC1 && revSellC2 && revSellC3 && revSellC4 && revSellC5;
+
+      const isReversalSellSignal = revSellC1 && revSellC2 && revSellC3 && revSellC4 && revSellC5 && revSellC6; // UPDATED
       logCondition("Prev RSI > Overbought", revSellC1, `${previousRsi!.toFixed(2)} > ${RSI_OVERBOUGHT_THRESHOLD}`);
       logCondition("Curr RSI < Overbought", revSellC2, `${latestRsi!.toFixed(2)} < ${RSI_OVERBOUGHT_THRESHOLD}`);
       logCondition("High >= UpperBB", revSellC3, `${latestDataPoint.high.toFixed(5)} >= ${latestUpperBB!.toFixed(5)}`);
       logCondition("Price < VWAP", revSellC4, `${latestDataPoint.close.toFixed(5)} < ${latestVwap!.toFixed(5)}`);
       logCondition("Price < EMA(9)", revSellC5, `${latestDataPoint.close.toFixed(5)} < ${latestEmaSlow!.toFixed(5)}`);
+      logCondition("Price < EMA(20)", revSellC6, `${latestDataPoint.close.toFixed(5)} vs ${latestEmaMedium!.toFixed(5)}`); // ADDED
+
+
 
       if (isReversalBuySignal) {
         newSignal = { type: 'BUY', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
