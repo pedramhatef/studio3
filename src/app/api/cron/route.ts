@@ -16,10 +16,14 @@ const PARABOLIC_SAR_MAX = 0.2;
 
 // System 2: Momentum-Reversal (Medium Probability)
 const RSI_PERIOD = 7;
-const RSI_OVERSOLD_THRESHOLD = 35;
+const RSI_OVERSOLD_THRESHOLD = 28;
 const RSI_OVERBOUGHT_THRESHOLD = 70;  // CHANGED: 65 → 70 to reduce false sells
+const DEEP_RSI_THRESHOLD = 22;      // ADDED: Extreme oversold level
+const BBANDS_DEEP_MULTIPLIER = 1.8; // ADDED: Wider bands for deep signals
 const BBANDS_PERIOD = 12;
 const BBANDS_STD_DEV = 1.2;
+const VOLUME_SPIKE_FACTOR = 1.3;    // Reduced volume requirement
+
 
 // System 3: Momentum Shift (Low Probability)
 const RSI_CENTERLINE = 50;
@@ -53,6 +57,14 @@ export async function GET() {
     const rsi = indicators.calculateRSI(closePrices, RSI_PERIOD);
     const bbands = indicators.calculateBollingerBands(closePrices, BBANDS_PERIOD, BBANDS_STD_DEV);
 
+    const deepBbands = indicators.calculateBollingerBands(
+      closePrices, 
+      BBANDS_PERIOD, 
+      BBANDS_STD_DEV * BBANDS_DEEP_MULTIPLIER
+    );
+
+    
+
     // Get latest values
     const latestEmaFast = emaFast[emaFast.length - 1];
     const latestEmaSlow = emaSlow[emaSlow.length - 1];
@@ -63,6 +75,8 @@ export async function GET() {
     const previousRsi = rsi[rsi.length - 2];
     const latestLowerBB = bbands.lower[bbands.lower.length - 1];
     const latestUpperBB = bbands.upper[bbands.upper.length - 1];
+    const latestDeepLowerBB = deepBbands.lower[deepBbands.lower.length - 1];
+
     
     // Log indicator values for debugging
     console.log("Latest Data Point:", {
@@ -85,7 +99,7 @@ export async function GET() {
     });
 
     // Ensure all required indicator values are calculated
-    const allIndicatorsAvailable = [latestEmaFast, latestEmaSlow,   latestEmaMedium  // ADDED
+    const allIndicatorsAvailable = [latestEmaFast, latestEmaSlow, latestDeepLowerBB , latestEmaMedium  // ADDED
       , latestPSar, latestVwap, latestRsi, previousRsi, latestLowerBB, latestUpperBB].every(v => v !== null && v !== undefined);
     if (!allIndicatorsAvailable) {
       const message = 'Could not calculate all required indicator values.';
@@ -144,53 +158,100 @@ export async function GET() {
     }
 
     // =================================================================
-    // System 2: Momentum-Reversal (Medium Probability)
-    // =================================================================
-    if (!newSignal) {
-      console.log("\nEvaluating Momentum-Reversal System (Medium):");
+// System 2: Momentum-Reversal (Enhanced Probability)
+// =================================================================
+if (!newSignal) {
+  console.log("\nEvaluating Enhanced Momentum-Reversal System:");
 
-      const revBuyC1 = previousRsi! < RSI_OVERSOLD_THRESHOLD;
-      const revBuyC2 = latestRsi! > RSI_OVERSOLD_THRESHOLD;
-      const revBuyC3 = latestDataPoint.low <= latestLowerBB!;
-      const revBuyC4 = latestDataPoint.close > latestVwap!;
-      const revBuyC5 = latestDataPoint.close > latestEmaSlow!;
+  // -------------------------------------------------------------
+  // 1. DEEP OVERSOLD REVERSAL (High Confidence) - Checked FIRST
+  // -------------------------------------------------------------
+  console.log("\nChecking Deep Oversold Reversal (High Confidence):");
+  
+  const deepBuyC1 = latestRsi! <= DEEP_RSI_THRESHOLD;
+  const deepBuyC2 = latestDataPoint.low <= latestDeepLowerBB!;
+  const deepBuyC3 = latestDataPoint.close > latestDataPoint.open;
+  const deepBuyC4 = latestDataPoint.volume > (previousDataPoint?.volume || 0) * VOLUME_SPIKE_FACTOR;
+  const deepBuyC5 = latestDataPoint.close > latestPSar!;
+  
+  const isDeepBuySignal = deepBuyC1 && deepBuyC2 && deepBuyC3 && deepBuyC4 && deepBuyC5;
+  
+  // Log deep conditions
+  logCondition(`RSI <= ${DEEP_RSI_THRESHOLD}`, deepBuyC1, latestRsi!.toFixed(2));
+  logCondition("Low <= Deep Lower BB", deepBuyC2, `${latestDataPoint.low.toFixed(5)} vs ${latestDeepLowerBB!.toFixed(5)}`);
+  logCondition("Bullish Candle", deepBuyC3, `Close:${latestDataPoint.close.toFixed(5)} > Open:${latestDataPoint.open.toFixed(5)}`);
+  logCondition(`Volume > ${VOLUME_SPIKE_FACTOR}x Prev`, deepBuyC4, `${latestDataPoint.volume} vs ${previousDataPoint?.volume}`);
+  logCondition("Price > PSAR", deepBuyC5, `${latestDataPoint.close.toFixed(5)} vs ${latestPSar!.toFixed(5)}`);
 
-      const isReversalBuySignal = revBuyC1 && revBuyC2 && revBuyC3 && revBuyC4 && revBuyC5;
-      logCondition("Prev RSI < Oversold", revBuyC1, `${previousRsi!.toFixed(2)} < ${RSI_OVERSOLD_THRESHOLD}`);
-      logCondition("Curr RSI > Oversold", revBuyC2, `${latestRsi!.toFixed(2)} > ${RSI_OVERSOLD_THRESHOLD}`);
-      logCondition("Low <= LowerBB", revBuyC3, `${latestDataPoint.low.toFixed(5)} <= ${latestLowerBB!.toFixed(5)}`);
-      logCondition("Price > VWAP", revBuyC4, `${latestDataPoint.close.toFixed(5)} > ${latestVwap!.toFixed(5)}`);
-      logCondition("Price > EMA(9)", revBuyC5, `${latestDataPoint.close.toFixed(5)} > ${latestEmaSlow!.toFixed(5)}`);
+  if (isDeepBuySignal) {
+    newSignal = { type: 'BUY', level: 'High', price: latestDataPoint.close, time: latestDataPoint.time };
+    console.log('🔥 New HIGH-CONFIDENCE DEEP BUY signal generated.');
+  } else {
+    console.log("❌ Deep reversal conditions not fully met");
+  }
 
-      const revSellC1 = previousRsi! > RSI_OVERBOUGHT_THRESHOLD;
-      const revSellC2 = latestRsi! < RSI_OVERBOUGHT_THRESHOLD;
-      const revSellC3 = latestDataPoint.high >= latestUpperBB!;
-      const revSellC4 = latestDataPoint.close < latestVwap!;
-      const revSellC5 = latestDataPoint.close < latestEmaSlow!;
-      const revSellC6 = latestDataPoint.close < latestEmaMedium!; 
+  // -------------------------------------------------------------
+  // 2. MODERATE REVERSAL BUY (Medium Confidence)
+  // -------------------------------------------------------------
+  if (!newSignal) {
+    console.log("\nChecking Moderate Reversal Buy (Medium Confidence):");
+    
+    const modBuyC1 = previousRsi! < RSI_OVERSOLD_THRESHOLD;
+    const modBuyC2 = latestRsi! > RSI_OVERSOLD_THRESHOLD;
+    const modBuyC3 = latestDataPoint.low <= latestLowerBB!;
+    const modBuyC4 = latestDataPoint.close > latestVwap!;
+    const modBuyC5 = latestDataPoint.close > latestEmaSlow!;
+    const modBuyC6 = latestDataPoint.close > latestEmaMedium!;
+    
+    const isModerateBuySignal = modBuyC1 && modBuyC2 && modBuyC3 && modBuyC4 && modBuyC5 && modBuyC6;
+    
+    // Log moderate conditions
+    logCondition(`Prev RSI < ${RSI_OVERSOLD_THRESHOLD}`, modBuyC1, `${previousRsi!.toFixed(2)} < ${RSI_OVERSOLD_THRESHOLD}`);
+    logCondition(`Curr RSI > ${RSI_OVERSOLD_THRESHOLD}`, modBuyC2, `${latestRsi!.toFixed(2)} > ${RSI_OVERSOLD_THRESHOLD}`);
+    logCondition("Low <= LowerBB", modBuyC3, `${latestDataPoint.low.toFixed(5)} <= ${latestLowerBB!.toFixed(5)}`);
+    logCondition("Price > VWAP", modBuyC4, `${latestDataPoint.close.toFixed(5)} > ${latestVwap!.toFixed(5)}`);
+    logCondition("Price > EMA(9)", modBuyC5, `${latestDataPoint.close.toFixed(5)} > ${latestEmaSlow!.toFixed(5)}`);
+    logCondition("Price > EMA(20)", modBuyC6, `${latestDataPoint.close.toFixed(5)} > ${latestEmaMedium!.toFixed(5)}`);
 
-
-      const isReversalSellSignal = revSellC1 && revSellC2 && revSellC3 && revSellC4 && revSellC5 && revSellC6; // UPDATED
-      logCondition("Prev RSI > Overbought", revSellC1, `${previousRsi!.toFixed(2)} > ${RSI_OVERBOUGHT_THRESHOLD}`);
-      logCondition("Curr RSI < Overbought", revSellC2, `${latestRsi!.toFixed(2)} < ${RSI_OVERBOUGHT_THRESHOLD}`);
-      logCondition("High >= UpperBB", revSellC3, `${latestDataPoint.high.toFixed(5)} >= ${latestUpperBB!.toFixed(5)}`);
-      logCondition("Price < VWAP", revSellC4, `${latestDataPoint.close.toFixed(5)} < ${latestVwap!.toFixed(5)}`);
-      logCondition("Price < EMA(9)", revSellC5, `${latestDataPoint.close.toFixed(5)} < ${latestEmaSlow!.toFixed(5)}`);
-      logCondition("Price < EMA(20)", revSellC6, `${latestDataPoint.close.toFixed(5)} vs ${latestEmaMedium!.toFixed(5)}`); // ADDED
-
-
-
-      if (isReversalBuySignal) {
-        newSignal = { type: 'BUY', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
-        console.log('✅ New MEDIUM-CONFIDENCE BUY signal generated.');
-      } else if (isReversalSellSignal) {
-        newSignal = { type: 'SELL', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
-        console.log('✅ New MEDIUM-CONFIDENCE SELL signal generated.');
-      } else {
-        console.log("❌ Reversal system: No signal.");
-      }
+  if (isModerateBuySignal) {
+      newSignal = { type: 'BUY', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
+      console.log('✅ New MEDIUM-CONFIDENCE BUY signal generated.');
+    } else {
+      console.log("❌ Moderate reversal conditions not fully met");
     }
+  }
 
+  // -------------------------------------------------------------
+  // 3. REVERSAL SELL (Medium Confidence)
+  // -------------------------------------------------------------
+   if (!newSignal) {
+    console.log("\nChecking Reversal Sell (Medium Confidence):");
+    
+    const revSellC1 = previousRsi! > RSI_OVERBOUGHT_THRESHOLD;
+    const revSellC2 = latestRsi! < RSI_OVERBOUGHT_THRESHOLD;
+    const revSellC3 = latestDataPoint.high >= latestUpperBB!;
+    const revSellC4 = latestDataPoint.close < latestVwap!;
+    const revSellC5 = latestDataPoint.close < latestEmaSlow!;
+    const revSellC6 = latestDataPoint.close < latestEmaMedium!;
+    
+    const isReversalSellSignal = revSellC1 && revSellC2 && revSellC3 && revSellC4 && revSellC5 && revSellC6;
+    
+    logCondition("Prev RSI > Overbought", revSellC1, `${previousRsi!.toFixed(2)} > ${RSI_OVERBOUGHT_THRESHOLD}`);
+    logCondition("Curr RSI < Overbought", revSellC2, `${latestRsi!.toFixed(2)} < ${RSI_OVERBOUGHT_THRESHOLD}`);
+    logCondition("High >= UpperBB", revSellC3, `${latestDataPoint.high.toFixed(5)} >= ${latestUpperBB!.toFixed(5)}`);
+    logCondition("Price < VWAP", revSellC4, `${latestDataPoint.close.toFixed(5)} < ${latestVwap!.toFixed(5)}`);
+    logCondition("Price < EMA(9)", revSellC5, `${latestDataPoint.close.toFixed(5)} < ${latestEmaSlow!.toFixed(5)}`);
+    logCondition("Price < EMA(20)", revSellC6, `${latestDataPoint.close.toFixed(5)} vs ${latestEmaMedium!.toFixed(5)}`);
+
+    if (isReversalSellSignal) {
+      newSignal = { type: 'SELL', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
+      console.log('✅ New MEDIUM-CONFIDENCE SELL signal generated.');
+    } else {
+      console.log("❌ Reversal sell conditions not met");
+    }
+  }
+}
+  
     // =================================================================
     // System 3: Momentum Shift (Low Probability)
     // =================================================================
