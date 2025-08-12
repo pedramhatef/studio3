@@ -253,29 +253,34 @@ export function calculateParabolicSAR(data: ChartDataPoint[], step: number, max:
 /**
  * Calculates Average True Range (ATR)
  */
-export function calculateATR(data: ChartDataPoint[], period: number): (number | null)[] {
-    if (period >= data.length) return Array(data.length).fill(null);
-
-    const trs: number[] = [data[0].high - data[0].low];
-    for (let i = 1; i < data.length; i++) {
-        const tr1 = data[i].high - data[i].low;
-        const tr2 = Math.abs(data[i].high - data[i-1].close);
-        const tr3 = Math.abs(data[i].low - data[i-1].close);
-        trs.push(Math.max(tr1, tr2, tr3));
+// Add this to '@/lib/indicators.ts' or equivalent
+export function calculateATR(highs: number[], lows: number[], closes: number[], period: number): number[] {
+    if (highs.length !== lows.length || highs.length !== closes.length || highs.length < period + 1) {
+      return [];
     }
-    
-    const result: (number | null)[] = Array(period - 1).fill(null);
-    let sum = 0;
-    for (let i = 0; i < period; i++) {
-        sum += trs[i];
+  
+    const atr: number[] = [];
+    const tr: number[] = [];
+  
+    // Calculate True Range for each period
+    for (let i = 1; i < highs.length; i++) {
+      const trueRange = Math.max(
+        highs[i] - lows[i], // Current high to low
+        Math.abs(highs[i] - closes[i - 1]), // Current high to previous close
+        Math.abs(lows[i] - closes[i - 1]) // Current low to previous close
+      );
+      tr.push(trueRange);
     }
-    let atr = sum / period;
-    result.push(atr);
-
-    for (let i = period; i < trs.length; i++) {
-        atr = (atr * (period - 1) + trs[i]) / period;
-        result.push(atr);
+  
+    // Initial ATR (Simple Moving Average of first 'period' TR values)
+    let sumTr = tr.slice(0, period).reduce((a, b) => a + b, 0);
+    atr.push(sumTr / period);
+  
+    // Subsequent ATR values (using Wilder's smoothing)
+    for (let i = period; i < tr.length; i++) {
+      const prevAtr = atr[i - period];
+      atr.push((prevAtr * (period - 1) + tr[i]) / period);
     }
-    
-    return result;
-}
+  
+    return atr;
+  }
