@@ -284,3 +284,7 @@ export function calculateATR(highs: number[], lows: number[], closes: number[], 
   
     return atr;
   }
+
+export function SMA(arg0: any[], arg1: number) {
+  throw new Error('Function not implemented.');
+}
