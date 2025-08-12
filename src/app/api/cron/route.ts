@@ -8,28 +8,29 @@ import * as indicators from '@/lib/indicators';
 // =================================================================================
 
 // System 1: Core Trend-Following (High Probability)
-const EMA_FAST_PERIOD = 5; // Increased from 3 for less noise
-const EMA_SLOW_PERIOD = 13; // Increased from 9 for smoother trend
-const EMA_MEDIUM_PERIOD = 50; // Increased from 20 for stronger trend filter
+const EMA_FAST_PERIOD = 5;
+const EMA_SLOW_PERIOD = 13;
+const EMA_MEDIUM_PERIOD = 20; // Shortened back for better response in ranges
 const PARABOLIC_SAR_STEP = 0.02;
 const PARABOLIC_SAR_MAX = 0.2;
 
 // System 2: Momentum-Reversal (Medium Probability)
-const RSI_PERIOD = 14; // Increased from 7 for smoother RSI
-const RSI_OVERSOLD_THRESHOLD = 30; // Loosened from 28 for more signals
-const RSI_OVERBOUGHT_THRESHOLD = 70;
-const DEEP_RSI_THRESHOLD = 25; // Loosened from 22 for more deep signals
-const BBANDS_DEEP_MULTIPLIER = 2.0; // Widened from 1.8 for clearer deep levels
-const BBANDS_PERIOD = 20; // Increased from 12 for broader context
-const BBANDS_STD_DEV = 1.5; // Increased from 1.2 for wider bands
-const VOLUME_SPIKE_FACTOR = 1.2; // Loosened from 1.3 for more triggers
+const RSI_PERIOD = 14;
+const RSI_OVERSOLD_THRESHOLD = 35; // Loosened further
+const RSI_OVERBOUGHT_THRESHOLD = 65; // Lowered for more sells
+const DEEP_RSI_THRESHOLD = 30; // Loosened
+const BBANDS_DEEP_MULTIPLIER = 2.0;
+const BBANDS_PERIOD = 20;
+const BBANDS_STD_DEV = 1.2; // Narrowed for easier band touches
+const VOLUME_SPIKE_FACTOR = 1.1; // Loosened for more triggers
 
 // System 3: Momentum Shift (Low Probability)
 const RSI_CENTERLINE = 50;
 
 // Volatility Filter
 const ATR_PERIOD = 14;
-const MIN_ATR_THRESHOLD = 0.00025; // Skip signals in flat markets
+const MIN_ATR_THRESHOLD = 0.00025; // As per your change
+const LOW_VOL_THRESHOLD = 0.0005; // For enabling range mode in System 1
 
 /**
  * This function is the entry point for the cron job, executed every minute.
@@ -95,6 +96,7 @@ export async function GET() {
         previousRsi: previousRsi?.toFixed(2) || 'N/A',
         lowerBB: latestLowerBB?.toFixed(5) || 'N/A',
         upperBB: latestUpperBB?.toFixed(5) || 'N/A',
+        deepLowerBB: latestDeepLowerBB?.toFixed(5) || 'N/A',
         atr: latestAtr?.toFixed(5) || 'N/A',
     });
 
@@ -120,6 +122,8 @@ export async function GET() {
       return NextResponse.json({ message: 'No signal generated due to low volatility.' });
     }
 
+    const isLowVol = latestAtr! < LOW_VOL_THRESHOLD;
+
     // =================================================================
     // System 2: Momentum-Reversal (Enhanced Probability) - Check First
     // =================================================================
@@ -141,6 +145,8 @@ export async function GET() {
     if (isDeepBuySignal) {
       newSignal = { type: 'BUY', level: 'High', price: latestDataPoint.close, time: latestDataPoint.time };
       console.log('🔥 New HIGH-CONFIDENCE DEEP BUY signal generated.');
+    } else {
+      console.log("❌ Deep reversal conditions not fully met");
     }
 
     // 2. MODERATE REVERSAL BUY (Medium Confidence)
@@ -150,16 +156,16 @@ export async function GET() {
       const modBuyC2 = latestRsi! > RSI_OVERSOLD_THRESHOLD;
       const modBuyC3 = latestDataPoint.low <= latestLowerBB!;
       const modBuyC4 = latestDataPoint.close > latestVwap!;
-      const modBuyC5 = latestDataPoint.close > latestEmaSlow!;
-      const isModerateBuySignal = modBuyC1 && modBuyC2 && modBuyC3 && modBuyC4 && modBuyC5;
+      const isModerateBuySignal = modBuyC1 && modBuyC2 && modBuyC3 && modBuyC4;
       logCondition(`Prev RSI < ${RSI_OVERSOLD_THRESHOLD}`, modBuyC1, `${previousRsi!.toFixed(2)} < ${RSI_OVERSOLD_THRESHOLD}`);
       logCondition(`Curr RSI > ${RSI_OVERSOLD_THRESHOLD}`, modBuyC2, `${latestRsi!.toFixed(2)} > ${RSI_OVERSOLD_THRESHOLD}`);
       logCondition("Low <= LowerBB", modBuyC3, `${latestDataPoint.low.toFixed(5)} <= ${latestLowerBB!.toFixed(5)}`);
       logCondition("Price > VWAP", modBuyC4, `${latestDataPoint.close.toFixed(5)} > ${latestVwap!.toFixed(5)}`);
-      logCondition("Price > EMA(13)", modBuyC5, `${latestDataPoint.close.toFixed(5)} > ${latestEmaSlow!.toFixed(5)}`);
       if (isModerateBuySignal) {
         newSignal = { type: 'BUY', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
         console.log('✅ New MEDIUM-CONFIDENCE BUY signal generated.');
+      } else {
+        console.log("❌ Moderate reversal conditions not fully met");
       }
     }
 
@@ -170,16 +176,16 @@ export async function GET() {
       const revSellC2 = latestRsi! < RSI_OVERBOUGHT_THRESHOLD;
       const revSellC3 = latestDataPoint.high >= latestUpperBB!;
       const revSellC4 = latestDataPoint.close < latestVwap!;
-      const revSellC5 = latestDataPoint.close < latestEmaSlow!;
-      const isReversalSellSignal = revSellC1 && revSellC2 && revSellC3 && revSellC4 && revSellC5;
+      const isReversalSellSignal = revSellC1 && revSellC2 && revSellC3 && revSellC4;
       logCondition("Prev RSI > Overbought", revSellC1, `${previousRsi!.toFixed(2)} > ${RSI_OVERBOUGHT_THRESHOLD}`);
       logCondition("Curr RSI < Overbought", revSellC2, `${latestRsi!.toFixed(2)} < ${RSI_OVERBOUGHT_THRESHOLD}`);
       logCondition("High >= UpperBB", revSellC3, `${latestDataPoint.high.toFixed(5)} >= ${latestUpperBB!.toFixed(5)}`);
       logCondition("Price < VWAP", revSellC4, `${latestDataPoint.close.toFixed(5)} < ${latestVwap!.toFixed(5)}`);
-      logCondition("Price < EMA(13)", revSellC5, `${latestDataPoint.close.toFixed(5)} < ${latestEmaSlow!.toFixed(5)}`);
       if (isReversalSellSignal) {
         newSignal = { type: 'SELL', level: 'Medium', price: latestDataPoint.close, time: latestDataPoint.time };
         console.log('✅ New MEDIUM-CONFIDENCE SELL signal generated.');
+      } else {
+        console.log("❌ Reversal sell conditions not met");
       }
     }
 
@@ -189,25 +195,38 @@ export async function GET() {
     if (!newSignal) {
       console.log("\nEvaluating Core Trend-Following System (High):");
 
-      const coreBuyC1 = latestEmaFast! > latestEmaSlow! && latestEmaSlow! > latestEmaMedium!;
+      // In low vol, simplify to basic EMA cross + RSI
+      let coreBuyC1: boolean;
+      if (isLowVol) {
+        coreBuyC1 = latestEmaFast! > latestEmaSlow!;
+        logCondition("Low Vol Mode: EMA(5) > EMA(13)", coreBuyC1, `${latestEmaFast!.toFixed(5)} vs ${latestEmaSlow!.toFixed(5)}`);
+      } else {
+        coreBuyC1 = latestEmaFast! > latestEmaSlow! && latestEmaSlow! > latestEmaMedium!;
+        logCondition("EMA(5) > EMA(13) > EMA(20)", coreBuyC1, `${latestEmaFast!.toFixed(5)} vs ${latestEmaSlow!.toFixed(5)} vs ${latestEmaMedium!.toFixed(5)}`);
+      }
       const coreBuyC2 = latestDataPoint.close > latestVwap!;
       const coreBuyC3 = latestDataPoint.close > latestPSar!;
-      const coreBuyC4 = latestRsi! < 55; // Tightened from 65
+      const coreBuyC4 = latestRsi! < 60; // Loosened
       const isCoreBuySignal = coreBuyC1 && coreBuyC2 && coreBuyC3 && coreBuyC4;
-      logCondition("EMA(5) > EMA(13) > EMA(50)", coreBuyC1, `${latestEmaFast!.toFixed(5)} vs ${latestEmaSlow!.toFixed(5)} vs ${latestEmaMedium!.toFixed(5)}`);
       logCondition("Price > VWAP", coreBuyC2, `${latestDataPoint.close.toFixed(5)} vs ${latestVwap!.toFixed(5)}`);
       logCondition("Price > PSAR", coreBuyC3, `${latestDataPoint.close.toFixed(5)} vs ${latestPSar!.toFixed(5)}`);
-      logCondition("RSI < 55", coreBuyC4, latestRsi!.toFixed(2));
+      logCondition("RSI < 60", coreBuyC4, latestRsi!.toFixed(2));
 
-      const coreSellC1 = latestEmaFast! < latestEmaSlow! && latestEmaSlow! < latestEmaMedium!;
+      let coreSellC1: boolean;
+      if (isLowVol) {
+        coreSellC1 = latestEmaFast! < latestEmaSlow!;
+        logCondition("Low Vol Mode: EMA(5) < EMA(13)", coreSellC1, `${latestEmaFast!.toFixed(5)} vs ${latestEmaSlow!.toFixed(5)}`);
+      } else {
+        coreSellC1 = latestEmaFast! < latestEmaSlow! && latestEmaSlow! < latestEmaMedium!;
+        logCondition("EMA(5) < EMA(13) < EMA(20)", coreSellC1, `${latestEmaFast!.toFixed(5)} vs ${latestEmaSlow!.toFixed(5)} vs ${latestEmaMedium!.toFixed(5)}`);
+      }
       const coreSellC2 = latestDataPoint.close < latestVwap!;
       const coreSellC3 = latestDataPoint.close < latestPSar!;
-      const coreSellC4 = latestRsi! > 50; // Tightened from 40
+      const coreSellC4 = latestRsi! > 40; // Loosened
       const isCoreSellSignal = coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4;
-      logCondition("EMA(5) < EMA(13) < EMA(50)", coreSellC1, `${latestEmaFast!.toFixed(5)} vs ${latestEmaSlow!.toFixed(5)} vs ${latestEmaMedium!.toFixed(5)}`);
       logCondition("Price < VWAP", coreSellC2, `${latestDataPoint.close.toFixed(5)} vs ${latestVwap!.toFixed(5)}`);
       logCondition("Price < PSAR", coreSellC3, `${latestDataPoint.close.toFixed(5)} vs ${latestPSar!.toFixed(5)}`);
-      logCondition("RSI > 50", coreSellC4, latestRsi!.toFixed(2));
+      logCondition("RSI > 40", coreSellC4, latestRsi!.toFixed(2));
 
       if (isCoreBuySignal) {
         newSignal = { type: 'BUY', level: 'High', price: latestDataPoint.close, time: latestDataPoint.time };
@@ -221,31 +240,31 @@ export async function GET() {
     }
 
     // =================================================================
-    // System 3: Momentum Shift (Low Probability)
+    // System 3: Momentum Shift (Low Probability) - Always log for debug
     // =================================================================
+    console.log("\nEvaluating Momentum Shift System (Low):"); // Log even if signal found
+    const volumeUp = latestDataPoint.volume > (previousDataPoint?.volume || 0);
+    const shiftBuyC1 = previousRsi! < RSI_CENTERLINE;
+    const shiftBuyC2 = latestRsi! > RSI_CENTERLINE;
+    const shiftBuyC3 = volumeUp;
+    const shiftBuyC4 = latestDataPoint.close > latestVwap!;
+    const isRsiBuyCross = shiftBuyC1 && shiftBuyC2 && shiftBuyC3 && shiftBuyC4;
+    logCondition("Prev RSI < 50", shiftBuyC1, previousRsi!.toFixed(2));
+    logCondition("Curr RSI > 50", shiftBuyC2, latestRsi!.toFixed(2));
+    logCondition("Volume Increased", shiftBuyC3, `${latestDataPoint.volume} vs ${previousDataPoint?.volume}`);
+    logCondition("Price > VWAP", shiftBuyC4, `${latestDataPoint.close.toFixed(5)} > ${latestVwap!.toFixed(5)}`);
+
+    const shiftSellC1 = previousRsi! > RSI_CENTERLINE;
+    const shiftSellC2 = latestRsi! < RSI_CENTERLINE;
+    const shiftSellC3 = volumeUp;
+    const shiftSellC4 = latestDataPoint.close < latestVwap!;
+    const isRsiSellCross = shiftSellC1 && shiftSellC2 && shiftSellC3 && shiftSellC4;
+    logCondition("Prev RSI > 50", shiftSellC1, previousRsi!.toFixed(2));
+    logCondition("Curr RSI < 50", shiftSellC2, latestRsi!.toFixed(2));
+    logCondition("Volume Increased", shiftSellC3, `${latestDataPoint.volume} vs ${previousDataPoint?.volume}`);
+    logCondition("Price < VWAP", shiftSellC4, `${latestDataPoint.close.toFixed(5)} < ${latestVwap!.toFixed(5)}`);
+
     if (!newSignal) {
-      console.log("\nEvaluating Momentum Shift System (Low):");
-      const volumeUp = latestDataPoint.volume > (previousDataPoint?.volume || 0);
-      const shiftBuyC1 = previousRsi! < RSI_CENTERLINE;
-      const shiftBuyC2 = latestRsi! > RSI_CENTERLINE;
-      const shiftBuyC3 = volumeUp;
-      const shiftBuyC4 = latestDataPoint.close > latestVwap!;
-      const isRsiBuyCross = shiftBuyC1 && shiftBuyC2 && shiftBuyC3 && shiftBuyC4;
-      logCondition("Prev RSI < 50", shiftBuyC1, previousRsi!.toFixed(2));
-      logCondition("Curr RSI > 50", shiftBuyC2, latestRsi!.toFixed(2));
-      logCondition("Volume Increased", shiftBuyC3, `${latestDataPoint.volume} vs ${previousDataPoint?.volume}`);
-      logCondition("Price > VWAP", shiftBuyC4, `${latestDataPoint.close.toFixed(5)} > ${latestVwap!.toFixed(5)}`);
-
-      const shiftSellC1 = previousRsi! > RSI_CENTERLINE;
-      const shiftSellC2 = latestRsi! < RSI_CENTERLINE;
-      const shiftSellC3 = volumeUp;
-      const shiftSellC4 = latestDataPoint.close < latestVwap!;
-      const isRsiSellCross = shiftSellC1 && shiftSellC2 && shiftSellC3 && shiftSellC4;
-      logCondition("Prev RSI > 50", shiftSellC1, previousRsi!.toFixed(2));
-      logCondition("Curr RSI < 50", shiftSellC2, latestRsi!.toFixed(2));
-      logCondition("Volume Increased", shiftSellC3, `${latestDataPoint.volume} vs ${previousDataPoint?.volume}`);
-      logCondition("Price < VWAP", shiftSellC4, `${latestDataPoint.close.toFixed(5)} < ${latestVwap!.toFixed(5)}`);
-
       if (isRsiBuyCross) {
         newSignal = { type: 'BUY', level: 'Low', price: latestDataPoint.close, time: latestDataPoint.time };
         console.log('✅ New LOW-CONFIDENCE BUY signal generated.');
@@ -255,6 +274,8 @@ export async function GET() {
       } else {
         console.log("❌ Shift system: No signal.");
       }
+    } else {
+      console.log("Shift system checked for debug, but signal already generated from higher system.");
     }
 
     if (!newSignal) {
