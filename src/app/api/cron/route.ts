@@ -29,7 +29,7 @@ const RSI_CENTERLINE = 50;
 
 // Volatility Filter
 const ATR_PERIOD = 14;
-const MIN_ATR_THRESHOLD = 0.001; // Skip signals in flat markets
+const MIN_ATR_THRESHOLD = 0.00025; // Skip signals in flat markets
 
 /**
  * This function is the entry point for the cron job, executed every minute.
