@@ -23,14 +23,14 @@ const TREND_CONFIRMATION_PERIOD = 2;
 
 // System 2: Momentum-Reversal (Medium Probability)
 const RSI_PERIOD = 8;
-const RSI_OVERSOLD_THRESHOLD = 35;
-const RSI_OVERBOUGHT_THRESHOLD = 65;
+const RSI_OVERSOLD_THRESHOLD = 50;
+const RSI_OVERBOUGHT_THRESHOLD = 70;
 const DEEP_RSI_THRESHOLD = 28;
 const BBANDS_DEEP_MULTIPLIER = 2.0;
 const BBANDS_PERIOD = 10;
 const BBANDS_STD_DEV = 1.5;
-const VOLUME_SPIKE_FACTOR = 1.5;
-const MIN_CANDLE_BODY = 0.00015;
+const VOLUME_SPIKE_FACTOR = 1.2;
+const MIN_CANDLE_BODY = 0.0001;
 
 // System 3: Momentum Shift (Low Probability)
 const RSI_CENTERLINE = 50;
@@ -40,9 +40,9 @@ const MIN_VOL_CHANGE = 1.5;
 const ATR_PERIOD = 7;
 const MIN_ATR_THRESHOLD = 0.0002;
 const LOW_VOL_THRESHOLD = 0.0005; // Changed from 0.0003
-const AVG_ATR_MULTIPLIER = 1.2; // Changed from 1.5
+const AVG_ATR_MULTIPLIER = 1.1; // Changed from 1.5
 // Filters
-const VOLUME_CONFIRMATION_FACTOR = 0.85;
+const VOLUME_CONFIRMATION_FACTOR = 0.7;
 const PRICE_POSITION_FILTER = 0.20;
 const RSI_BUY_MAX = 60;
 const RSI_SELL_MIN = 40;
