@@ -3,11 +3,13 @@ import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } fr
 import type { Signal } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 
-// =================================================================================
-// STRATEGY CONFIGURATION (same systems preserved) + VERBOSE DEBUG LOGGING
-// =================================================================================
+// Extend Signal type to include new fields
+interface EnhancedSignal extends Signal {
+  suggestedLeverage?: number;
+  stopBuffer?: number;
+}
 
-// Toggle verbose logging
+// STRATEGY CONFIGURATION (same systems preserved) + VERBOSE DEBUG LOGGING
 const DEBUG = true;
 
 // System 1: Core Trend-Following (High Probability)
@@ -32,25 +34,24 @@ const MIN_CANDLE_BODY = 0.00015;
 
 // System 3: Momentum Shift (Low Probability)
 const RSI_CENTERLINE = 50;
-const MIN_VOL_CHANGE = 1.3;
+const MIN_VOL_CHANGE = 1.5; // Tightened as per suggestion
 
 // Volatility Filter
 const ATR_PERIOD = 7;
-const MIN_ATR_THRESHOLD = 0.0002; // slightly loosened
-const LOW_VOL_THRESHOLD = 0.0003;  // slightly loosened
+const MIN_ATR_THRESHOLD = 0.0002;
+const LOW_VOL_THRESHOLD = 0.0003;
+const AVG_ATR_MULTIPLIER = 2.0;
 
 // Filters
 const VOLUME_CONFIRMATION_FACTOR = 0.85;
-const PRICE_POSITION_FILTER = 0.20; // Loosened from 0.30
+const PRICE_POSITION_FILTER = 0.20;
 const RSI_BUY_MAX = 60;
 const RSI_SELL_MIN = 40;
-const PSAR_BUFFER_FACTOR = 0.2; // 30% of ATR
+const PSAR_BUFFER_FACTOR = 0.2;
 
 export const revalidate = 0;
 
-// =================================================================================
 // Logging helpers
-// =================================================================================
 function log(...args: any[]) { if (DEBUG) console.log(...args); }
 function section(title: string) { log(`\n=== ${title} ===`); }
 function kv(obj: Record<string, any>) { log(JSON.stringify(obj, null, 2)); }
@@ -58,7 +59,7 @@ function logCond(name: string, passed: boolean, details?: string) {
   log(`  ${passed ? '✔' : '✘'} ${name}${details ? ` → ${details}` : ''}`);
 }
 
-// =================================================================================
+// Main handler
 export async function GET() {
   const ts = new Date().toISOString();
   section(`CRON RUN @ ${ts}`);
@@ -75,252 +76,281 @@ export async function GET() {
       return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
     }
 
-    const close = chartData.map(d => d.close);
-    const high = chartData.map(d => d.high);
-    const low  = chartData.map(d => d.low);
-    const latest = chartData.at(-1)!;
-    const prev   = chartData.at(-2)!;
-
-    log('Latest candle:', {
-      time: new Date(latest.time).toISOString(),
-      open: Number(latest.open).toFixed(6),
-      high: Number(latest.high).toFixed(6),
-      low:  Number(latest.low).toFixed(6),
-      close:Number(latest.close).toFixed(6),
-      volume: latest.volume
-    });
-
-    // 2) Indicators (cached)
-    section('Compute Indicators');
-    const emaFastArr   = indicators.calculateEMA(close, EMA_FAST_PERIOD);
-    const emaSlowArr   = indicators.calculateEMA(close, EMA_SLOW_PERIOD);
-    const emaMedArr    = indicators.calculateEMA(close, EMA_MEDIUM_PERIOD);
-    const emaLongArr   = indicators.calculateEMA(close, EMA_LONG_PERIOD);
-    const psarArr      = indicators.calculateParabolicSAR(chartData, PARABOLIC_SAR_STEP, PARABOLIC_SAR_MAX);
-    const vwapArr      = indicators.calculateVWAP(chartData);
-    const rsiArr       = indicators.calculateRSI(close, RSI_PERIOD);
-    const bb           = indicators.calculateBollingerBands(close, BBANDS_PERIOD, BBANDS_STD_DEV);
-    const deepBB       = indicators.calculateBollingerBands(close, BBANDS_PERIOD, BBANDS_STD_DEV * BBANDS_DEEP_MULTIPLIER);
-    const atrArr       = indicators.calculateATR(high, low, close, ATR_PERIOD);
-
-    const getLastValue = (arr: (number|null)[]) => arr.at(-1) ?? null;
-    const getPrevValue = (arr: (number|null)[]) => arr.at(-2) ?? null;
-    
-    const cache = {
-      emaFast:  getLastValue(emaFastArr),
-      emaSlow:  getLastValue(emaSlowArr),
-      emaMedium:getLastValue(emaMedArr),
-      emaLong:  getLastValue(emaLongArr),
-      pSar:     getLastValue(psarArr),
-      vwap:     getLastValue(vwapArr),
-      rsi:      getLastValue(rsiArr),
-      prevRsi:  getPrevValue(rsiArr),
-      lowerBB:  getLastValue(bb.lower),
-      upperBB:  getLastValue(bb.upper),
-      deepLowerBB: getLastValue(deepBB.lower),
-      atr:      getLastValue(atrArr),
-    };
-    
-
-    if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
-      log('Indicator calculation incomplete:', cache);
-      return NextResponse.json({ message: 'Indicator calculation incomplete.' });
-    }
-
-    kv({
-      emaFast: cache.emaFast, emaSlow: cache.emaSlow, emaMedium: cache.emaMedium, emaLong: cache.emaLong,
-      pSar: cache.pSar, vwap: cache.vwap,
-      rsi: cache.rsi, prevRsi: cache.prevRsi,
-      lowerBB: cache.lowerBB, upperBB: cache.upperBB, deepLowerBB: cache.deepLowerBB,
-      atr: cache.atr
-    });
-
-    const isUptrend = latest.close > (cache.emaLong as number);
-    const isDowntrend = latest.close < (cache.emaLong as number);
-    const isLowVol = (cache.atr as number) < LOW_VOL_THRESHOLD;
-    log('Trend/Volatility:', { isUptrend, isDowntrend, isLowVol });
-
-    // Optional global low ATR kill-switch
-    if ((cache.atr as number) < MIN_ATR_THRESHOLD) {
-      section('VOLATILITY FILTER');
-      log(`✘ Market too flat: ATR ${Number(cache.atr).toFixed(6)} < ${MIN_ATR_THRESHOLD}`);
-      return NextResponse.json({ message: 'No signal generated due to low volatility (ATR).' });
-    }
-
-    // Trend helpers
-    const isIncreasing = (arr: (number|null)[]) => {
-      const slice = arr.slice(-TREND_CONFIRMATION_PERIOD);
-      if (slice.some(v => v === null)) return false;
-      for (let i = 1; i < slice.length; i++) if ((slice[i] as number) <= (slice[i-1] as number)) return false;
-      return true;
-    };
-    const isDecreasing = (arr: (number|null)[]) => {
-      const slice = arr.slice(-TREND_CONFIRMATION_PERIOD);
-      if (slice.some(v => v === null)) return false;
-      for (let i = 1; i < slice.length; i++) if ((slice[i] as number) >= (slice[i-1] as number)) return false;
-      return true;
-    };
-
-    const volumeAvg = chartData.slice(-5).reduce((s, d) => s + d.volume, 0) / 5;
-
-    // =================================================================
-    // Evaluate ALL systems with full logging
-    // =================================================================
-    type Cand = Omit<Signal, 'displayTime' | 'serverTime'>;
+    // Evaluate last 3 candles for signals to increase frequency
+    type Cand = Omit<EnhancedSignal, 'displayTime' | 'serverTime'>;
     const candidates: Cand[] = [];
+    let lastCache: typeof cache | null = null; // Store cache for selected signal
+    let lastAvgAtr: number = 0; // Store avgAtr for selected signal
 
-    // ---------------------------
-    section('System 2: Momentum-Reversal');
-    // Deep Oversold Reversal (High)
-    const deepBuyC1 = (cache.rsi as number) <= DEEP_RSI_THRESHOLD;
-    const deepBuyC2 = latest.low <= (cache.deepLowerBB as number);
-    const deepBuyC3 = (latest.close - latest.open) > MIN_CANDLE_BODY;
-    const deepBuyC4 = latest.volume > (prev?.volume ?? 0) * VOLUME_SPIKE_FACTOR;
-    const deepBuyC5 = latest.close > (cache.pSar as number);
-    
-    logCond(`RSI <= ${DEEP_RSI_THRESHOLD}`, deepBuyC1, `${Number(cache.rsi).toFixed(2)}`);
-    logCond('Low <= DeepLowerBB', deepBuyC2, `${latest.low.toFixed(6)} vs ${(cache.deepLowerBB as number).toFixed(6)}`);
-    logCond('Bullish body > MIN_CANDLE_BODY', deepBuyC3, `${(latest.close - latest.open).toFixed(6)} > ${MIN_CANDLE_BODY}`);
-    logCond(`Volume > ${VOLUME_SPIKE_FACTOR}x prev`, deepBuyC4, `${latest.volume} vs ${prev?.volume}`);
-    logCond('Close > PSAR', deepBuyC5, `${latest.close.toFixed(6)} vs ${(cache.pSar as number).toFixed(6)}`);
+    for (let i = 0; i < Math.min(3, chartData.length); i++) {
+      const latest = chartData.at(-1 - i)!;
+      const prev = chartData.at(-2 - i) ?? chartData.at(-1 - i)!;
 
-    if (deepBuyC1 && deepBuyC2 && deepBuyC3 && deepBuyC4 && deepBuyC5 ) {
-      log('→ Candidate: HIGH BUY (Deep Oversold Reversal)');
-      candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
+      log('Latest candle:', {
+        time: new Date(latest.time).toISOString(),
+        open: Number(latest.open).toFixed(6),
+        high: Number(latest.high).toFixed(6),
+        low: Number(latest.low).toFixed(6),
+        close: Number(latest.close).toFixed(6),
+        volume: latest.volume
+      });
+
+      const closeSlice = chartData.slice(0, chartData.length - i).map(d => d.close);
+      const highSlice = chartData.slice(0, chartData.length - i).map(d => d.high);
+      const lowSlice = chartData.slice(0, chartData.length - i).map(d => d.low);
+      const chartDataSlice = chartData.slice(0, chartData.length - i);
+
+      // 2) Indicators (cached)
+      section('Compute Indicators');
+      const emaFastArr = indicators.calculateEMA(closeSlice, EMA_FAST_PERIOD);
+      const emaSlowArr = indicators.calculateEMA(closeSlice, EMA_SLOW_PERIOD);
+      const emaMedArr = indicators.calculateEMA(closeSlice, EMA_MEDIUM_PERIOD);
+      const emaLongArr = indicators.calculateEMA(closeSlice, EMA_LONG_PERIOD);
+      const psarArr = indicators.calculateParabolicSAR(chartDataSlice, PARABOLIC_SAR_STEP, PARABOLIC_SAR_MAX);
+      const vwapArr = indicators.calculateVWAP(chartDataSlice);
+      const rsiArr = indicators.calculateRSI(closeSlice, RSI_PERIOD);
+      const bb = indicators.calculateBollingerBands(closeSlice, BBANDS_PERIOD, BBANDS_STD_DEV);
+      const deepBB = indicators.calculateBollingerBands(closeSlice, BBANDS_PERIOD, BBANDS_STD_DEV * BBANDS_DEEP_MULTIPLIER);
+      const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, ATR_PERIOD);
+
+      const getLastValue = (arr: (number | null)[]) => arr.at(-1) ?? null;
+      const getPrevValue = (arr: (number | null)[]) => arr.at(-2) ?? null;
+
+      const cache = {
+        emaFast: getLastValue(emaFastArr),
+        emaSlow: getLastValue(emaSlowArr),
+        emaMedium: getLastValue(emaMedArr),
+        emaLong: getLastValue(emaLongArr),
+        pSar: getLastValue(psarArr),
+        vwap: getLastValue(vwapArr),
+        rsi: getLastValue(rsiArr),
+        prevRsi: getPrevValue(rsiArr),
+        lowerBB: getLastValue(bb.lower),
+        upperBB: getLastValue(bb.upper),
+        deepLowerBB: getLastValue(deepBB.lower),
+        atr: getLastValue(atrArr),
+      };
+
+      if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
+        log('Indicator calculation incomplete:', cache);
+        continue;
+      }
+
+      kv({
+        emaFast: cache.emaFast, emaSlow: cache.emaSlow, emaMedium: cache.emaMedium, emaLong: cache.emaLong,
+        pSar: cache.pSar, vwap: cache.vwap,
+        rsi: cache.rsi, prevRsi: cache.prevRsi,
+        lowerBB: cache.lowerBB, upperBB: cache.upperBB, deepLowerBB: cache.deepLowerBB,
+        atr: cache.atr
+      });
+
+      const isUptrend = latest.close > (cache.emaLong as number);
+      const isDowntrend = latest.close < (cache.emaLong as number);
+      const isLowVol = (cache.atr as number) < LOW_VOL_THRESHOLD;
+      log('Trend/Volatility:', { isUptrend, isDowntrend, isLowVol });
+
+      // Compute average ATR over last 5 candles
+      const recentAtr = atrArr.slice(-5).filter(v => v !== null) as number[];
+      const avgAtr = recentAtr.length > 0 ? recentAtr.reduce((s, v) => s + v, 0) / recentAtr.length : 0;
+
+      // Enhanced volatility filter
+      if ((cache.atr as number) < MIN_ATR_THRESHOLD || (cache.atr as number) < avgAtr * AVG_ATR_MULTIPLIER) {
+        section('VOLATILITY FILTER');
+        log(`✘ Market too flat: ATR ${Number(cache.atr).toFixed(6)} < ${MIN_ATR_THRESHOLD} or < ${avgAtr * AVG_ATR_MULTIPLIER}`);
+        continue;
+      }
+
+      // Trend helpers
+      const isIncreasing = (arr: (number | null)[]) => {
+        const slice = arr.slice(-TREND_CONFIRMATION_PERIOD);
+        if (slice.some(v => v === null)) return false;
+        for (let i = 1; i < slice.length; i++) if ((slice[i] as number) <= (slice[i - 1] as number)) return false;
+        return true;
+      };
+      const isDecreasing = (arr: (number | null)[]) => {
+        const slice = arr.slice(-TREND_CONFIRMATION_PERIOD);
+        if (slice.some(v => v === null)) return false;
+        for (let i = 1; i < slice.length; i++) if ((slice[i] as number) >= (slice[i - 1] as number)) return false;
+        return true;
+      };
+
+      const volumeAvg = chartDataSlice.slice(-5).reduce((s, d) => s + d.volume, 0) / 5;
+
+      // EMA crossover checks
+      const emaFastPrev = emaFastArr.at(-2) ?? null;
+      const emaSlowPrev = emaSlowArr.at(-2) ?? null;
+      const emaFastCrossedSlowUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+      const emaFastCrossedSlowDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+
+      // System 2: Momentum-Reversal
+      section('System 2: Momentum-Reversal');
+      // Deep Oversold Reversal (High)
+      const deepBuyC1 = (cache.rsi as number) <= DEEP_RSI_THRESHOLD;
+      const deepBuyC2 = latest.low <= (cache.deepLowerBB as number);
+      const deepBuyC3 = (latest.close - latest.open) > MIN_CANDLE_BODY;
+      const deepBuyC4 = latest.volume > (prev.volume ?? 0) * VOLUME_SPIKE_FACTOR;
+      const deepBuyC5 = latest.close > (cache.pSar as number);
+      const deepBuyC6 = isUptrend || isLowVol;
+      const deepBuyC7 = latest.close > (cache.emaFast as number);
+      logCond(`RSI <= ${DEEP_RSI_THRESHOLD}`, deepBuyC1, `${Number(cache.rsi).toFixed(2)}`);
+      logCond('Low <= DeepLowerBB', deepBuyC2, `${latest.low.toFixed(6)} vs ${(cache.deepLowerBB as number).toFixed(6)}`);
+      logCond('Bullish body > MIN_CANDLE_BODY', deepBuyC3, `${(latest.close - latest.open).toFixed(6)} > ${MIN_CANDLE_BODY}`);
+      logCond(`Volume > ${VOLUME_SPIKE_FACTOR}x prev`, deepBuyC4, `${latest.volume} vs ${prev.volume}`);
+      logCond('Close > PSAR', deepBuyC5, `${latest.close.toFixed(6)} vs ${(cache.pSar as number).toFixed(6)}`);
+      logCond('Uptrend or LowVol', deepBuyC6);
+      logCond('Close > EMA Fast', deepBuyC7, `${latest.close.toFixed(6)} > ${(cache.emaFast as number).toFixed(6)}`);
+      if (deepBuyC1 && deepBuyC2 && deepBuyC3 && deepBuyC4 && deepBuyC5 && deepBuyC6 && deepBuyC7) {
+        log('→ Candidate: HIGH BUY (Deep Oversold Reversal)');
+        candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
+      }
+
+      // Moderate Reversal BUY (Medium)
+      const modBuyC1 = (cache.prevRsi as number) < RSI_OVERSOLD_THRESHOLD;
+      const modBuyC2 = (cache.rsi as number) > RSI_OVERSOLD_THRESHOLD;
+      const modBuyC3 = latest.low <= (cache.lowerBB as number);
+      const modBuyC4 = latest.close > (cache.vwap as number);
+      const modBuyC5 = latest.close > (cache.lowerBB as number) * 1.001;
+      const modBuyC6 = isUptrend || isLowVol;
+      const modBuyC7 = latest.close > (cache.emaFast as number);
+      logCond(`Prev RSI < ${RSI_OVERSOLD_THRESHOLD}`, modBuyC1, `${Number(cache.prevRsi).toFixed(2)}`);
+      logCond(`Curr RSI > ${RSI_OVERSOLD_THRESHOLD}`, modBuyC2, `${Number(cache.rsi).toFixed(2)}`);
+      logCond('Low <= LowerBB', modBuyC3, `${latest.low.toFixed(6)} <= ${(cache.lowerBB as number).toFixed(6)}`);
+      logCond('Close > VWAP', modBuyC4, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
+      logCond('Close > LowerBB + 0.1%', modBuyC5, `${latest.close.toFixed(6)} > ${((cache.lowerBB as number) * 1.001).toFixed(6)}`);
+      logCond('Uptrend or LowVol', modBuyC6);
+      logCond('Close > EMA Fast', modBuyC7, `${latest.close.toFixed(6)} > ${(cache.emaFast as number).toFixed(6)}`);
+      if (modBuyC1 && modBuyC2 && modBuyC3 && modBuyC4 && modBuyC5 && modBuyC6 && modBuyC7) {
+        log('→ Candidate: MEDIUM BUY (Moderate Reversal)');
+        candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time });
+      }
+
+      // Reversal SELL (Medium)
+      const revSellC1 = (cache.prevRsi as number) > RSI_OVERBOUGHT_THRESHOLD;
+      const revSellC2 = (cache.rsi as number) < RSI_OVERBOUGHT_THRESHOLD;
+      const revSellC3 = latest.high >= (cache.upperBB as number);
+      const revSellC4 = latest.close < (cache.vwap as number);
+      const revSellC5 = latest.close < (cache.upperBB as number) * 0.999;
+      const revSellC6 = isDowntrend;
+      logCond('Prev RSI > Overbought', revSellC1, `${Number(cache.prevRsi).toFixed(2)} > ${RSI_OVERBOUGHT_THRESHOLD}`);
+      logCond('Curr RSI < Overbought', revSellC2, `${Number(cache.rsi).toFixed(2)} < ${RSI_OVERBOUGHT_THRESHOLD}`);
+      logCond('High >= UpperBB', revSellC3, `${latest.high.toFixed(6)} >= ${(cache.upperBB as number).toFixed(6)}`);
+      logCond('Close < VWAP', revSellC4, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
+      logCond('Close < UpperBB - 0.1%', revSellC5, `${latest.close.toFixed(6)} < ${((cache.upperBB as number) * 0.999).toFixed(6)}`);
+      logCond('Downtrend', revSellC6);
+      if (revSellC1 && revSellC2 && revSellC3 && revSellC4 && revSellC5 && revSellC6) {
+        log('→ Candidate: MEDIUM SELL (Reversal)');
+        candidates.push({ type: 'SELL', level: 'Medium', price: latest.close, time: latest.time });
+      }
+
+      // System 1: Core Trend-Following
+      section('System 1: Core Trend-Following');
+      const volumeOK = latest.volume > volumeAvg * VOLUME_CONFIRMATION_FACTOR;
+      const volumeOK1 = latest.volume > volumeAvg * 1.2;
+      const bbWidth = (cache.upperBB as number) - (cache.lowerBB as number);
+      const pricePos = (latest.close - (cache.lowerBB as number)) / bbWidth;
+      const priceInMiddle = pricePos > PRICE_POSITION_FILTER && pricePos < (1 - PRICE_POSITION_FILTER);
+      const psarBuffer = (cache.atr as number) * PSAR_BUFFER_FACTOR;
+      logCond(`Volume > ${VOLUME_CONFIRMATION_FACTOR*100}% of avg`, volumeOK, `${latest.volume} vs ${volumeAvg.toFixed(0)}`);
+      logCond('Price in middle BB range', priceInMiddle, `pos ${(pricePos*100).toFixed(1)}%`);
+      logCond('PSAR Buffer', true, `${psarBuffer.toFixed(6)} (${(PSAR_BUFFER_FACTOR*100).toFixed(0)}% ATR)`);
+      logCond(`Volume > 1.2x avg`, volumeOK1, `${latest.volume} vs ${volumeAvg.toFixed(0)}`);
+
+      let coreBuyC1: boolean;
+      if (isLowVol) {
+        coreBuyC1 = (cache.emaFast as number) > (cache.emaSlow as number) && emaFastCrossedSlowUp;
+        logCond('LowVol: EMA(3) > EMA(8) + Crossover', coreBuyC1, `${(cache.emaFast as number).toFixed(6)} > ${(cache.emaSlow as number).toFixed(6)}`);
+      } else {
+        coreBuyC1 = (cache.emaFast as number) > (cache.emaSlow as number) && (cache.emaSlow as number) > (cache.emaMedium as number) && emaFastCrossedSlowUp;
+        logCond('EMA(3) > EMA(8) > EMA(12) + Crossover', coreBuyC1, `${(cache.emaFast as number).toFixed(6)} > ${(cache.emaSlow as number).toFixed(6)} > ${(cache.emaMedium as number).toFixed(6)}`);
+      }
+      const coreBuyC2 = latest.close > (cache.vwap as number);
+      const coreBuyC3 = latest.close > ((cache.pSar as number) + psarBuffer);
+      const coreBuyC4 = (cache.rsi as number) < RSI_BUY_MAX;
+      const coreBuyC5 = isIncreasing(emaFastArr) && isIncreasing(emaSlowArr);
+      const coreBuyC6 = isUptrend;
+      logCond('Close > VWAP', coreBuyC2, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
+      logCond('Close > PSAR + buffer', coreBuyC3, `${latest.close.toFixed(6)} > ${((cache.pSar as number)+psarBuffer).toFixed(6)}`);
+      logCond(`RSI < ${RSI_BUY_MAX}`, coreBuyC4, `${(cache.rsi as number).toFixed(2)}`);
+      logCond(`EMA uptrend last ${TREND_CONFIRMATION_PERIOD}`, coreBuyC5);
+      logCond('Uptrend (price > EMA21)', coreBuyC6);
+
+      let coreSellC1: boolean;
+      if (isLowVol) {
+        coreSellC1 = (cache.emaFast as number) < (cache.emaSlow as number) && emaFastCrossedSlowDown;
+        logCond('LowVol: EMA(3) < EMA(8) + Crossover', coreSellC1, `${(cache.emaFast as number).toFixed(6)} < ${(cache.emaSlow as number).toFixed(6)}`);
+      } else {
+        coreSellC1 = (cache.emaFast as number) < (cache.emaSlow as number) && (cache.emaSlow as number) < (cache.emaMedium as number) && emaFastCrossedSlowDown;
+        logCond('EMA(3) < EMA(8) < EMA(12) + Crossover', coreSellC1, `${(cache.emaFast as number).toFixed(6)} < ${(cache.emaSlow as number).toFixed(6)} < ${(cache.emaMedium as number).toFixed(6)}`);
+      }
+      const coreSellC2 = latest.close < (cache.vwap as number);
+      const coreSellC3 = latest.close < ((cache.pSar as number) - psarBuffer);
+      const coreSellC4 = (cache.rsi as number) > RSI_SELL_MIN;
+      const coreSellC5 = isDecreasing(emaFastArr) && isDecreasing(emaSlowArr);
+      const coreSellC6 = isDowntrend;
+      logCond('Close < VWAP', coreSellC2, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
+      logCond('Close < PSAR - buffer', coreSellC3, `${latest.close.toFixed(6)} < ${((cache.pSar as number)-psarBuffer).toFixed(6)}`);
+      logCond(`RSI > ${RSI_SELL_MIN}`, coreSellC4, `${(cache.rsi as number).toFixed(2)}`);
+      logCond(`EMA downtrend last ${TREND_CONFIRMATION_PERIOD}`, coreSellC5);
+      logCond('Downtrend (price < EMA21)', coreSellC6);
+
+      if (coreBuyC1 && coreBuyC2 && coreBuyC3 && coreBuyC4 && coreBuyC5 && coreBuyC6 && volumeOK && volumeOK1 && priceInMiddle) {
+        log('→ Candidate: HIGH BUY (Core Trend-Following)');
+        candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
+      }
+      if (coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4 && coreSellC5 && coreSellC6 && volumeOK && volumeOK1 && priceInMiddle) {
+        log('→ Candidate: HIGH SELL (Core Trend-Following)');
+        candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time });
+      }
+
+      // System 3: Momentum Shift
+      section('System 3: Momentum Shift');
+      const volUp = latest.volume > (prev.volume ?? 0) * MIN_VOL_CHANGE;
+      const shiftBuyC1 = (cache.prevRsi as number) < RSI_CENTERLINE;
+      const shiftBuyC2 = (cache.rsi as number) > RSI_CENTERLINE;
+      const shiftBuyC3 = volUp;
+      const shiftBuyC4 = latest.close > (cache.vwap as number);
+      const shiftBuyC5 = isUptrend;
+      logCond('Prev RSI < 50', shiftBuyC1, `${Number(cache.prevRsi).toFixed(2)}`);
+      logCond('Curr RSI > 50', shiftBuyC2, `${Number(cache.rsi).toFixed(2)}`);
+      logCond(`Volume > ${MIN_VOL_CHANGE}x prev`, shiftBuyC3, `${latest.volume} vs ${prev.volume}`);
+      logCond('Close > VWAP', shiftBuyC4, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
+      logCond('Uptrend', shiftBuyC5);
+      if (shiftBuyC1 && shiftBuyC2 && shiftBuyC3 && shiftBuyC4 && shiftBuyC5) {
+        log('→ Candidate: LOW BUY (RSI Centerline Cross)');
+        candidates.push({ type: 'BUY', level: 'Low', price: latest.close, time: latest.time });
+      }
+
+      const shiftSellC1 = (cache.prevRsi as number) > RSI_CENTERLINE;
+      const shiftSellC2 = (cache.rsi as number) < RSI_CENTERLINE;
+      const shiftSellC3 = volUp;
+      const shiftSellC4 = latest.close < (cache.vwap as number);
+      const shiftSellC5 = isDowntrend;
+      logCond('Prev RSI > 50', shiftSellC1, `${Number(cache.prevRsi).toFixed(2)}`);
+      logCond('Curr RSI < 50', shiftSellC2, `${Number(cache.rsi).toFixed(2)}`);
+      logCond(`Volume > ${MIN_VOL_CHANGE}x prev`, shiftSellC3, `${latest.volume} vs ${prev.volume}`);
+      logCond('Close < VWAP', shiftSellC4, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
+      logCond('Downtrend', shiftSellC5);
+      if (shiftSellC1 && shiftSellC2 && shiftSellC3 && shiftSellC4 && shiftSellC5) {
+        log('→ Candidate: LOW SELL (RSI Centerline Cross)');
+        candidates.push({ type: 'SELL', level: 'Low', price: latest.close, time: latest.time });
+      }
+
+      // BB Width Filter
+      section('BB Width Filter');
+      const atrThreshold = (cache.atr as number) * 1.5; // Fixed: Removed .toFixed(6)
+      if (bbWidth < atrThreshold) {
+        log(`✘ BB Width too tight: ${bbWidth.toFixed(6)} < ${atrThreshold.toFixed(6)}`);
+        continue;
+      }
+
+      // Store cache and avgAtr for the candidate
+      if (candidates.length > 0) {
+        lastCache = cache;
+        lastAvgAtr = avgAtr;
+      }
     }
 
-    // Moderate Reversal BUY (Medium)
-    const modBuyC1 = (cache.prevRsi as number) < RSI_OVERSOLD_THRESHOLD;
-    const modBuyC2 = (cache.rsi as number) > RSI_OVERSOLD_THRESHOLD;
-    const modBuyC3 = latest.low <= (cache.lowerBB as number);
-    const modBuyC4 = latest.close > (cache.vwap as number);
-    const modBuyC5 = latest.close > (cache.lowerBB as number) * 1.001;
-
-    logCond(`Prev RSI < ${RSI_OVERSOLD_THRESHOLD}`, modBuyC1, `${Number(cache.prevRsi).toFixed(2)}`);
-    logCond(`Curr RSI > ${RSI_OVERSOLD_THRESHOLD}`, modBuyC2, `${Number(cache.rsi).toFixed(2)}`);
-    logCond('Low <= LowerBB', modBuyC3, `${latest.low.toFixed(6)} <= ${(cache.lowerBB as number).toFixed(6)}`);
-    logCond('Close > VWAP', modBuyC4, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Close > LowerBB + 0.1%', modBuyC5, `${latest.close.toFixed(6)} > ${((cache.lowerBB as number) * 1.001).toFixed(6)}`);
-
-    if (modBuyC1 && modBuyC2 && modBuyC3 && modBuyC4 && modBuyC5 ) {
-      log('→ Candidate: MEDIUM BUY (Moderate Reversal)');
-      candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time });
-    }
-
-    // Reversal SELL (Medium)
-    const revSellC1 = (cache.prevRsi as number) > RSI_OVERBOUGHT_THRESHOLD;
-    const revSellC2 = (cache.rsi as number) < RSI_OVERBOUGHT_THRESHOLD;
-    const revSellC3 = latest.high >= (cache.upperBB as number);
-    const revSellC4 = latest.close < (cache.vwap as number);
-    const revSellC5 = latest.close < (cache.upperBB as number) * 0.999;
-    const revSellC6 = isDowntrend;
-
-    logCond('Prev RSI > Overbought', revSellC1, `${Number(cache.prevRsi).toFixed(2)} > ${RSI_OVERBOUGHT_THRESHOLD}`);
-    logCond('Curr RSI < Overbought', revSellC2, `${Number(cache.rsi).toFixed(2)} < ${RSI_OVERBOUGHT_THRESHOLD}`);
-    logCond('High >= UpperBB', revSellC3, `${latest.high.toFixed(6)} >= ${(cache.upperBB as number).toFixed(6)}`);
-    logCond('Close < VWAP', revSellC4, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Close < UpperBB - 0.1%', revSellC5, `${latest.close.toFixed(6)} < ${((cache.upperBB as number) * 0.999).toFixed(6)}`);
-    logCond('Downtrend', revSellC6);
-    if (revSellC1 && revSellC2 && revSellC3 && revSellC4 && revSellC5 && revSellC6) {
-      log('→ Candidate: MEDIUM SELL (Reversal)');
-      candidates.push({ type: 'SELL', level: 'Medium', price: latest.close, time: latest.time });
-    }
-
-    // ---------------------------
-    section('System 1: Core Trend-Following');
-    const volumeOK = latest.volume > volumeAvg * VOLUME_CONFIRMATION_FACTOR;
-    const volumeOK1 = latest.volume > volumeAvg * 1.2
-    const bbWidth = (cache.upperBB as number) - (cache.lowerBB as number);
-    const pricePos = (latest.close - (cache.lowerBB as number)) / bbWidth;
-    const priceInMiddle = pricePos > PRICE_POSITION_FILTER && pricePos < (1 - PRICE_POSITION_FILTER);
-    const psarBuffer = (cache.atr as number) * PSAR_BUFFER_FACTOR;
-    logCond(`Volume > ${VOLUME_CONFIRMATION_FACTOR*100}% of avg`, volumeOK, `${latest.volume} vs ${volumeAvg.toFixed(0)}`);
-    logCond('Price in middle BB range', priceInMiddle, `pos ${(pricePos*100).toFixed(1)}%`);
-    logCond('PSAR Buffer', true, `${psarBuffer.toFixed(6)} (${(PSAR_BUFFER_FACTOR*100).toFixed(0)}% ATR)`);
-    logCond(`Volume > ${1.2}% of avg`, volumeOK1, `${latest.volume} vs ${volumeAvg.toFixed(0)}`);
-
-
-    let coreBuyC1: boolean;
-    if (isLowVol) {
-      coreBuyC1 = (cache.emaFast as number) > (cache.emaSlow as number);
-      logCond('LowVol: EMA(5) > EMA(13)', coreBuyC1, `${(cache.emaFast as number).toFixed(6)} > ${(cache.emaSlow as number).toFixed(6)}`);
-    } else {
-      coreBuyC1 = (cache.emaFast as number) > (cache.emaSlow as number) && (cache.emaSlow as number) > (cache.emaMedium as number);
-      logCond('EMA(5) > EMA(13) > EMA(20)', coreBuyC1, `${(cache.emaFast as number).toFixed(6)} > ${(cache.emaSlow as number).toFixed(6)} > ${(cache.emaMedium as number).toFixed(6)}`);
-    }
-    const coreBuyC2 = latest.close > (cache.vwap as number);
-    const coreBuyC3 = latest.close > ((cache.pSar as number) + psarBuffer);
-    const coreBuyC4 = (cache.rsi as number) < RSI_BUY_MAX;
-    const coreBuyC5 = isIncreasing(emaFastArr) && isIncreasing(emaSlowArr);
-    const coreBuyC6 = isUptrend;
-    logCond('Close > VWAP', coreBuyC2, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Close > PSAR + buffer', coreBuyC3, `${latest.close.toFixed(6)} > ${((cache.pSar as number)+psarBuffer).toFixed(6)}`);
-    logCond(`RSI < ${RSI_BUY_MAX}`, coreBuyC4, `${(cache.rsi as number).toFixed(2)}`);
-    logCond(`EMA uptrend last ${TREND_CONFIRMATION_PERIOD}`, coreBuyC5);
-    logCond('Uptrend (price > EMA50)', coreBuyC6);
-
-    let coreSellC1: boolean;
-    if (isLowVol) {
-      coreSellC1 = (cache.emaFast as number) < (cache.emaSlow as number);
-      logCond('LowVol: EMA(5) < EMA(13)', coreSellC1, `${(cache.emaFast as number).toFixed(6)} < ${(cache.emaSlow as number).toFixed(6)}`);
-    } else {
-      coreSellC1 = (cache.emaFast as number) < (cache.emaSlow as number) && (cache.emaSlow as number) < (cache.emaMedium as number);
-      logCond('EMA(5) < EMA(13) < EMA(20)', coreSellC1, `${(cache.emaFast as number).toFixed(6)} < ${(cache.emaSlow as number).toFixed(6)} < ${(cache.emaMedium as number).toFixed(6)}`);
-    }
-    const coreSellC2 = latest.close < (cache.vwap as number);
-    const coreSellC3 = latest.close < ((cache.pSar as number) - psarBuffer);
-    const coreSellC4 = (cache.rsi as number) > RSI_SELL_MIN;
-    const coreSellC5 = isDecreasing(emaFastArr) && isDecreasing(emaSlowArr);
-    const coreSellC6 = isDowntrend;
-    logCond('Close < VWAP', coreSellC2, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Close < PSAR - buffer', coreSellC3, `${latest.close.toFixed(6)} < ${((cache.pSar as number)-psarBuffer).toFixed(6)}`);
-    logCond(`RSI > ${RSI_SELL_MIN}`, coreSellC4, `${(cache.rsi as number).toFixed(2)}`);
-    logCond(`EMA downtrend last ${TREND_CONFIRMATION_PERIOD}`, coreSellC5);
-    logCond('Downtrend (price < EMA50)', coreSellC6);
-
-    if (coreBuyC1 && coreBuyC2 && coreBuyC3 && coreBuyC4 && coreBuyC5 && coreBuyC6 && volumeOK && volumeOK1 && priceInMiddle) {
-      log('→ Candidate: HIGH BUY (Core Trend-Following)');
-      candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
-    }
-    if (coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4 && coreSellC5 && coreSellC6 && volumeOK && volumeOK1 && priceInMiddle) {
-      log('→ Candidate: HIGH SELL (Core Trend-Following)');
-      candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time });
-    }
-
-    // ---------------------------
-    section('System 3: Momentum Shift');
-    const volUp = latest.volume > (prev?.volume ?? 0) * MIN_VOL_CHANGE;
-    const shiftBuyC1 = (cache.prevRsi as number) < RSI_CENTERLINE;
-    const shiftBuyC2 = (cache.rsi as number) > RSI_CENTERLINE;
-    const shiftBuyC3 = volUp;
-    const shiftBuyC4 = latest.close > (cache.vwap as number);
-    const shiftBuyC5 = isUptrend;
-    logCond('Prev RSI < 50', shiftBuyC1, `${Number(cache.prevRsi).toFixed(2)}`);
-    logCond('Curr RSI > 50', shiftBuyC2, `${Number(cache.rsi).toFixed(2)}`);
-    logCond(`Volume > ${MIN_VOL_CHANGE}x prev`, shiftBuyC3, `${latest.volume} vs ${prev?.volume}`);
-    logCond('Close > VWAP', shiftBuyC4, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Uptrend', shiftBuyC5);
-    if (shiftBuyC1 && shiftBuyC2 && shiftBuyC3 && shiftBuyC4 && shiftBuyC5) {
-      log('→ Candidate: LOW BUY (RSI Centerline Cross)');
-      candidates.push({ type: 'BUY', level: 'Low', price: latest.close, time: latest.time });
-    }
-
-    const shiftSellC1 = (cache.prevRsi as number) > RSI_CENTERLINE;
-    const shiftSellC2 = (cache.rsi as number) < RSI_CENTERLINE;
-    const shiftSellC4 = latest.close < (cache.vwap as number);
-    const shiftSellC5 = isDowntrend;
-    logCond('Prev RSI > 50', shiftSellC1, `${Number(cache.prevRsi).toFixed(2)}`);
-    logCond('Curr RSI < 50', shiftSellC2, `${Number(cache.rsi).toFixed(2)}`);
-    logCond('Close < VWAP', shiftSellC4, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Downtrend', shiftSellC5);
-    if (shiftSellC1 && shiftSellC2 && shiftSellC4 && shiftSellC5) {
-      log('→ Candidate: LOW SELL (RSI Centerline Cross)');
-      candidates.push({ type: 'SELL', level: 'Low', price: latest.close, time: latest.time });
-    }
-
-    // =================================================================
     // Selection & Post filters
-    // =================================================================
     section('Selection');
     if (!candidates.length) {
       log('No candidates from any system.');
@@ -333,48 +363,89 @@ export async function GET() {
     let newSignal = candidates[0];
     log('Selected:', newSignal);
 
-    // Price action confirmation (same rule you had)
+    // Recompute indicators for the most recent candle to ensure cache and avgAtr are available
+    const latest = chartData.at(-1)!;
+    const prev = chartData.at(-2) ?? chartData.at(-1)!;
+    const closeSlice = chartData.map(d => d.close);
+    const highSlice = chartData.map(d => d.high);
+    const lowSlice = chartData.map(d => d.low);
+    const emaFastArr = indicators.calculateEMA(closeSlice, EMA_FAST_PERIOD);
+    const emaSlowArr = indicators.calculateEMA(closeSlice, EMA_SLOW_PERIOD);
+    const emaMedArr = indicators.calculateEMA(closeSlice, EMA_MEDIUM_PERIOD);
+    const emaLongArr = indicators.calculateEMA(closeSlice, EMA_LONG_PERIOD);
+    const psarArr = indicators.calculateParabolicSAR(chartData, PARABOLIC_SAR_STEP, PARABOLIC_SAR_MAX);
+    const vwapArr = indicators.calculateVWAP(chartData);
+    const rsiArr = indicators.calculateRSI(closeSlice, RSI_PERIOD);
+    const bb = indicators.calculateBollingerBands(closeSlice, BBANDS_PERIOD, BBANDS_STD_DEV);
+    const deepBB = indicators.calculateBollingerBands(closeSlice, BBANDS_PERIOD, BBANDS_STD_DEV * BBANDS_DEEP_MULTIPLIER);
+    const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, ATR_PERIOD);
+
+    const cache = {
+      emaFast: emaFastArr.at(-1) ?? null,
+      emaSlow: emaSlowArr.at(-1) ?? null,
+      emaMedium: emaMedArr.at(-1) ?? null,
+      emaLong: emaLongArr.at(-1) ?? null,
+      pSar: psarArr.at(-1) ?? null,
+      vwap: vwapArr.at(-1) ?? null,
+      rsi: rsiArr.at(-1) ?? null,
+      prevRsi: rsiArr.at(-2) ?? null,
+      lowerBB: bb.lower.at(-1) ?? null,
+      upperBB: bb.upper.at(-1) ?? null,
+      deepLowerBB: deepBB.lower.at(-1) ?? null,
+      atr: atrArr.at(-1) ?? null,
+    };
+
+    const recentAtr = atrArr.slice(-5).filter(v => v !== null) as number[];
+    const avgAtr = recentAtr.length > 0 ? recentAtr.reduce((s, v) => s + v, 0) / recentAtr.length : 0;
+
+    if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
+      log('Final indicator calculation incomplete:', cache);
+      return NextResponse.json({ message: 'Final indicator calculation incomplete.' });
+    }
+
+    // Price Action Confirmation
     section('Price Action Confirmation');
     if (newSignal.type === 'BUY') {
-      const ok = latest.close > prev.high * 1.0005;
-      logCond('BUY must break prev high', ok, `${latest.close.toFixed(6)} > ${prev.high.toFixed(6)}`);
+      const ok = latest.close > prev.close * 1.0005;
+      logCond('BUY must exceed prev close + 0.05%', ok, `${latest.close.toFixed(6)} > ${(prev.close * 1.0005).toFixed(6)}`);
       if (!ok) return NextResponse.json({ message: 'Signal unconfirmed by price action (BUY).' });
     } else {
-      const ok = latest.close < prev.low * 1.0005;
-      logCond('SELL must break prev low', ok, `${latest.close.toFixed(6)} < ${prev.low.toFixed(6)}`);
+      const ok = latest.close < prev.close * 0.9995;
+      logCond('SELL must break prev close - 0.05%', ok, `${latest.close.toFixed(6)} < ${(prev.close * 0.9995).toFixed(6)}`);
       if (!ok) return NextResponse.json({ message: 'Signal unconfirmed by price action (SELL).' });
     }
 
-    // Duplicate prevention (type+level+price proximity+time window)
+    // Duplicate Prevention
     section('Duplicate Prevention');
     const lastSignals = await getSignalHistoryFromFirestore();
-    const lastSignal = lastSignals?.[0] ?? null; // Renamed to lastSignal
+    const lastSignal = lastSignals?.[0] ?? null;
     if (lastSignal) {
-      // Use lastSignal instead of last
       const priceBps = Math.abs(lastSignal.price - newSignal.price) / newSignal.price * 10000;
       const timeDeltaMin = Math.abs(Number(newSignal.time) - Number(lastSignal.time)) / 60000;
-      
+      const isOpposite = lastSignal.type !== newSignal.type;
+      const atrAvgOk = (cache.atr as number) > avgAtr;
       log('Last signal:', lastSignal);
-      log('New vs Last:', { priceBps: priceBps.toFixed(2), timeDeltaMin: timeDeltaMin.toFixed(2) });
-      
-      if (lastSignal.type === newSignal.type && 
-          lastSignal.level === newSignal.level && 
-          priceBps < 1 && 
-          timeDeltaMin < 3 && 
-          bbWidth < ATR_PERIOD * 1.5) {
-        log('✘ Duplicate skipped (same direction+level, <1 bps diff, <3 min, bbWidth < ATR_PERIOD * 1.5 ).');
+      log('New vs Last:', { priceBps: priceBps.toFixed(2), timeDeltaMin: timeDeltaMin.toFixed(2), isOpposite, atrAvgOk });
+      if (lastSignal.type === newSignal.type && lastSignal.level === newSignal.level && priceBps < 1 && timeDeltaMin < 3) {
+        log('✘ Duplicate skipped (same direction+level, <1 bps diff, <3 min).');
         return NextResponse.json({ message: 'Duplicate signal skipped.' });
+      }
+      if (isOpposite && timeDeltaMin < 10 && !atrAvgOk) {
+        log('✘ Opposite signal skipped (within 10 min, ATR not above avg).');
+        return NextResponse.json({ message: 'Opposite signal skipped due to low volatility.' });
       }
     } else {
       log('No previous signals found.');
     }
-    
 
-    // Save
+    // Save Signal with leverage/stop info
+    const suggestedLeverage = Math.min(20, 1 / ((cache.atr as number) / latest.close * 100));
+    const stopBuffer = (cache.atr as number) * 1.5;
+    const enhancedSignal: EnhancedSignal = { ...newSignal, suggestedLeverage, stopBuffer };
     section('Save Signal');
-    await saveSignalToFirestore(newSignal);
-    log('✓ Signal saved:', newSignal);
-    return NextResponse.json({ signal: newSignal });
+    await saveSignalToFirestore(enhancedSignal);
+    log('✓ Signal saved:', enhancedSignal);
+    return NextResponse.json({ signal: enhancedSignal });
 
   } catch (err) {
     console.error(err);
