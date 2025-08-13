@@ -11,40 +11,40 @@ import * as indicators from '@/lib/indicators';
 const DEBUG = true;
 
 // System 1: Core Trend-Following (High Probability)
-const EMA_FAST_PERIOD = 5;
-const EMA_SLOW_PERIOD = 13;
-const EMA_MEDIUM_PERIOD = 20;
-const EMA_LONG_PERIOD = 50;
+const EMA_FAST_PERIOD = 3;
+const EMA_SLOW_PERIOD = 8;
+const EMA_MEDIUM_PERIOD = 12;
+const EMA_LONG_PERIOD = 21;
 const PARABOLIC_SAR_STEP = 0.02;
 const PARABOLIC_SAR_MAX = 0.2;
-const TREND_CONFIRMATION_PERIOD = 3;
+const TREND_CONFIRMATION_PERIOD = 2;
 
 // System 2: Momentum-Reversal (Medium Probability)
-const RSI_PERIOD = 14;
-const RSI_OVERSOLD_THRESHOLD = 30;
-const RSI_OVERBOUGHT_THRESHOLD = 70;
-const DEEP_RSI_THRESHOLD = 25;
+const RSI_PERIOD = 8;
+const RSI_OVERSOLD_THRESHOLD = 35;
+const RSI_OVERBOUGHT_THRESHOLD = 65;
+const DEEP_RSI_THRESHOLD = 28;
 const BBANDS_DEEP_MULTIPLIER = 2.0;
-const BBANDS_PERIOD = 20;
+const BBANDS_PERIOD = 10;
 const BBANDS_STD_DEV = 1.5;
-const VOLUME_SPIKE_FACTOR = 1.8;
-const MIN_CANDLE_BODY = 0.0003;
+const VOLUME_SPIKE_FACTOR = 1.5;
+const MIN_CANDLE_BODY = 0.00015;
 
 // System 3: Momentum Shift (Low Probability)
 const RSI_CENTERLINE = 50;
-const MIN_VOL_CHANGE = 1.5;
+const MIN_VOL_CHANGE = 1.3;
 
 // Volatility Filter
-const ATR_PERIOD = 14;
-const MIN_ATR_THRESHOLD = 0.00015; // slightly loosened
-const LOW_VOL_THRESHOLD = 0.0004;  // slightly loosened
+const ATR_PERIOD = 7;
+const MIN_ATR_THRESHOLD = 0.0002; // slightly loosened
+const LOW_VOL_THRESHOLD = 0.0003;  // slightly loosened
 
 // Filters
-const VOLUME_CONFIRMATION_FACTOR = 0.7;
-const PRICE_POSITION_FILTER = 0.25; // Loosened from 0.30
-const RSI_BUY_MAX = 55;
-const RSI_SELL_MIN = 45;
-const PSAR_BUFFER_FACTOR = 0.3; // 30% of ATR
+const VOLUME_CONFIRMATION_FACTOR = 0.85;
+const PRICE_POSITION_FILTER = 0.20; // Loosened from 0.30
+const RSI_BUY_MAX = 60;
+const RSI_SELL_MIN = 40;
+const PSAR_BUFFER_FACTOR = 0.2; // 30% of ATR
 
 export const revalidate = 0;
 
@@ -177,14 +177,14 @@ export async function GET() {
     const deepBuyC3 = (latest.close - latest.open) > MIN_CANDLE_BODY;
     const deepBuyC4 = latest.volume > (prev?.volume ?? 0) * VOLUME_SPIKE_FACTOR;
     const deepBuyC5 = latest.close > (cache.pSar as number);
-    const deepBuyC6 = isUptrend;
+    
     logCond(`RSI <= ${DEEP_RSI_THRESHOLD}`, deepBuyC1, `${Number(cache.rsi).toFixed(2)}`);
     logCond('Low <= DeepLowerBB', deepBuyC2, `${latest.low.toFixed(6)} vs ${(cache.deepLowerBB as number).toFixed(6)}`);
     logCond('Bullish body > MIN_CANDLE_BODY', deepBuyC3, `${(latest.close - latest.open).toFixed(6)} > ${MIN_CANDLE_BODY}`);
     logCond(`Volume > ${VOLUME_SPIKE_FACTOR}x prev`, deepBuyC4, `${latest.volume} vs ${prev?.volume}`);
     logCond('Close > PSAR', deepBuyC5, `${latest.close.toFixed(6)} vs ${(cache.pSar as number).toFixed(6)}`);
-    logCond('Uptrend (price > EMA50)', deepBuyC6, `${latest.close.toFixed(6)} > ${(cache.emaLong as number).toFixed(6)}`);
-    if (deepBuyC1 && deepBuyC2 && deepBuyC3 && deepBuyC4 && deepBuyC5 && deepBuyC6) {
+
+    if (deepBuyC1 && deepBuyC2 && deepBuyC3 && deepBuyC4 && deepBuyC5 ) {
       log('→ Candidate: HIGH BUY (Deep Oversold Reversal)');
       candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
     }
@@ -195,14 +195,14 @@ export async function GET() {
     const modBuyC3 = latest.low <= (cache.lowerBB as number);
     const modBuyC4 = latest.close > (cache.vwap as number);
     const modBuyC5 = latest.close > (cache.lowerBB as number) * 1.001;
-    const modBuyC6 = isUptrend;
+
     logCond(`Prev RSI < ${RSI_OVERSOLD_THRESHOLD}`, modBuyC1, `${Number(cache.prevRsi).toFixed(2)}`);
     logCond(`Curr RSI > ${RSI_OVERSOLD_THRESHOLD}`, modBuyC2, `${Number(cache.rsi).toFixed(2)}`);
     logCond('Low <= LowerBB', modBuyC3, `${latest.low.toFixed(6)} <= ${(cache.lowerBB as number).toFixed(6)}`);
     logCond('Close > VWAP', modBuyC4, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
     logCond('Close > LowerBB + 0.1%', modBuyC5, `${latest.close.toFixed(6)} > ${((cache.lowerBB as number) * 1.001).toFixed(6)}`);
-    logCond('Uptrend', modBuyC6);
-    if (modBuyC1 && modBuyC2 && modBuyC3 && modBuyC4 && modBuyC5 && modBuyC6) {
+
+    if (modBuyC1 && modBuyC2 && modBuyC3 && modBuyC4 && modBuyC5 ) {
       log('→ Candidate: MEDIUM BUY (Moderate Reversal)');
       candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time });
     }
@@ -214,6 +214,7 @@ export async function GET() {
     const revSellC4 = latest.close < (cache.vwap as number);
     const revSellC5 = latest.close < (cache.upperBB as number) * 0.999;
     const revSellC6 = isDowntrend;
+
     logCond('Prev RSI > Overbought', revSellC1, `${Number(cache.prevRsi).toFixed(2)} > ${RSI_OVERBOUGHT_THRESHOLD}`);
     logCond('Curr RSI < Overbought', revSellC2, `${Number(cache.rsi).toFixed(2)} < ${RSI_OVERBOUGHT_THRESHOLD}`);
     logCond('High >= UpperBB', revSellC3, `${latest.high.toFixed(6)} >= ${(cache.upperBB as number).toFixed(6)}`);
@@ -228,6 +229,7 @@ export async function GET() {
     // ---------------------------
     section('System 1: Core Trend-Following');
     const volumeOK = latest.volume > volumeAvg * VOLUME_CONFIRMATION_FACTOR;
+    const volumeOK1 = latest.volume > volumeAvg * 1.2
     const bbWidth = (cache.upperBB as number) - (cache.lowerBB as number);
     const pricePos = (latest.close - (cache.lowerBB as number)) / bbWidth;
     const priceInMiddle = pricePos > PRICE_POSITION_FILTER && pricePos < (1 - PRICE_POSITION_FILTER);
@@ -235,6 +237,8 @@ export async function GET() {
     logCond(`Volume > ${VOLUME_CONFIRMATION_FACTOR*100}% of avg`, volumeOK, `${latest.volume} vs ${volumeAvg.toFixed(0)}`);
     logCond('Price in middle BB range', priceInMiddle, `pos ${(pricePos*100).toFixed(1)}%`);
     logCond('PSAR Buffer', true, `${psarBuffer.toFixed(6)} (${(PSAR_BUFFER_FACTOR*100).toFixed(0)}% ATR)`);
+    logCond(`Volume > ${1.2}% of avg`, volumeOK1, `${latest.volume} vs ${volumeAvg.toFixed(0)}`);
+
 
     let coreBuyC1: boolean;
     if (isLowVol) {
@@ -274,11 +278,11 @@ export async function GET() {
     logCond(`EMA downtrend last ${TREND_CONFIRMATION_PERIOD}`, coreSellC5);
     logCond('Downtrend (price < EMA50)', coreSellC6);
 
-    if (coreBuyC1 && coreBuyC2 && coreBuyC3 && coreBuyC4 && coreBuyC5 && coreBuyC6 && volumeOK && priceInMiddle) {
+    if (coreBuyC1 && coreBuyC2 && coreBuyC3 && coreBuyC4 && coreBuyC5 && coreBuyC6 && volumeOK && volumeOK1 && priceInMiddle) {
       log('→ Candidate: HIGH BUY (Core Trend-Following)');
       candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
     }
-    if (coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4 && coreSellC5 && coreSellC6 && volumeOK && priceInMiddle) {
+    if (coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4 && coreSellC5 && coreSellC6 && volumeOK && volumeOK1 && priceInMiddle) {
       log('→ Candidate: HIGH SELL (Core Trend-Following)');
       candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time });
     }
@@ -303,15 +307,13 @@ export async function GET() {
 
     const shiftSellC1 = (cache.prevRsi as number) > RSI_CENTERLINE;
     const shiftSellC2 = (cache.rsi as number) < RSI_CENTERLINE;
-    const shiftSellC3 = volUp;
     const shiftSellC4 = latest.close < (cache.vwap as number);
     const shiftSellC5 = isDowntrend;
     logCond('Prev RSI > 50', shiftSellC1, `${Number(cache.prevRsi).toFixed(2)}`);
     logCond('Curr RSI < 50', shiftSellC2, `${Number(cache.rsi).toFixed(2)}`);
-    logCond(`Volume > ${MIN_VOL_CHANGE}x prev`, shiftSellC3, `${latest.volume} vs ${prev?.volume}`);
     logCond('Close < VWAP', shiftSellC4, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
     logCond('Downtrend', shiftSellC5);
-    if (shiftSellC1 && shiftSellC2 && shiftSellC3 && shiftSellC4 && shiftSellC5) {
+    if (shiftSellC1 && shiftSellC2 && shiftSellC4 && shiftSellC5) {
       log('→ Candidate: LOW SELL (RSI Centerline Cross)');
       candidates.push({ type: 'SELL', level: 'Low', price: latest.close, time: latest.time });
     }
@@ -334,11 +336,11 @@ export async function GET() {
     // Price action confirmation (same rule you had)
     section('Price Action Confirmation');
     if (newSignal.type === 'BUY') {
-      const ok = latest.close > prev.high;
+      const ok = latest.close > prev.high * 1.0005;
       logCond('BUY must break prev high', ok, `${latest.close.toFixed(6)} > ${prev.high.toFixed(6)}`);
       if (!ok) return NextResponse.json({ message: 'Signal unconfirmed by price action (BUY).' });
     } else {
-      const ok = latest.close < prev.low;
+      const ok = latest.close < prev.low * 1.0005;
       logCond('SELL must break prev low', ok, `${latest.close.toFixed(6)} < ${prev.low.toFixed(6)}`);
       if (!ok) return NextResponse.json({ message: 'Signal unconfirmed by price action (SELL).' });
     }
@@ -357,9 +359,10 @@ export async function GET() {
       
       if (lastSignal.type === newSignal.type && 
           lastSignal.level === newSignal.level && 
-          priceBps < 2 && 
-          timeDeltaMin < 5) {
-        log('✘ Duplicate skipped (same direction+level, <2 bps diff, <5 min).');
+          priceBps < 1 && 
+          timeDeltaMin < 3 && 
+          bbWidth < ATR_PERIOD * 1.5) {
+        log('✘ Duplicate skipped (same direction+level, <1 bps diff, <3 min, bbWidth < ATR_PERIOD * 1.5 ).');
         return NextResponse.json({ message: 'Duplicate signal skipped.' });
       }
     } else {
