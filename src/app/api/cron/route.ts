@@ -414,12 +414,12 @@ export async function GET() {
     // Price Action Confirmation
     section('Price Action Confirmation');
     if (newSignal.type === 'BUY') {
-      const ok = latest.close > prev.close * 1.0002;
-      logCond('BUY must exceed prev close + 0.05%', ok, `${latest.close.toFixed(6)} > ${(prev.close * 1.0005).toFixed(6)}`);
+      const ok = latest.close > prev.close * 1.0001;
+      logCond('BUY must exceed prev close + 0.01%', ok, `${latest.close.toFixed(6)} > ${(prev.close * 1.0005).toFixed(6)}`);
       if (!ok) return NextResponse.json({ message: 'Signal unconfirmed by price action (BUY).' });
     } else {
-      const ok = latest.close < prev.close * 0.9998;
-      logCond('SELL must break prev close - 0.05%', ok, `${latest.close.toFixed(6)} < ${(prev.close * 0.9995).toFixed(6)}`);
+      const ok = latest.close < prev.close * 0.9999;
+      logCond('SELL must break prev close - 0.01%', ok, `${latest.close.toFixed(6)} < ${(prev.close * 0.9995).toFixed(6)}`);
       if (!ok) return NextResponse.json({ message: 'Signal unconfirmed by price action (SELL).' });
     }
 
