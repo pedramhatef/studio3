@@ -9,7 +9,7 @@ interface EnhancedSignal extends Signal {
   stopBuffer?: number;
 }
 
-// STRATEGY CONFIGURATION (same systems preserved) + VERBOSE DEBUG LOGGING
+// STRATEGY CONFIGURATION
 const DEBUG = true;
 
 // System 1: Core Trend-Following (High Probability)
@@ -34,13 +34,13 @@ const MIN_CANDLE_BODY = 0.00015;
 
 // System 3: Momentum Shift (Low Probability)
 const RSI_CENTERLINE = 50;
-const MIN_VOL_CHANGE = 1.5; // Tightened as per suggestion
+const MIN_VOL_CHANGE = 1.5;
 
 // Volatility Filter
 const ATR_PERIOD = 7;
 const MIN_ATR_THRESHOLD = 0.0002;
 const LOW_VOL_THRESHOLD = 0.0003;
-const AVG_ATR_MULTIPLIER = 2.0;
+const AVG_ATR_MULTIPLIER = 1.5; // Reduced to allow more signals
 
 // Filters
 const VOLUME_CONFIRMATION_FACTOR = 0.85;
@@ -76,11 +76,12 @@ export async function GET() {
       return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
     }
 
-    // Evaluate last 3 candles for signals to increase frequency
+    // Evaluate last 3 candles for signals
     type Cand = Omit<EnhancedSignal, 'displayTime' | 'serverTime'>;
     const candidates: Cand[] = [];
-    let lastCache: typeof cache | null = null; // Store cache for selected signal
-    let lastAvgAtr: number = 0; // Store avgAtr for selected signal
+    let lastCache: typeof cache | null = null;
+    let lastAvgAtr: number = 0;
+    let filterRejections = 0; // New: Track filter rejections
 
     for (let i = 0; i < Math.min(3, chartData.length); i++) {
       const latest = chartData.at(-1 - i)!;
@@ -100,7 +101,7 @@ export async function GET() {
       const lowSlice = chartData.slice(0, chartData.length - i).map(d => d.low);
       const chartDataSlice = chartData.slice(0, chartData.length - i);
 
-      // 2) Indicators (cached)
+      // 2) Indicators
       section('Compute Indicators');
       const emaFastArr = indicators.calculateEMA(closeSlice, EMA_FAST_PERIOD);
       const emaSlowArr = indicators.calculateEMA(closeSlice, EMA_SLOW_PERIOD);
@@ -149,14 +150,22 @@ export async function GET() {
       const isLowVol = (cache.atr as number) < LOW_VOL_THRESHOLD;
       log('Trend/Volatility:', { isUptrend, isDowntrend, isLowVol });
 
-      // Compute average ATR over last 5 candles
+      // Compute average ATR
       const recentAtr = atrArr.slice(-5).filter(v => v !== null) as number[];
       const avgAtr = recentAtr.length > 0 ? recentAtr.reduce((s, v) => s + v, 0) / recentAtr.length : 0;
+      log('ATR Debug:', { currentAtr: Number(cache.atr).toFixed(6), avgAtr: avgAtr.toFixed(6), threshold: (avgAtr * AVG_ATR_MULTIPLIER).toFixed(6) });
 
-      // Enhanced volatility filter
-      if ((cache.atr as number) < MIN_ATR_THRESHOLD || (cache.atr as number) < avgAtr * AVG_ATR_MULTIPLIER) {
+      // Modified: Relaxed volatility filter
+      if ((cache.atr as number) < MIN_ATR_THRESHOLD && !isLowVol) {
         section('VOLATILITY FILTER');
-        log(`✘ Market too flat: ATR ${Number(cache.atr).toFixed(6)} < ${MIN_ATR_THRESHOLD} or < ${avgAtr * AVG_ATR_MULTIPLIER}`);
+        log(`✘ Market too flat: ATR ${Number(cache.atr).toFixed(6)} < ${MIN_ATR_THRESHOLD}`);
+        filterRejections++;
+        continue;
+      }
+      if ((cache.atr as number) < avgAtr * AVG_ATR_MULTIPLIER && !isLowVol) {
+        section('VOLATILITY FILTER');
+        log(`✘ Market too flat: ATR ${Number(cache.atr).toFixed(6)} < ${avgAtr * AVG_ATR_MULTIPLIER}`);
+        filterRejections++;
         continue;
       }
 
@@ -184,7 +193,6 @@ export async function GET() {
 
       // System 2: Momentum-Reversal
       section('System 2: Momentum-Reversal');
-      // Deep Oversold Reversal (High)
       const deepBuyC1 = (cache.rsi as number) <= DEEP_RSI_THRESHOLD;
       const deepBuyC2 = latest.low <= (cache.deepLowerBB as number);
       const deepBuyC3 = (latest.close - latest.open) > MIN_CANDLE_BODY;
@@ -204,7 +212,6 @@ export async function GET() {
         candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
       }
 
-      // Moderate Reversal BUY (Medium)
       const modBuyC1 = (cache.prevRsi as number) < RSI_OVERSOLD_THRESHOLD;
       const modBuyC2 = (cache.rsi as number) > RSI_OVERSOLD_THRESHOLD;
       const modBuyC3 = latest.low <= (cache.lowerBB as number);
@@ -224,7 +231,6 @@ export async function GET() {
         candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time });
       }
 
-      // Reversal SELL (Medium)
       const revSellC1 = (cache.prevRsi as number) > RSI_OVERBOUGHT_THRESHOLD;
       const revSellC2 = (cache.rsi as number) < RSI_OVERBOUGHT_THRESHOLD;
       const revSellC3 = latest.high >= (cache.upperBB as number);
@@ -337,18 +343,21 @@ export async function GET() {
 
       // BB Width Filter
       section('BB Width Filter');
-      const atrThreshold = (cache.atr as number) * 1.5; // Fixed: Removed .toFixed(6)
+      const atrThreshold = (cache.atr as number) * 1.5;
       if (bbWidth < atrThreshold) {
         log(`✘ BB Width too tight: ${bbWidth.toFixed(6)} < ${atrThreshold.toFixed(6)}`);
         continue;
       }
 
-      // Store cache and avgAtr for the candidate
+      // Store cache and avgAtr
       if (candidates.length > 0) {
         lastCache = cache;
         lastAvgAtr = avgAtr;
       }
     }
+
+    // Log filter rejections
+    log(`Volatility filter rejections: ${filterRejections}`);
 
     // Selection & Post filters
     section('Selection');
@@ -363,7 +372,7 @@ export async function GET() {
     let newSignal = candidates[0];
     log('Selected:', newSignal);
 
-    // Recompute indicators for the most recent candle to ensure cache and avgAtr are available
+    // Recompute indicators for the most recent candle
     const latest = chartData.at(-1)!;
     const prev = chartData.at(-2) ?? chartData.at(-1)!;
     const closeSlice = chartData.map(d => d.close);
@@ -438,7 +447,7 @@ export async function GET() {
       log('No previous signals found.');
     }
 
-    // Save Signal with leverage/stop info
+    // Save Signal
     const suggestedLeverage = Math.min(20, 1 / ((cache.atr as number) / latest.close * 100));
     const stopBuffer = (cache.atr as number) * 1.5;
     const enhancedSignal: EnhancedSignal = { ...newSignal, suggestedLeverage, stopBuffer };
