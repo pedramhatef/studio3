@@ -36,6 +36,13 @@ const ATR_PERIOD = 14;
 const MIN_ATR_THRESHOLD = 0.00025;
 const LOW_VOL_THRESHOLD = 0.0005;
 
+// ====== NEW FILTERS ====== //
+const VOLUME_CONFIRMATION_FACTOR = 0.7; // Min 70% of 5-period average
+const PRICE_POSITION_FILTER = 0.3; // Require middle 30% of BB width
+const RSI_BUY_MAX = 55; // Tightened from 60
+const RSI_SELL_MIN = 45; // Tightened from 40
+const PSAR_BUFFER_FACTOR = 0.3; // 30% of ATR
+
 /**
  * This function is the entry point for the cron job, executed every minute.
  * It implements the trading strategies to generate signals.
@@ -97,7 +104,7 @@ export async function GET() {
     const isUptrend = latestDataPoint.close > latestEmaLong!;
     const isDowntrend = latestDataPoint.close < latestEmaLong!;
 
-    // Trend confirmation helpers (FIXED: Handle null values)
+    // Trend confirmation helpers
     const isIncreasing = (values: (number | null)[]): boolean => {
       const recentValues = values.slice(-TREND_CONFIRMATION_PERIOD);
       if (recentValues.some(v => v === null)) {
@@ -263,12 +270,34 @@ export async function GET() {
     if (!newSignal) {
       console.log("\nEvaluating Core Trend-Following System (High):");
 
-      // Trend confirmation checks (FIXED: Use new helpers)
+      // Trend confirmation checks
       const emaFastUp = isIncreasing(emaFast);
       const emaSlowUp = isIncreasing(emaSlow);
       const emaFastDown = isDecreasing(emaFast);
       const emaSlowDown = isDecreasing(emaSlow);
       
+      // ====== NEW FILTERS ====== //
+      // 1. Volume Confirmation
+      const volumePeriods = 5;
+      const volumeSum = chartData.slice(-volumePeriods).reduce((sum, d) => sum + d.volume, 0);
+      const volumeAvg = volumeSum / volumePeriods;
+      const volumeOK = latestDataPoint.volume > volumeAvg * VOLUME_CONFIRMATION_FACTOR;
+      logCondition(`Volume > ${VOLUME_CONFIRMATION_FACTOR*100}% of avg`, volumeOK, 
+                  `${latestDataPoint.volume} vs ${volumeAvg.toFixed(0)}`);
+      
+      // 2. Price Position Filter
+      const bbWidth = latestUpperBB! - latestLowerBB!;
+      const pricePosition = (latestDataPoint.close - latestLowerBB!) / bbWidth;
+      const priceInMiddle = pricePosition > PRICE_POSITION_FILTER && 
+                            pricePosition < (1 - PRICE_POSITION_FILTER);
+      logCondition("Price in middle BB range", priceInMiddle, 
+                  `Position: ${(pricePosition*100).toFixed(1)}%`);
+      
+      // 3. Dynamic PSAR Buffer
+      const psarBuffer = latestAtr! * PSAR_BUFFER_FACTOR;
+      logCondition("PSAR Buffer", true, `${psarBuffer.toFixed(5)} (${PSAR_BUFFER_FACTOR*100}% of ATR)`);
+      // ========================= //
+
       // In low vol, simplify to basic EMA cross + RSI
       let coreBuyC1: boolean;
       if (isLowVol) {
@@ -280,15 +309,16 @@ export async function GET() {
       }
       
       const coreBuyC2 = latestDataPoint.close > latestVwap!;
-      const coreBuyC3 = latestDataPoint.close > (latestPSar! * 1.002);
-      const coreBuyC4 = latestRsi! < 60;
+      const coreBuyC3 = latestDataPoint.close > (latestPSar! + psarBuffer); // Dynamic buffer
+      const coreBuyC4 = latestRsi! < RSI_BUY_MAX; // Tightened RSI
       const coreBuyC5 = emaFastUp && emaSlowUp;
       const coreBuyC6 = isUptrend;
-      const isCoreBuySignal = coreBuyC1 && coreBuyC2 && coreBuyC3 && coreBuyC4 && coreBuyC5 && coreBuyC6;
+      const isCoreBuySignal = coreBuyC1 && coreBuyC2 && coreBuyC3 && coreBuyC4 && 
+                             coreBuyC5 && coreBuyC6 && volumeOK && priceInMiddle; // Added filters
       
       logCondition("Price > VWAP", coreBuyC2, `${latestDataPoint.close.toFixed(5)} vs ${latestVwap!.toFixed(5)}`);
-      logCondition("Price > PSAR+0.2%", coreBuyC3, `${latestDataPoint.close.toFixed(5)} vs ${(latestPSar! * 1.002).toFixed(5)}`);
-      logCondition("RSI < 60", coreBuyC4, latestRsi!.toFixed(2));
+      logCondition("Price > PSAR + Buffer", coreBuyC3, `${latestDataPoint.close.toFixed(5)} vs ${(latestPSar! + psarBuffer).toFixed(5)}`);
+      logCondition(`RSI < ${RSI_BUY_MAX}`, coreBuyC4, latestRsi!.toFixed(2));
       logCondition("EMA Trend Confirmed Up", coreBuyC5, `Last ${TREND_CONFIRMATION_PERIOD} periods`);
       logCondition("Uptrend Alignment", coreBuyC6, `Price:${latestDataPoint.close.toFixed(5)} > EMA(50):${latestEmaLong!.toFixed(5)}`);
 
@@ -302,15 +332,16 @@ export async function GET() {
       }
       
       const coreSellC2 = latestDataPoint.close < latestVwap!;
-      const coreSellC3 = latestDataPoint.close < (latestPSar! * 0.998);
-      const coreSellC4 = latestRsi! > 40;
+      const coreSellC3 = latestDataPoint.close < (latestPSar! - psarBuffer); // Dynamic buffer
+      const coreSellC4 = latestRsi! > RSI_SELL_MIN; // Tightened RSI
       const coreSellC5 = emaFastDown && emaSlowDown;
       const coreSellC6 = isDowntrend;
-      const isCoreSellSignal = coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4 && coreSellC5 && coreSellC6;
+      const isCoreSellSignal = coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4 && 
+                              coreSellC5 && coreSellC6 && volumeOK && priceInMiddle; // Added filters
       
       logCondition("Price < VWAP", coreSellC2, `${latestDataPoint.close.toFixed(5)} vs ${latestVwap!.toFixed(5)}`);
-      logCondition("Price < PSAR-0.2%", coreSellC3, `${latestDataPoint.close.toFixed(5)} vs ${(latestPSar! * 0.998).toFixed(5)}`);
-      logCondition("RSI > 40", coreSellC4, latestRsi!.toFixed(2));
+      logCondition("Price < PSAR - Buffer", coreSellC3, `${latestDataPoint.close.toFixed(5)} vs ${(latestPSar! - psarBuffer).toFixed(5)}`);
+      logCondition(`RSI > ${RSI_SELL_MIN}`, coreSellC4, latestRsi!.toFixed(2));
       logCondition("EMA Trend Confirmed Down", coreSellC5, `Last ${TREND_CONFIRMATION_PERIOD} periods`);
       logCondition("Downtrend Alignment", coreSellC6, `Price:${latestDataPoint.close.toFixed(5)} < EMA(50):${latestEmaLong!.toFixed(5)}`);
 
