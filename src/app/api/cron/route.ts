@@ -208,7 +208,8 @@ export async function GET() {
       logCond('Close > EMA Fast', deepBuyC7, `${latest.close.toFixed(6)} > ${(cache.emaFast as number).toFixed(6)}`);
       if (deepBuyC1 && deepBuyC2 && deepBuyC3 && deepBuyC4 && deepBuyC5 && deepBuyC6 && deepBuyC7) {
         log('→ Candidate: HIGH BUY (Deep Oversold Reversal)');
-        candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
+        const deepBuyCTrueCount = [deepBuyC1, deepBuyC2, deepBuyC3, deepBuyC4, deepBuyC5, deepBuyC6, deepBuyC7].filter(Boolean).length;
+        if (deepBuyCTrueCount >= 5) candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
       }
 
       const modBuyC1 = (cache.prevRsi as number) < RSI_OVERSOLD_THRESHOLD;
@@ -227,8 +228,10 @@ export async function GET() {
       logCond('Close > EMA Fast', modBuyC7, `${latest.close.toFixed(6)} > ${(cache.emaFast as number).toFixed(6)}`);
       if (modBuyC1 && modBuyC2 && modBuyC3 && modBuyC4 && modBuyC5 && modBuyC6 && modBuyC7) {
         log('→ Candidate: MEDIUM BUY (Moderate Reversal)');
-        candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time });
+        const modBuyTrueCount = [modBuyC1, modBuyC2, modBuyC3, modBuyC4, modBuyC5, modBuyC6, modBuyC7].filter(Boolean).length;
+        if (modBuyTrueCount >= 5) candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time });
       }
+    
 
       const revSellC1 = (cache.prevRsi as number) > RSI_OVERBOUGHT_THRESHOLD;
       const revSellC2 = (cache.rsi as number) < RSI_OVERBOUGHT_THRESHOLD;
@@ -244,7 +247,8 @@ export async function GET() {
       logCond('Downtrend', revSellC6);
       if (revSellC1 && revSellC2 && revSellC3 && revSellC4 && revSellC5 && revSellC6) {
         log('→ Candidate: MEDIUM SELL (Reversal)');
-        candidates.push({ type: 'SELL', level: 'Medium', price: latest.close, time: latest.time });
+        const revSellCTrueCount = [revSellC1, revSellC2, revSellC3, revSellC4, revSellC5, revSellC6 ].filter(Boolean).length;
+        if (revSellCTrueCount >= 5) candidates.push({ type: 'SELL', level: 'Medium', price: latest.close, time: latest.time });
       }
 
       // System 1: Core Trend-Following
