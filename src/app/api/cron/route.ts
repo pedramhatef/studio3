@@ -39,8 +39,8 @@ const MIN_VOL_CHANGE = 1.5;
 // Volatility Filter
 const ATR_PERIOD = 5;
 const MIN_ATR_THRESHOLD = 0.0002;
-const LOW_VOL_THRESHOLD = 0.0005; // Changed from 0.0003
-const AVG_ATR_MULTIPLIER = 1.1; // Changed from 1.5
+const LOW_VOL_THRESHOLD = 0.0008; // Changed from 0.0003
+const AVG_ATR_MULTIPLIER = 1.03; // Changed from 1.5
 // Filters
 const VOLUME_CONFIRMATION_FACTOR = 0.7;
 const PRICE_POSITION_FILTER = 0.20;
