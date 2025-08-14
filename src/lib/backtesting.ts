@@ -87,6 +87,9 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     const trades: TradeResult[] = [];
     let capital = initialCapital;
     let inTrade: InTradeState | null = null;
+    let lastSignalType: 'BUY' | 'SELL' | null = null;
+    let lastSignalTime = 0;
+
 
     const requiredPeriods = Math.max(
         params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD
@@ -137,24 +140,44 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         const emaFastPrev = getPrevValueAt(emaFastArr, i);
         const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
         
-        // BUY Signal Logic
-        if (isUptrend && isVolatileEnough) {
-            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-            const rsiOk = (cache.rsi as number) > 50 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
-            const psarOk = currentCandle.close > (cache.pSar as number);
-
-            if (emaCrossedUp && rsiOk && psarOk) {
-                signalType = 'BUY';
+        if (isVolatileEnough) {
+            // BUY Signal Logic (Only in an uptrend)
+            if (isUptrend) {
+                const rsiOk = (cache.rsi as number) > 50 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
+                const psarOk = currentCandle.close > (cache.pSar as number);
+        
+                // A) Crossover Signal
+                const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+                if (emaCrossedUp && rsiOk && psarOk) {
+                    signalType = 'BUY';
+                }
+        
+                // B) Pullback Signal (if no crossover)
+                if (!signalType) {
+                    const isPullback = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
+                    if(isPullback && rsiOk && psarOk) {
+                        signalType = 'BUY';
+                    }
+                }
             }
-        }
-        // SELL Signal Logic
-        else if (isDowntrend && isVolatileEnough) {
-            const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-            const rsiOk = (cache.rsi as number) < 50 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
-            const psarOk = currentCandle.close < (cache.pSar as number);
-
-            if (emaCrossedDown && rsiOk && psarOk) {
-                signalType = 'SELL';
+            // SELL Signal Logic (Only in a downtrend)
+            else if (isDowntrend) {
+                const rsiOk = (cache.rsi as number) < 50 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
+                const psarOk = currentCandle.close < (cache.pSar as number);
+        
+                // A) Crossover Signal
+                const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+                if (emaCrossedDown && rsiOk && psarOk) {
+                    signalType = 'SELL';
+                }
+        
+                // B) Pullback Signal (if no crossover)
+                if (!signalType) {
+                    const isPullback = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
+                    if(isPullback && rsiOk && psarOk) {
+                        signalType = 'SELL';
+                    }
+                }
             }
         }
 
@@ -212,6 +235,18 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         }
 
         if (!inTrade && signalType) {
+            // Duplicate prevention for backtest
+            const timeDeltaMin = Math.abs(currentCandle.time - lastSignalTime) / 60000;
+            if (lastSignalType === signalType && timeDeltaMin < 5) {
+                continue; // Skip same direction signal
+            }
+            if (lastSignalType !== signalType && timeDeltaMin < 2) {
+                continue; // Skip whipsaw
+            }
+            
+            lastSignalType = signalType;
+            lastSignalTime = currentCandle.time;
+
             const atrValue = cache.atr as number;
             inTrade = {
                 entryPrice: currentCandle.close,

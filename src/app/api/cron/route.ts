@@ -4,8 +4,6 @@ import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } fr
 import type { Signal } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import * as indicators from '@/lib/indicators'; 
-import { collection, query, orderBy, getDocs, limit } from 'firebase/firestore';
-
 
 // Extend Signal type to include new fields
 interface EnhancedSignal extends Signal {
@@ -69,6 +67,7 @@ export async function GET() {
   section('Fetch Optimal Parameters');
   try {
     const optimizationResultsCol = collection(db, 'optimizationResults');
+    const { getDocs, query, orderBy, limit } = await import('firebase/firestore');
     const q = query(optimizationResultsCol, orderBy('timestamp', 'desc'), limit(1));
     const latestResultSnapshot = await getDocs(q);
 
@@ -167,36 +166,52 @@ export async function GET() {
     const emaFastPrev = getValueAt(emaFastArr, currentIndex - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, currentIndex - 1);
 
-    // BUY Signal Logic
+    // BUY Signal Logic (Only in an uptrend)
     if (isUptrend) {
-        const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+        log('Mode: UPTREND');
         const rsiOk = (cache.rsi as number) > 50 && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
         const psarOk = latest.close > (cache.pSar as number);
 
-        logCond('BUY Condition: Is Uptrend', true);
-        logCond('BUY Condition: EMA Fast crossed Slow Up', emaCrossedUp);
-        logCond('BUY Condition: RSI is bullish', rsiOk, `RSI: ${cache.rsi?.toFixed(2)}`);
-        logCond('BUY Condition: Price above PSAR', psarOk, `Price: ${latest.close.toFixed(5)}, PSAR: ${cache.pSar?.toFixed(5)}`);
-
+        // A) Crossover Signal
+        const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+        logCond('BUY Crossover: EMA Fast crossed Slow Up', emaCrossedUp);
         if (emaCrossedUp && rsiOk && psarOk) {
             signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
-            log('→ Candidate: HIGH BUY (Trend-Following Crossover)');
+            log('→ Candidate: HIGH BUY (Crossover)');
+        }
+
+        // B) Pullback Signal (if no crossover)
+        if (!signal) {
+            const isPullback = latest.low <= (cache.emaFast as number) && latest.close > (cache.emaFast as number);
+            logCond('BUY Pullback: Price touched EMA Fast', isPullback);
+            if(isPullback && rsiOk && psarOk) {
+                signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
+                log('→ Candidate: MEDIUM BUY (Pullback)');
+            }
         }
     }
-    // SELL Signal Logic
+    // SELL Signal Logic (Only in a downtrend)
     else if (isDowntrend) {
-        const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+        log('Mode: DOWNTREND');
         const rsiOk = (cache.rsi as number) < 50 && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
         const psarOk = latest.close < (cache.pSar as number);
-        
-        logCond('SELL Condition: Is Downtrend', true);
-        logCond('SELL Condition: EMA Fast crossed Slow Down', emaCrossedDown);
-        logCond('SELL Condition: RSI is bearish', rsiOk, `RSI: ${cache.rsi?.toFixed(2)}`);
-        logCond('SELL Condition: Price below PSAR', psarOk, `Price: ${latest.close.toFixed(5)}, PSAR: ${cache.pSar?.toFixed(5)}`);
-        
+
+        // A) Crossover Signal
+        const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+        logCond('SELL Crossover: EMA Fast crossed Slow Down', emaCrossedDown);
         if (emaCrossedDown && rsiOk && psarOk) {
             signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
-            log('→ Candidate: HIGH SELL (Trend-Following Crossover)');
+            log('→ Candidate: HIGH SELL (Crossover)');
+        }
+
+        // B) Pullback Signal (if no crossover)
+        if (!signal) {
+            const isPullback = latest.high >= (cache.emaFast as number) && latest.close < (cache.emaFast as number);
+            logCond('SELL Pullback: Price touched EMA Fast', isPullback);
+            if(isPullback && rsiOk && psarOk) {
+                signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
+                log('→ Candidate: MEDIUM SELL (Pullback)');
+            }
         }
     }
 
@@ -235,3 +250,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
