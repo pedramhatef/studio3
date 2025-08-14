@@ -26,7 +26,7 @@ const parameterRanges = {
   RSI_BREAKDOWN_THRESHOLD: [40, 45], // Threshold for confirming a volume breakdown
   
   // Volatility Filter - More granular options to adapt to different volatility regimes
-  ATR_PERIOD: [10, 14],
+  ATR_PERIOD: [7, 10, 14],
   ATR_VOLATILITY_THRESHOLD: [0.8, 1.0, 1.25, 1.5], // Key for adapting to market pace
 
   // Volume Filter
