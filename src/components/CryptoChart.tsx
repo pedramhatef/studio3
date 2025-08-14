@@ -80,6 +80,15 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
     }
     return type === 'BUY' ? chartConfig.buy.color : chartConfig.sell.color;
   };
+  
+  const getSignalOpacity = (level: Signal['level']) => {
+    switch(level) {
+        case 'High': return { fillOpacity: 0.8, strokeOpacity: 1 };
+        case 'Medium': return { fillOpacity: 0.5, strokeOpacity: 0.9 };
+        case 'Low': return { fillOpacity: 0.2, strokeOpacity: 0.7 };
+        default: return { fillOpacity: 0.5, strokeOpacity: 0.9 };
+    }
+  }
 
   const formatTime = (time: number) => {
     return new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -132,7 +141,7 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
         />
         {signals.map((signal, index) => {
            const signalColor = getSignalColor(signal.level, signal.type);
-           const fillOpacity = signal.level === 'High' ? 1 : 0.3;
+           const { fillOpacity, strokeOpacity } = getSignalOpacity(signal.level);
 
            return (
             <ReferenceDot
@@ -143,6 +152,7 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
               fill={signalColor}
               fillOpacity={fillOpacity}
               stroke={signalColor}
+              strokeOpacity={strokeOpacity}
               strokeWidth={2}
               isFront={true}
             />

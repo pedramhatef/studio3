@@ -52,7 +52,7 @@ export function SignalHistory({ signals }: SignalHistoryProps) {
               </TableRow>
             ) : (
               signals.map((signal, index) => (
-                <TableRow key={`${signal.time}-${index}`}>
+                <TableRow key={`${signal.time}-${index}`} className="animate-in fade-in-20">
                   <TableCell>{signal.displayTime}</TableCell>
                   <TableCell>
                     <div className={`flex items-center gap-2 ${signal.type === 'BUY' ? 'text-green-500' : 'text-red-500'}`}>
