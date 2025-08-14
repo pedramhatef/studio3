@@ -6,34 +6,23 @@ import * as indicators from '@/lib/indicators';
 import { doc, setDoc } from 'firebase/firestore';
 
 export type StrategyParams = {
+    // Core Trend-Following
     EMA_FAST_PERIOD: number;
     EMA_SLOW_PERIOD: number;
-    EMA_MEDIUM_PERIOD: number;
     EMA_LONG_PERIOD: number;
     PARABOLIC_SAR_STEP: number;
     PARABOLIC_SAR_MAX: number;
+  
+    // Momentum
     RSI_PERIOD: number;
     RSI_OVERSOLD_THRESHOLD: number;
     RSI_OVERBOUGHT_THRESHOLD: number;
-    DEEP_RSI_THRESHOLD: number;
-    DEEP_RSI_OVERBOUGHT: number;
-    BBANDS_DEEP_MULTIPLIER: number;
-    BBANDS_PERIOD: number;
-    BBANDS_STD_DEV: number;
-    VOLUME_SPIKE_FACTOR: number;
-    MIN_CANDLE_BODY: number;
-    RSI_CENTERLINE: number;
-    MIN_VOL_CHANGE: number;
+  
+    // Volatility Filter
     ATR_PERIOD: number;
-    MIN_ATR_THRESHOLD: number;
-    LOW_VOL_THRESHOLD: number;
-    AVG_ATR_MULTIPLIER: number;
-    VOLUME_CONFIRMATION_FACTOR: number;
-    PRICE_POSITION_FILTER: number;
-    initialCapital: number;
-    RSI_BUY_MAX: number;
-    RSI_SELL_MIN: number;
-    PSAR_BUFFER_FACTOR: number;
+    ATR_VOLATILITY_THRESHOLD: number;
+    
+    // Backtesting Simulation
     TAKE_PROFIT_ATR_MULTIPLIER: number;
     STOP_LOSS_ATR_MULTIPLIER: number;
 };
@@ -49,7 +38,6 @@ export type TradeResult = {
     entryCandleIndex: number;
     exitCandleIndex: number;
     initialCapital: number;
-    system: 'Core Trend-Following' | 'Momentum-Reversal-Deep' | 'Momentum-Reversal-Moderate' | 'Momentum-Shift';
     finalCapital: number;
     exitReason: 'Opposite Signal' | 'Take Profit' | 'Stop Loss' | 'End of Data';
 };
@@ -60,7 +48,6 @@ type InTradeState = {
     type: 'BUY' | 'SELL';
     entryCandleIndex: number;
     initialCapital: number;
-    system: TradeResult['system'];
     stopLossPrice: number;
     takeProfitPrice: number;
 };
@@ -102,7 +89,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     let inTrade: InTradeState | null = null;
 
     const requiredPeriods = Math.max(
-        params.EMA_SLOW_PERIOD, params.BBANDS_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD
+        params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD
     );
 
     if (data.length < requiredPeriods) {
@@ -115,13 +102,9 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
 
     const emaFastArr = indicators.calculateEMA(closeSlice, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(closeSlice, params.EMA_SLOW_PERIOD);
-    const emaMedArr = indicators.calculateEMA(closeSlice, params.EMA_MEDIUM_PERIOD);
     const emaLongArr = indicators.calculateEMA(closeSlice, params.EMA_LONG_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(data, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
-    const vwapArr = indicators.calculateVWAP(data);
     const rsiArr = indicators.calculateRSI(closeSlice, params.RSI_PERIOD);
-    const bb = indicators.calculateBollingerBands(closeSlice, params.BBANDS_PERIOD, params.BBANDS_STD_DEV);
-    const deepBB = indicators.calculateBollingerBands(closeSlice, params.BBANDS_PERIOD, params.BBANDS_STD_DEV * params.BBANDS_DEEP_MULTIPLIER);
     const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, params.ATR_PERIOD);
 
     for (let i = requiredPeriods; i < data.length; i++) {
@@ -130,16 +113,9 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         const cache = {
             emaFast: getValueAt(emaFastArr, i),
             emaSlow: getValueAt(emaSlowArr, i),
-            emaMedium: getValueAt(emaMedArr, i),
             emaLong: getValueAt(emaLongArr, i),
             pSar: getValueAt(psarArr, i),
-            vwap: getValueAt(vwapArr, i),
             rsi: getValueAt(rsiArr, i),
-            prevRsi: getPrevValueAt(rsiArr, i),
-            lowerBB: getValueAt(bb.lower, i),
-            upperBB: getValueAt(bb.upper, i),
-            deepLowerBB: getValueAt(deepBB.lower, i),
-            deepUpperBB: getValueAt(deepBB.upper, i),
             atr: getValueAt(atrArr, i),
         };
 
@@ -147,27 +123,39 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             continue;
         }
         
+        // Primary Trend Filter
         const isUptrend = currentCandle.close > (cache.emaLong as number);
         const isDowntrend = currentCandle.close < (cache.emaLong as number);
         
+        // Volatility Filter
+        const recentAtrSlice = atrArr.slice(Math.max(0, i - 10), i).filter(v => v !== null) as number[];
+        const avgAtr = recentAtrSlice.length > 0 ? recentAtrSlice.reduce((s, v) => s + v, 0) / recentAtrSlice.length : 0;
+        const isVolatileEnough = (cache.atr as number) > (avgAtr * params.ATR_VOLATILITY_THRESHOLD);
+
+        let signalType: 'BUY' | 'SELL' | null = null;
+        
         const emaFastPrev = getPrevValueAt(emaFastArr, i);
         const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
-        const emaFastCrossedSlowUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-        const emaFastCrossedSlowDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
         
-        const psarBuffer = (cache.atr as number) * params.PSAR_BUFFER_FACTOR;
-        const coreBuySignal = emaFastCrossedSlowUp && (cache.emaFast as number) > (cache.emaSlow as number) && currentCandle.close > (cache.pSar as number) + psarBuffer;
-        const coreSellSignal = emaFastCrossedSlowDown && (cache.emaFast as number) < (cache.emaSlow as number) && currentCandle.close < (cache.pSar as number) - psarBuffer;
-        
-        let signalType: 'BUY' | 'SELL' | null = null;
-        let system: TradeResult['system'] | null = null;
-        
-        if (coreBuySignal) {
-            signalType = 'BUY';
-            system = 'Core Trend-Following';
-        } else if (coreSellSignal) {
-            signalType = 'SELL';
-            system = 'Core Trend-Following';
+        // BUY Signal Logic
+        if (isUptrend && isVolatileEnough) {
+            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+            const rsiOk = (cache.rsi as number) > 50 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
+            const psarOk = currentCandle.close > (cache.pSar as number);
+
+            if (emaCrossedUp && rsiOk && psarOk) {
+                signalType = 'BUY';
+            }
+        }
+        // SELL Signal Logic
+        else if (isDowntrend && isVolatileEnough) {
+            const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+            const rsiOk = (cache.rsi as number) < 50 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
+            const psarOk = currentCandle.close < (cache.pSar as number);
+
+            if (emaCrossedDown && rsiOk && psarOk) {
+                signalType = 'SELL';
+            }
         }
 
 
@@ -210,7 +198,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                     type: inTrade.type,
                     entryCandleIndex: inTrade.entryCandleIndex,
                     initialCapital: inTrade.initialCapital,
-                    system: inTrade.system,
                     exitPrice,
                     exitTime: currentCandle.time,
                     exitCandleIndex: i,
@@ -224,7 +211,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
         }
 
-        if (!inTrade && signalType && system) {
+        if (!inTrade && signalType) {
             const atrValue = cache.atr as number;
             inTrade = {
                 entryPrice: currentCandle.close,
@@ -232,7 +219,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 type: signalType,
                 entryCandleIndex: i,
                 initialCapital: capital,
-                system: system,
                 stopLossPrice: signalType === 'BUY' ? currentCandle.close - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : currentCandle.close + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
                 takeProfitPrice: signalType === 'BUY' ? currentCandle.close + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : currentCandle.close - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
             };
@@ -251,7 +237,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             type: inTrade.type,
             entryCandleIndex: inTrade.entryCandleIndex,
             initialCapital: inTrade.initialCapital,
-            system: inTrade.system,
             exitPrice,
             exitTime: lastCandle.time,
             exitCandleIndex: data.length - 1,
@@ -275,7 +260,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     const initialCapital = 10000;
     
     const keys = Object.keys(paramRanges);
-    const combinations: any[] = [];
+    const combinations: StrategyParams[] = [];
     
     function generateCombinations(index: number, currentCombination: any) {
         if (index === keys.length) {
@@ -294,20 +279,20 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     console.log(`Generated ${combinations.length} parameter combinations to test.`);
 
     for (const currentParams of combinations) {
-        const fullParams = { ...currentParams, initialCapital } as StrategyParams;
-        const trades = runBacktest(data, fullParams, initialCapital);
+        const trades = runBacktest(data, currentParams, initialCapital);
         if (trades.length === 0) continue;
 
         const performance = calculatePerformanceMetrics(trades, initialCapital);
 
-        const score = performance.totalProfit * Math.log(performance.numberOfTrades + 1);
+        // A scoring model that rewards profit and win rate, and penalizes having too few trades.
+        const score = performance.totalProfit * (performance.winRate / 100) * Math.log10(performance.numberOfTrades + 1);
 
         if (score > highestScore) {
             highestScore = score;
             bestPerformance = performance;
-            bestParams = fullParams;
+            bestParams = currentParams;
             bestTrades = trades;
-            console.log(`New best performance found. Score: ${score.toFixed(2)}, Profit: ${performance.totalProfit.toFixed(2)}, Trades: ${performance.numberOfTrades}`);
+            console.log(`New best performance found. Score: ${score.toFixed(2)}, Profit: ${performance.totalProfit.toFixed(2)}, Win Rate: ${performance.winRate.toFixed(2)}%, Trades: ${performance.numberOfTrades}`);
         }
     }
     
@@ -322,12 +307,6 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 export type PerformanceMetrics = {
     totalProfit: number;
     totalProfitPercentage: number;
-    systemPerformance: Record<string, {
-        trades: number;
-        wins: number;
-        winRate: number;
-        totalProfitLoss?: number;
-    }>;
     numberOfTrades: number;
     winningTrades: number;
     losingTrades: number;
@@ -343,7 +322,6 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         return {
             totalProfit: 0, totalProfitPercentage: 0, numberOfTrades: 0, winningTrades: 0,
             losingTrades: 0, winRate: 0, lossRate: 0, averageWin: 0, averageLoss: 0,
-            systemPerformance: {}
         };
     }
     
@@ -357,22 +335,6 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
     const totalWinAmount = winningTrades.reduce((sum, t) => sum + t.profit, 0);
     const totalLossAmount = losingTrades.reduce((sum, t) => sum + t.profit, 0);
 
-    const systemPerformance: PerformanceMetrics['systemPerformance'] = {};
-    const systems = [...new Set(trades.map(t => t.system))];
-
-    systems.forEach(systemName => {
-        const systemTrades = trades.filter(trade => trade.system === systemName);
-        const systemNumTrades = systemTrades.length;
-        const systemWinningTrades = systemTrades.filter(trade => trade.profit > 0).length;
-        const systemTotalProfitLoss = systemTrades.reduce((sum, trade) => sum + trade.profit, 0);
-
-        systemPerformance[systemName] = {
-            trades: systemNumTrades,
-            wins: systemWinningTrades,
-            winRate: systemNumTrades > 0 ? (systemWinningTrades / systemNumTrades) * 100 : 0,
-            totalProfitLoss: systemTotalProfitLoss
-        };
-    });
 
     return {
         totalProfit,
@@ -384,6 +346,7 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         lossRate: (losingTrades.length / numberOfTrades) * 100,
         averageWin: winningTrades.length > 0 ? totalWinAmount / winningTrades.length : 0,
         averageLoss: losingTrades.length > 0 ? Math.abs(totalLossAmount / losingTrades.length) : 0,
-        systemPerformance,
     };
 }
+
+    
