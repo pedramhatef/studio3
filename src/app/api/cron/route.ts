@@ -1,8 +1,7 @@
 
 import { NextResponse } from 'next/server';
-import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } from '@/app/actions';
+import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
 import type { Signal } from '@/lib/types';
-import { db } from '@/lib/firebase';
 import * as indicators from '@/lib/indicators'; 
 
 // Extend Signal type to include new fields
@@ -66,26 +65,19 @@ export async function GET() {
   // 0) Fetch Optimal Parameters from Firestore
   section('Fetch Optimal Parameters');
   try {
-    const optimizationResultsCol = collection(db, 'optimizationResults');
-    const { getDocs, query, orderBy, limit } = await import('firebase/firestore');
-    const q = query(optimizationResultsCol, orderBy('timestamp', 'desc'), limit(1));
-    const latestResultSnapshot = await getDocs(q);
-
-    if (!latestResultSnapshot.empty) {
-      const latestResult = latestResultSnapshot.docs[0].data();
-      if (latestResult.bestParams) {
-        // Apply ALL fetched parameters, overwriting the defaults
-        strategyConfig = { ...strategyConfig, ...latestResult.bestParams };
+    const latestParams = await getLatestOptimizationParams();
+    if (latestParams) {
+        strategyConfig = { ...strategyConfig, ...latestParams };
         log('Applied optimal parameters from Firestore.');
         kv(strategyConfig);
-      }
     } else {
-      log('No optimization results found in Firestore. Using default parameters.');
+        log('No optimization results found in Firestore. Using default parameters.');
     }
   } catch (error) {
     console.error(`Error fetching optimization results:`, error);
     log('Using default parameters due to fetch error.');
   }
+
   section(`CRON RUN @ ${ts}`);
 
   try {
@@ -250,5 +242,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    

@@ -1,6 +1,6 @@
 'use server';
 
-import type { ChartDataPoint, Signal } from '@/lib/types';
+import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit } from "firebase/firestore"; 
 
@@ -102,4 +102,23 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
       console.error("Error fetching signal history:", error);
       return [];
     }
+}
+
+export async function getLatestOptimizationParams(): Promise<Partial<StrategyParams> | null> {
+    try {
+        const optimizationResultsCol = collection(db, 'optimizationResults');
+        const q = query(optimizationResultsCol, orderBy('timestamp', 'desc'), limit(1));
+        const latestResultSnapshot = await getDocs(q);
+    
+        if (!latestResultSnapshot.empty) {
+          const latestResult = latestResultSnapshot.docs[0].data();
+          if (latestResult.bestParams) {
+             return latestResult.bestParams as StrategyParams;
+          }
+        }
+        return null;
+      } catch (error) {
+        console.error(`Error fetching optimization results:`, error);
+        return null;
+      }
 }

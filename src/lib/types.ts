@@ -15,3 +15,25 @@ export interface Signal {
   displayTime?: string;
   serverTime?: any;
 }
+
+export type StrategyParams = {
+    // Core Trend-Following
+    EMA_FAST_PERIOD: number;
+    EMA_SLOW_PERIOD: number;
+    EMA_LONG_PERIOD: number;
+    PARABOLIC_SAR_STEP: number;
+    PARABOLIC_SAR_MAX: number;
+  
+    // Momentum
+    RSI_PERIOD: number;
+    RSI_OVERSOLD_THRESHOLD: number;
+    RSI_OVERBOUGHT_THRESHOLD: number;
+  
+    // Volatility Filter
+    ATR_PERIOD: number;
+    ATR_VOLATILITY_THRESHOLD: number;
+    
+    // Backtesting Simulation
+    TAKE_PROFIT_ATR_MULTIPLIER: number;
+    STOP_LOSS_ATR_MULTIPLIER: number;
+};
