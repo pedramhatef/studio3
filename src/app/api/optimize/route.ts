@@ -3,7 +3,7 @@
 
 import { NextResponse } from 'next/server';
 import { getChartData } from '@/app/actions';
-import { optimizeParameters, type StrategyParams } from '@/lib/backtesting';
+import { optimizeParameters } from '@/lib/backtesting';
 import type { ChartDataPoint } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
@@ -44,19 +44,12 @@ const parameterRanges = {
   RSI_BUY_MAX: [60, 65],
   RSI_SELL_MIN: [35, 40],
   PSAR_BUFFER_FACTOR: [0.2],
-
-  // Financial
-  initialCapital: [10000],
 };
-
 
 async function runAndSaveOptimization() {
   console.log("Starting optimization process...");
 
   // 1. Load data
-  // For a real scenario, you'd load a much larger historical dataset,
-  // perhaps from a CSV, a dedicated data API, or a larger Firestore collection.
-  // Here, we'll use getChartData as a stand-in for the historical data source.
   const chartData: ChartDataPoint[] = await getChartData();
   console.log(`Loaded ${chartData.length} data points for backtesting.`);
 
@@ -87,7 +80,7 @@ async function runAndSaveOptimization() {
     await setDoc(optimizationResultDoc, {
       bestParams,
       bestPerformance,
-      timestamp: new Date(), // Use server timestamp
+      timestamp: new Date(),
     });
     console.log("Successfully saved optimization results to Firestore.");
     return {
@@ -107,8 +100,6 @@ async function runAndSaveOptimization() {
 
 export async function GET() {
   try {
-    // This process can be slow. Vercel's hobby plan has a 10s timeout for functions.
-    // For real-world use, this should be run on a service that allows for longer execution times.
     const result = await runAndSaveOptimization();
     return NextResponse.json(result);
   } catch (error) {

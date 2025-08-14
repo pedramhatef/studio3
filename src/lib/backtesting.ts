@@ -29,7 +29,7 @@ export type StrategyParams = {
   AVG_ATR_MULTIPLIER: number;
   VOLUME_CONFIRMATION_FACTOR: number;
   PRICE_POSITION_FILTER: number;
- initialCapital: number;
+  initialCapital: number;
   RSI_BUY_MAX: number;
   RSI_SELL_MIN: number;
   PSAR_BUFFER_FACTOR: number;
@@ -401,108 +401,55 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
   return trades; // Return the list of simulated trades for detailed analysis
 }
 export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { [key: string]: number[] }): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics }> {
-  console.log('Starting parameter optimization');
-  const optimizationResults: { parameters: StrategyParams, performance: PerformanceMetrics }[] = [];
-  let bestPerformance: PerformanceMetrics = {
-    totalProfit: 0,
-    totalProfitPercentage: 0,
-    systemPerformance: {
-      'Core Trend-Following': { trades: 0, wins: 0, winRate: 0 },
-      'Momentum-Reversal Deep': { trades: 0, wins: 0, winRate: 0 },
-      'Momentum-Reversal Moderate': { trades: 0, wins: 0, winRate: 0 },
-      'Momentum Shift': { trades: 0, wins: 0, winRate: 0 },
-    },
-    numberOfTrades: 0,
-    winningTrades: 0,
-    losingTrades: 0,
-    winRate: 0,
-    lossRate: 0,
-    averageWin: 0,
-    averageLoss: 0,
-  };
-  let bestParams: StrategyParams | null = null;
+    console.log('Starting parameter optimization');
+    let bestPerformance: PerformanceMetrics | null = null;
+    let bestParams: StrategyParams | null = null;
+    let highestScore = -Infinity;
 
-  // This is a placeholder for the optimization logic.
-  // You would implement an algorithm (e.g., grid search) to test different
-  // parameter combinations from 'paramRanges', run 'runBacktest' for each,
-  // and track the best performing parameters. Using a simple grid search.
+    const paramNames = Object.keys(paramRanges);
+    const initialCapital = 10000; // Define a default or get from paramRanges if available
 
-  // Define a scoring mechanism for performance. Example: prioritize total profit.
-  // You can adjust this to factor in win rate, Sharpe ratio, or system-specific performance.
-  const scorePerformance = (performance: PerformanceMetrics): number => {
-    return performance.totalProfit; // Simple scoring by total profit
-    // Example with win rate emphasis: return performance.totalProfit + performance.winRate * 10;
-    // Example with a focus on High confidence signals: return performance.totalProfit + (performance.systemPerformance['Core Trend-Following'].winRate * performance.systemPerformance['Core Trend-Following'].trades + performance.systemPerformance['Momentum-Reversal Deep'].winRate * performance.systemPerformance['Momentum-Reversal Deep'].trades);
-  };
+    function* generateCombinations(index: number, currentParams: Partial<StrategyParams>): Generator<StrategyParams> {
+        if (index === paramNames.length) {
+            yield { ...currentParams, initialCapital } as StrategyParams;
+            return;
+        }
 
-  let highestScore = -Infinity;
+        const paramName = paramNames[index];
+        const values = paramRanges[paramName as keyof typeof paramRanges];
 
-  // Get parameter names
-  const paramNames = Object.keys(paramRanges);
-
-   // Validate that initialCapital is included in paramRanges
-  if (!paramNames.includes('initialCapital')) {
-    console.error("paramRanges must include 'initialCapital'.");
-    return { bestParams: null, bestPerformance: null as any }; // Indicate error
-  }
-
-    // Exclude initialCapital from iterative parameter combinations, it's handled separately
-    const iterativeParamNames = paramNames.filter(name => name !== 'initialCapital');
-    const initialCapitalValues = paramRanges['initialCapital']; // Assuming initialCapital is a single value or array
-
-
-  // Recursive function to generate parameter combinations and run backtest
-  function generateCombinations(paramIndex: number, currentParams: Partial<StrategyParams>) {
-    if (paramIndex === paramNames.length) {
-      // All parameters set, run backtest
-      const params = currentParams as StrategyParams; // Cast to full StrategyParams (ensure all are covered in paramRanges)
-      console.log('Testing parameters:', params);
-      const trades = runBacktest(data, params);
-      const performance = calculatePerformanceMetrics(trades, params.initialCapital as number); // Pass initial capital, asserted as number
-
-      optimizationResults.push({
-        parameters: params,
-        performance: performance
-      });
-
-      const currentScore = scorePerformance(performance);
-      if (currentScore > highestScore) {
-        highestScore = currentScore;
-        bestPerformance = performance;
-        bestParams = params;
-        console.log(`New best performance found with score: ${highestScore}`);
-      }
-
-      return;
+        for (const value of values) {
+            const nextParams = { ...currentParams, [paramName]: value };
+            yield* generateCombinations(index + 1, nextParams);
+        }
     }
 
-    const paramName = iterativeParamNames[paramIndex];
-    const values = paramRanges[paramName];
+    const scorePerformance = (performance: PerformanceMetrics): number => {
+        // Example scoring: total profit, but penalizing for very few trades
+        if (performance.numberOfTrades < 5) return -Infinity;
+        return performance.totalProfit;
+    };
 
-    // Check if initialCapital is being processed in the loop, which it shouldn't be
-    if (paramName === 'initialCapital') {
-        // Skip initialCapital here as it's handled by iterating through its values separately
-        generateCombinations(paramIndex + 1, currentParams);
-        return;
+    const combinations = generateCombinations(0, {});
+
+    for (const params of combinations) {
+        console.log('Testing parameters:', params);
+        const trades = runBacktest(data, params, initialCapital);
+        const performance = calculatePerformanceMetrics(trades, initialCapital);
+
+        const currentScore = scorePerformance(performance);
+        if (currentScore > highestScore) {
+            highestScore = currentScore;
+            bestPerformance = performance;
+            bestParams = params;
+            console.log(`New best performance found with score: ${highestScore}`);
+        }
+    }
+    if (!bestPerformance) {
+        throw new Error("No valid performance metrics were generated.");
     }
 
-
-    for (const value of values) {
-      generateCombinations(paramIndex + 1, { ...currentParams, [paramName]: value });
-    }
-  }
-
-    // Iterate through initialCapital values separately
-    for (const initialCap of initialCapitalValues) {
-        // Pass initialCap as part of currentParams to the recursive function
-        generateCombinations(0, { initialCapital: initialCap });
-    }
-
-  // Save the best results to Firestore
-  const optimizationResultDoc = doc(db, 'optimizationResults', 'latest'); // Or use a timestamp
-  await setDoc(optimizationResultDoc, { bestParams, bestPerformance, timestamp: Date.now() });
-
-  return { bestParams, bestPerformance: bestPerformance as PerformanceMetrics }; // Return the best results
+    return { bestParams, bestPerformance };
 }
 
 // Functions to calculate performance metrics (placeholders)
@@ -513,6 +460,7 @@ export type PerformanceMetrics = {
     trades: number;
     wins: number;
     winRate: number;
+    totalProfitLoss?: number;
   }>; // Added system-specific performance
   numberOfTrades: number;
   winningTrades: number;
@@ -543,17 +491,20 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
   const averageLoss = losingTrades > 0 ? totalLosingProfit / losingTrades : 0;
 
   // Calculate system-specific performance
-  const systemPerformance: Record<string, { trades: number, wins: number, winRate: number }> = {};
+  const systemPerformance: PerformanceMetrics['systemPerformance'] = {};
   const systems = ['Core Trend-Following', 'Momentum-Reversal Deep', 'Momentum-Reversal Moderate', 'Momentum Shift'];
 
-  systems.forEach(system => {
-    const systemTrades = trades.filter(trade => trade.system === system);
+  systems.forEach(systemName => {
+    const systemTrades = trades.filter(trade => trade.system === systemName);
     const systemNumTrades = systemTrades.length;
     const systemWinningTrades = systemTrades.filter(trade => trade.profit > 0).length;
-    systemPerformance[system] = {
+    const systemTotalProfitLoss = systemTrades.reduce((sum, trade) => sum + trade.profit, 0);
+    
+    systemPerformance[systemName] = {
       trades: systemNumTrades,
       wins: systemWinningTrades,
       winRate: systemNumTrades > 0 ? (systemWinningTrades / systemNumTrades) * 100 : 0,
+      totalProfitLoss: systemTotalProfitLoss
     };
   });
 
@@ -563,6 +514,6 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
     numberOfTrades,
     winningTrades, losingTrades, winRate, lossRate,
     averageWin, averageLoss,
- systemPerformance,
+    systemPerformance,
   };
 }
