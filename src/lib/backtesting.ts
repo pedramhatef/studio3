@@ -137,21 +137,21 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
 
         let signalType: 'BUY' | 'SELL' | null = null;
         
-        const emaFastPrev = getPrevValueAt(emaFastArr, i);
-        const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
-        
         if (isVolatileEnough) {
+            const emaFastPrev = getPrevValueAt(emaFastArr, i);
+            const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
+            
             // BUY Signal Logic (Only in an uptrend)
             if (isUptrend) {
                 const rsiOk = (cache.rsi as number) > 50 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
                 const psarOk = currentCandle.close > (cache.pSar as number);
-        
+
                 // A) Crossover Signal
                 const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
                 if (emaCrossedUp && rsiOk && psarOk) {
                     signalType = 'BUY';
                 }
-        
+
                 // B) Pullback Signal (if no crossover)
                 if (!signalType) {
                     const isPullback = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
@@ -164,13 +164,13 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             else if (isDowntrend) {
                 const rsiOk = (cache.rsi as number) < 50 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
                 const psarOk = currentCandle.close < (cache.pSar as number);
-        
+
                 // A) Crossover Signal
                 const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
                 if (emaCrossedDown && rsiOk && psarOk) {
                     signalType = 'SELL';
                 }
-        
+
                 // B) Pullback Signal (if no crossover)
                 if (!signalType) {
                     const isPullback = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
@@ -327,13 +327,16 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
             bestPerformance = performance;
             bestParams = currentParams;
             bestTrades = trades;
-            console.log(`New best performance found. Score: ${score.toFixed(2)}, Profit: ${performance.totalProfit.toFixed(2)}, Win Rate: ${performance.winRate.toFixed(2)}%, Trades: ${performance.numberOfTrades}`);
+            // console.log(`New best performance found. Score: ${score.toFixed(2)}, Profit: ${performance.totalProfit.toFixed(2)}, Win Rate: ${performance.winRate.toFixed(2)}%, Trades: ${performance.numberOfTrades}`);
         }
     }
     
-    if (!bestPerformance) {
+    if (bestPerformance) {
+        console.log(`Optimization complete. Best performance found: Profit=${bestPerformance.totalProfit.toFixed(2)}, Win Rate=${bestPerformance.winRate.toFixed(2)}%, Trades=${bestPerformance.numberOfTrades}`);
+    } else {
         console.warn("No valid performance metrics were generated. The backtest might not have produced any trades with the given parameters.");
     }
+
 
     return { bestParams, bestPerformance, bestTrades };
 }
@@ -383,5 +386,3 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         averageLoss: losingTrades.length > 0 ? Math.abs(totalLossAmount / losingTrades.length) : 0,
     };
 }
-
-    
