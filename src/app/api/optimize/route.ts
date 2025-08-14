@@ -8,8 +8,6 @@ import type { ChartDataPoint } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
-export const revalidate = 0; // Ensure this route is always dynamic
-
 // Define the parameter ranges for optimization
 const parameterRanges = {
   // Core Trend-Following
