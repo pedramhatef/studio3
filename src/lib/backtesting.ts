@@ -202,7 +202,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             if (exitPrice !== null && exitReason !== null) {
                 const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
                 const profitPercentage = (profit / inTrade.entryPrice) * 100;
-                const finalCapital = capital * (1 + profitPercentage / 100);
+                const finalCapital = inTrade.initialCapital + profit;
                 
                 trades.push({
                     entryPrice: inTrade.entryPrice,
@@ -244,7 +244,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         const exitPrice = lastCandle.close;
         const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
         const profitPercentage = (profit / inTrade.entryPrice) * 100;
-        const finalCapital = capital * (1 + profitPercentage / 100);
+        const finalCapital = inTrade.initialCapital + profit;
         trades.push({
             entryPrice: inTrade.entryPrice,
             entryTime: inTrade.entryTime,
@@ -276,7 +276,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     const keys = Object.keys(paramRanges);
     const combinations: any[] = [];
     
-    const generateCombinations = (index: number, currentCombination: any) => {
+    function generateCombinations(index: number, currentCombination: any) {
         if (index === keys.length) {
             combinations.push(currentCombination);
             return;
@@ -286,7 +286,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
         for (const value of values) {
             generateCombinations(index + 1, { ...currentCombination, [key]: value });
         }
-    };
+    }
     
     generateCombinations(0, {});
     
@@ -385,3 +385,5 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         systemPerformance,
     };
 }
+
+    
