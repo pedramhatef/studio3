@@ -4,7 +4,7 @@ import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } fr
 import type { Signal } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import * as indicators from '@/lib/indicators'; 
-import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, limit } from 'firebase/firestore';
 
 
 // Extend Signal type to include new fields
@@ -235,5 +235,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
