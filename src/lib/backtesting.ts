@@ -34,6 +34,9 @@ export type StrategyParams = {
     RSI_BUY_MAX: number;
     RSI_SELL_MIN: number;
     PSAR_BUFFER_FACTOR: number;
+    // New parameters for improved backtesting
+    TAKE_PROFIT_ATR_MULTIPLIER: number;
+    STOP_LOSS_ATR_MULTIPLIER: number;
 };
 
 export type TradeResult = {
@@ -49,7 +52,20 @@ export type TradeResult = {
     initialCapital: number;
     system: 'Core Trend-Following' | 'Momentum-Reversal-Deep' | 'Momentum-Reversal-Moderate' | 'Momentum-Shift';
     finalCapital: number;
+    exitReason: 'Opposite Signal' | 'Take Profit' | 'Stop Loss' | 'End of Data';
 };
+
+type InTradeState = {
+    entryPrice: number;
+    entryTime: number;
+    type: 'BUY' | 'SELL';
+    entryCandleIndex: number;
+    initialCapital: number;
+    system: TradeResult['system'];
+    stopLossPrice: number;
+    takeProfitPrice: number;
+};
+
 
 export async function loadHistoricalData(collectionPath: string, startTime: number, endTime: number): Promise<ChartDataPoint[]> {
     console.log(`Loading historical data from Firestore collection: ${collectionPath}`);
@@ -84,7 +100,7 @@ const getPrevValueAt = (arr: (number | null)[], idx: number): number | null => {
 export function runBacktest(data: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): TradeResult[] {
     const trades: TradeResult[] = [];
     let capital = initialCapital;
-    let inTrade: Omit<TradeResult, 'exitPrice' | 'exitTime' | 'exitCandleIndex' | 'profit' | 'profitPercentage' | 'finalCapital'> | null = null;
+    let inTrade: InTradeState | null = null;
 
     const requiredPeriods = Math.max(
         params.EMA_SLOW_PERIOD, params.BBANDS_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD
@@ -111,7 +127,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
 
     for (let i = requiredPeriods - 1; i < data.length; i++) {
         const currentCandle = data[i];
-        const prevCandle = data[i - 1];
 
         const cache = {
             emaFast: getValueAt(emaFastArr, i),
@@ -136,7 +151,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         let system: TradeResult['system'] | null = null;
         let signalType: 'BUY' | 'SELL' | null = null;
         
-        // Simplified Logic from route.ts
         const isUptrend = currentCandle.close > (cache.emaLong as number);
         const isDowntrend = currentCandle.close < (cache.emaLong as number);
         
@@ -158,35 +172,60 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         }
 
         if (inTrade) {
-            let shouldExit = false;
-            if (inTrade.type === 'BUY' && signalType === 'SELL') shouldExit = true;
-            if (inTrade.type === 'SELL' && signalType === 'BUY') shouldExit = true;
-            
-            // Simple Stop-loss
-            const stopLossPrice = inTrade.type === 'BUY' 
-                ? inTrade.entryPrice - (cache.atr as number) * 1.5 
-                : inTrade.entryPrice + (cache.atr as number) * 1.5;
+            let exitPrice: number | null = null;
+            let exitReason: TradeResult['exitReason'] | null = null;
 
-            if ((inTrade.type === 'BUY' && currentCandle.low < stopLossPrice) || 
-                (inTrade.type === 'SELL' && currentCandle.high > stopLossPrice)) {
-                shouldExit = true;
+            // Trailing Stop Loss Logic
+            if (inTrade.type === 'BUY') {
+                inTrade.stopLossPrice = Math.max(inTrade.stopLossPrice, currentCandle.close - (cache.atr as number) * params.STOP_LOSS_ATR_MULTIPLIER);
+            } else { // SELL
+                inTrade.stopLossPrice = Math.min(inTrade.stopLossPrice, currentCandle.close + (cache.atr as number) * params.STOP_LOSS_ATR_MULTIPLIER);
             }
 
-
-            if (shouldExit) {
-                const exitPrice = currentCandle.close;
+            // Check for exit conditions
+            if (inTrade.type === 'BUY') {
+                if (currentCandle.low <= inTrade.stopLossPrice) {
+                    exitPrice = inTrade.stopLossPrice;
+                    exitReason = 'Stop Loss';
+                } else if (currentCandle.high >= inTrade.takeProfitPrice) {
+                    exitPrice = inTrade.takeProfitPrice;
+                    exitReason = 'Take Profit';
+                } else if (signalType === 'SELL') {
+                    exitPrice = currentCandle.close;
+                    exitReason = 'Opposite Signal';
+                }
+            } else { // SELL
+                if (currentCandle.high >= inTrade.stopLossPrice) {
+                    exitPrice = inTrade.stopLossPrice;
+                    exitReason = 'Stop Loss';
+                } else if (currentCandle.low <= inTrade.takeProfitPrice) {
+                    exitPrice = inTrade.takeProfitPrice;
+                    exitReason = 'Take Profit';
+                } else if (signalType === 'BUY') {
+                    exitPrice = currentCandle.close;
+                    exitReason = 'Opposite Signal';
+                }
+            }
+            
+            if (exitPrice !== null && exitReason !== null) {
                 const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
                 const profitPercentage = (profit / inTrade.entryPrice) * 100;
                 const finalCapital = capital * (1 + profitPercentage / 100);
                 
                 trades.push({
-                    ...inTrade,
+                    entryPrice: inTrade.entryPrice,
+                    entryTime: inTrade.entryTime,
+                    type: inTrade.type,
+                    entryCandleIndex: inTrade.entryCandleIndex,
+                    initialCapital: inTrade.initialCapital,
+                    system: inTrade.system,
                     exitPrice,
                     exitTime: currentCandle.time,
                     exitCandleIndex: i,
                     profit,
                     profitPercentage,
                     finalCapital,
+                    exitReason
                 });
                 capital = finalCapital;
                 inTrade = null;
@@ -194,6 +233,14 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         }
 
         if (!inTrade && signalType && system) {
+            const atrValue = cache.atr as number;
+            const takeProfitPrice = signalType === 'BUY' 
+                ? currentCandle.close + atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER
+                : currentCandle.close - atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER;
+            const stopLossPrice = signalType === 'BUY' 
+                ? currentCandle.close - atrValue * params.STOP_LOSS_ATR_MULTIPLIER
+                : currentCandle.close + atrValue * params.STOP_LOSS_ATR_MULTIPLIER;
+            
             inTrade = {
                 entryPrice: currentCandle.close,
                 entryTime: currentCandle.time,
@@ -201,6 +248,8 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 entryCandleIndex: i,
                 initialCapital: capital,
                 system: system,
+                stopLossPrice: stopLossPrice,
+                takeProfitPrice: takeProfitPrice
             };
         }
     }
@@ -212,13 +261,19 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         const profitPercentage = (profit / inTrade.entryPrice) * 100;
         const finalCapital = capital * (1 + profitPercentage / 100);
         trades.push({
-            ...inTrade,
+            entryPrice: inTrade.entryPrice,
+            entryTime: inTrade.entryTime,
+            type: inTrade.type,
+            entryCandleIndex: inTrade.entryCandleIndex,
+            initialCapital: inTrade.initialCapital,
+            system: inTrade.system,
             exitPrice,
             exitTime: lastCandle.time,
             exitCandleIndex: data.length - 1,
             profit,
             profitPercentage,
-            finalCapital
+            finalCapital,
+            exitReason: 'End of Data'
         });
     }
 
@@ -237,14 +292,14 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     // This is a simplified grid search. For a large number of parameters, this can be very slow.
     // We are deliberately keeping the number of options in route.ts low.
     const keys = Object.keys(paramRanges);
-    const combinations = [];
+    const combinations: any[] = [];
     const buildCombinations = (index: number, current: any) => {
         if (index === keys.length) {
             combinations.push(current);
             return;
         }
         const key = keys[index];
-        const values = paramRanges[key];
+        const values = paramRanges[key as keyof typeof paramRanges];
         for (const value of values) {
             buildCombinations(index + 1, { ...current, [key]: value });
         }
@@ -307,7 +362,7 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         };
     }
     
-    const finalCapital = trades[trades.length - 1].finalCapital;
+    const finalCapital = trades.length > 0 ? trades[trades.length - 1].finalCapital : initialCapital;
     const totalProfit = finalCapital - initialCapital;
     const totalProfitPercentage = (totalProfit / initialCapital) * 100;
 
@@ -343,7 +398,7 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         winRate: (winningTrades.length / numberOfTrades) * 100,
         lossRate: (losingTrades.length / numberOfTrades) * 100,
         averageWin: winningTrades.length > 0 ? totalWinAmount / winningTrades.length : 0,
-        averageLoss: losingTrades.length > 0 ? totalLossAmount / losingTrades.length : 0,
+        averageLoss: losingTrades.length > 0 ? Math.abs(totalLossAmount / losingTrades.length) : 0,
         systemPerformance,
     };
 }

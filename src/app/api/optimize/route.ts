@@ -10,7 +10,6 @@ import { setDoc, doc } from 'firebase/firestore';
 
 // Define the parameter ranges for optimization
 // NOTE: Keep the number of combinations low to avoid Vercel timeouts on the hobby plan.
-// Total combinations = 3 * 2 * 1 * ...
 const parameterRanges = {
   // Core Trend-Following
   EMA_FAST_PERIOD: [5, 7, 10],
@@ -46,6 +45,10 @@ const parameterRanges = {
   RSI_BUY_MAX: [60],
   RSI_SELL_MIN: [40],
   PSAR_BUFFER_FACTOR: [0.2],
+
+  // New backtesting parameters
+  TAKE_PROFIT_ATR_MULTIPLIER: [2, 3],
+  STOP_LOSS_ATR_MULTIPLIER: [1.5, 2],
 };
 
 async function runAndSaveOptimization() {
@@ -101,14 +104,6 @@ async function runAndSaveOptimization() {
 }
 
 export async function GET() {
-  // Increase the max duration for this function on Vercel
-  // This is a Vercel-specific feature
-  // Note: this is only available on paid plans. It will have no effect on the Hobby plan.
-  // The hobby plan has a hard limit of 10-15s.
-  // We keep the logic here for when you upgrade.
-  // See: https://vercel.com/docs/functions/serverless-functions/runtimes#max-duration
-  // export const maxDuration = 300; // 5 minutes
-
   try {
     const result = await runAndSaveOptimization();
     return NextResponse.json(result);
