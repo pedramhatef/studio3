@@ -254,14 +254,13 @@ export function calculateParabolicSAR(data: ChartDataPoint[], step: number, max:
  * Calculates Average True Range (ATR)
  */
 // Add this to '@/lib/indicators.ts' or equivalent
-export function calculateATR(highs: number[], lows: number[], closes: number[], period: number): number[] {
+export function calculateATR(highs: number[], lows: number[], closes: number[], period: number): (number | null)[] {
     if (highs.length !== lows.length || highs.length !== closes.length || highs.length < period + 1) {
-      return [];
+ return Array(highs.length).fill(null);
     }
-  
-    const atr: number[] = [];
+
+    const atr: (number | null)[] = Array(period).fill(null);
     const tr: number[] = [];
-  
     // Calculate True Range for each period
     for (let i = 1; i < highs.length; i++) {
       const trueRange = Math.max(
@@ -271,15 +270,16 @@ export function calculateATR(highs: number[], lows: number[], closes: number[], 
       );
       tr.push(trueRange);
     }
-  
+
     // Initial ATR (Simple Moving Average of first 'period' TR values)
     let sumTr = tr.slice(0, period).reduce((a, b) => a + b, 0);
-    atr.push(sumTr / period);
-  
+ atr[period] = sumTr / period;
+
     // Subsequent ATR values (using Wilder's smoothing)
     for (let i = period; i < tr.length; i++) {
-      const prevAtr = atr[i - period];
-      atr.push((prevAtr * (period - 1) + tr[i]) / period);
+      // Note: ATR array is offset by 1 relative to tr because tr starts from i=1
+      const prevAtr = atr[i];
+      atr[i + 1] = (prevAtr! * (period - 1) + tr[i]) / period;
     }
   
     return atr;
