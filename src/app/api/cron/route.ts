@@ -28,10 +28,17 @@ let strategyConfig = {
   RSI_PERIOD: 14,
   RSI_OVERSOLD_THRESHOLD: 35,
   RSI_OVERBOUGHT_THRESHOLD: 65,
+  RSI_BREAKOUT_THRESHOLD: 40, // For breakout signals
+  RSI_BREAKDOWN_THRESHOLD: 60, // For breakdown signals
+
 
   // Volatility Filter
   ATR_PERIOD: 14,
   ATR_VOLATILITY_THRESHOLD: 1.2,
+  
+  // Volume Filter
+  VOLUME_PERIOD: 20,
+  VOLUME_THRESHOLD_MULTIPLIER: 2.0, // e.g., Volume must be 2x the average
   
   // Backtesting-related parameters that are optimized but not directly used in live signal generation.
   // They are included here so the config object matches the one in Firestore.
@@ -84,7 +91,7 @@ export async function GET() {
     // 1) Fetch data
     const chartData = await getChartData();
     const requiredPeriods = Math.max(
-      strategyConfig.EMA_SLOW_PERIOD, strategyConfig.RSI_PERIOD, strategyConfig.ATR_PERIOD, strategyConfig.EMA_LONG_PERIOD
+      strategyConfig.EMA_SLOW_PERIOD, strategyConfig.RSI_PERIOD, strategyConfig.ATR_PERIOD, strategyConfig.EMA_LONG_PERIOD, strategyConfig.VOLUME_PERIOD
     );
 
     if (!Array.isArray(chartData) || chartData.length < requiredPeriods) {
@@ -97,6 +104,8 @@ export async function GET() {
     const closeSlice = chartData.map(d => d.close);
     const highSlice = chartData.map(d => d.high);
     const lowSlice = chartData.map(d => d.low);
+    const volumeSlice = chartData.map(d => d.volume);
+
 
     const emaFastArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_SLOW_PERIOD);
@@ -104,6 +113,8 @@ export async function GET() {
     const psarArr = indicators.calculateParabolicSAR(chartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
     const rsiArr = indicators.calculateRSI(closeSlice, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, strategyConfig.ATR_PERIOD);
+    const avgVolumeArr = indicators.calculateSMA(volumeSlice, strategyConfig.VOLUME_PERIOD);
+
 
     // Evaluate latest candle
     const currentIndex = chartData.length - 1;
@@ -124,6 +135,7 @@ export async function GET() {
       pSar: getValueAt(psarArr, currentIndex),
       rsi: getValueAt(rsiArr, currentIndex),
       atr: getValueAt(atrArr, currentIndex),
+      avgVolume: getValueAt(avgVolumeArr, currentIndex),
     };
 
     if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
@@ -157,17 +169,17 @@ export async function GET() {
 
     const emaFastPrev = getValueAt(emaFastArr, currentIndex - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, currentIndex - 1);
+    const volumeOk = latest.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+
 
     // BUY Signal Logic (Only in an uptrend)
     if (isUptrend) {
         log('Mode: UPTREND');
-        const rsiOk = (cache.rsi as number) > 50 && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-        const psarOk = latest.close > (cache.pSar as number);
-
+        
         // A) Crossover Signal
         const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
         logCond('BUY Crossover: EMA Fast crossed Slow Up', emaCrossedUp);
-        if (emaCrossedUp && rsiOk && psarOk) {
+        if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD) {
             signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
             log('→ Candidate: HIGH BUY (Crossover)');
         }
@@ -176,22 +188,31 @@ export async function GET() {
         if (!signal) {
             const isPullback = latest.low <= (cache.emaFast as number) && latest.close > (cache.emaFast as number);
             logCond('BUY Pullback: Price touched EMA Fast', isPullback);
-            if(isPullback && rsiOk && psarOk) {
+            if(isPullback && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD) {
                 signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
                 log('→ Candidate: MEDIUM BUY (Pullback)');
             }
+        }
+        
+        // C) Breakout Signal (if no other signal)
+        if (!signal && volumeOk) {
+             const psarOk = latest.close > (cache.pSar as number);
+             const rsiOk = (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD;
+             logCond('BUY Breakout: Volume & RSI & PSAR Confirmation', volumeOk && psarOk && rsiOk);
+             if(psarOk && rsiOk) {
+                signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
+                log('→ Candidate: HIGH BUY (Volume Breakout)');
+             }
         }
     }
     // SELL Signal Logic (Only in a downtrend)
     else if (isDowntrend) {
         log('Mode: DOWNTREND');
-        const rsiOk = (cache.rsi as number) < 50 && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-        const psarOk = latest.close < (cache.pSar as number);
-
+        
         // A) Crossover Signal
         const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
         logCond('SELL Crossover: EMA Fast crossed Slow Down', emaCrossedDown);
-        if (emaCrossedDown && rsiOk && psarOk) {
+        if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD) {
             signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
             log('→ Candidate: HIGH SELL (Crossover)');
         }
@@ -200,11 +221,22 @@ export async function GET() {
         if (!signal) {
             const isPullback = latest.high >= (cache.emaFast as number) && latest.close < (cache.emaFast as number);
             logCond('SELL Pullback: Price touched EMA Fast', isPullback);
-            if(isPullback && rsiOk && psarOk) {
+            if(isPullback && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD) {
                 signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
                 log('→ Candidate: MEDIUM SELL (Pullback)');
             }
         }
+        
+        // C) Breakdown Signal (if no other signal)
+        if (!signal && volumeOk) {
+            const psarOk = latest.close < (cache.pSar as number);
+            const rsiOk = (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD;
+            logCond('SELL Breakdown: Volume & RSI & PSAR Confirmation', volumeOk && psarOk && rsiOk);
+            if(psarOk && rsiOk) {
+               signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
+               log('→ Candidate: HIGH SELL (Volume Breakdown)');
+            }
+       }
     }
 
     if (!signal) {

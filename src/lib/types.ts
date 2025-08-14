@@ -1,3 +1,4 @@
+
 export interface ChartDataPoint {
   time: number;
   open: number;
@@ -28,10 +29,16 @@ export type StrategyParams = {
     RSI_PERIOD: number;
     RSI_OVERSOLD_THRESHOLD: number;
     RSI_OVERBOUGHT_THRESHOLD: number;
-  
+    RSI_BREAKOUT_THRESHOLD: number;
+    RSI_BREAKDOWN_THRESHOLD: number;
+
     // Volatility Filter
     ATR_PERIOD: number;
     ATR_VOLATILITY_THRESHOLD: number;
+
+    // Volume Filter
+    VOLUME_PERIOD: number;
+    VOLUME_THRESHOLD_MULTIPLIER: number;
     
     // Backtesting Simulation
     TAKE_PROFIT_ATR_MULTIPLIER: number;

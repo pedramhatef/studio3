@@ -22,11 +22,17 @@ const parameterRanges = {
   RSI_PERIOD: [9, 14],
   RSI_OVERSOLD_THRESHOLD: [25, 30, 35, 40], // Can it find entries in oversold or just pullback zones?
   RSI_OVERBOUGHT_THRESHOLD: [60, 65, 70, 75], // Symmetrical to oversold
+  RSI_BREAKOUT_THRESHOLD: [55, 60], // Threshold for confirming a volume breakout
+  RSI_BREAKDOWN_THRESHOLD: [40, 45], // Threshold for confirming a volume breakdown
   
   // Volatility Filter - More granular options to adapt to different volatility regimes
   ATR_PERIOD: [10, 14],
   ATR_VOLATILITY_THRESHOLD: [0.8, 1.0, 1.25, 1.5], // Key for adapting to market pace
 
+  // Volume Filter
+  VOLUME_PERIOD: [20], // Standard period for volume averaging
+  VOLUME_THRESHOLD_MULTIPLIER: [1.5, 2.0, 2.5], // How much larger the volume needs to be
+  
   // Backtesting Simulation - Wider risk/reward profiles
   TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2.0, 2.5, 3.0], // Test different reward targets
   STOP_LOSS_ATR_MULTIPLIER: [1.0, 1.5, 2.0], // Test different risk tolerances
@@ -98,3 +104,4 @@ export async function GET() {
     );
   }
 }
+
