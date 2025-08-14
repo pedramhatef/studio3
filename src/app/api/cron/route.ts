@@ -141,7 +141,9 @@ export async function GET() {
     section('Primary Trend Filter');
     const isUptrend = latest.close > (cache.emaLong as number);
     const isDowntrend = latest.close < (cache.emaLong as number);
-    logCond('Overall Trend', isUptrend ? 'UPTREND' : isDowntrend ? 'DOWNTREND' : 'SIDEWAYS', `Close: ${latest.close.toFixed(5)}, EMA Long: ${(cache.emaLong as number).toFixed(5)}`);
+    const trendDirection = isUptrend ? 'UPTREND' : isDowntrend ? 'DOWNTREND' : 'SIDEWAYS';
+    log(`Overall Trend: ${trendDirection} → Close: ${latest.close.toFixed(5)}, EMA Long: ${(cache.emaLong as number).toFixed(5)}`);
+
 
     // 4) Volatility Filter
     section('Volatility Filter');
