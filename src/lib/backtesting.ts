@@ -234,30 +234,35 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
         }
 
+        // New check for entering a trade
         if (!inTrade && signalType) {
-            // Duplicate prevention for backtest
-            const timeDeltaMin = Math.abs(currentCandle.time - lastSignalTime) / 60000;
-            if (lastSignalType === signalType && timeDeltaMin < 5) {
-                continue; // Skip same direction signal
-            }
-            if (lastSignalType !== signalType && timeDeltaMin < 2) {
-                continue; // Skip whipsaw
-            }
-            
-            lastSignalType = signalType;
-            lastSignalTime = currentCandle.time;
-
-            const atrValue = cache.atr as number;
-            inTrade = {
-                entryPrice: currentCandle.close,
-                entryTime: currentCandle.time,
-                type: signalType,
-                entryCandleIndex: i,
-                initialCapital: capital,
-                stopLossPrice: signalType === 'BUY' ? currentCandle.close - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : currentCandle.close + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
-                takeProfitPrice: signalType === 'BUY' ? currentCandle.close + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : currentCandle.close - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
-            };
-        }
+             const timeDeltaMin = Math.abs(currentCandle.time - lastSignalTime) / 60000;
+             let canEnter = false;
+ 
+             if (lastSignalType === null) {
+                 canEnter = true;
+             } else if (lastSignalType === signalType && timeDeltaMin >= 5) {
+                 canEnter = true;
+             } else if (lastSignalType !== signalType && timeDeltaMin >= 2) {
+                 canEnter = true;
+             }
+ 
+             if (canEnter) {
+                 lastSignalType = signalType;
+                 lastSignalTime = currentCandle.time;
+ 
+                 const atrValue = cache.atr as number;
+                 inTrade = {
+                     entryPrice: currentCandle.close,
+                     entryTime: currentCandle.time,
+                     type: signalType,
+                     entryCandleIndex: i,
+                     initialCapital: capital,
+                     stopLossPrice: signalType === 'BUY' ? currentCandle.close - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : currentCandle.close + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
+                     takeProfitPrice: signalType === 'BUY' ? currentCandle.close + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : currentCandle.close - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
+                 };
+             }
+         }
     }
 
     if (inTrade) {
@@ -387,5 +392,3 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         averageLoss: losingTrades.length > 0 ? Math.abs(totalLossAmount / losingTrades.length) : 0,
     };
 }
-
-    
