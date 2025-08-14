@@ -101,9 +101,12 @@ export async function GET() {
     const deepBB = indicators.calculateBollingerBands(closeSlice, BBANDS_PERIOD, BBANDS_STD_DEV * BBANDS_DEEP_MULTIPLIER);
     const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, ATR_PERIOD);
 
+    
     // Evaluate latest candle
     const currentIndex = chartData.length - 1;
-    const latest = chartData[currentIndex];
+    log(`chartData length: ${chartData.length}`);
+    log('Candles:', chartData.map(c => new Date(c.time).toISOString()));
+    log('atrArr:', atrArr);    const latest = chartData[currentIndex];
     const prev = chartData[currentIndex - 1] ?? latest;
 
     log('Latest candle:', {
@@ -117,7 +120,7 @@ export async function GET() {
 
     const getValueAt = (arr: (number | null)[], idx: number) => arr[idx] ?? null;
     const getPrevValueAt = (arr: (number | null)[], idx: number) => arr[idx - 1] ?? null;
-
+    
     const cache = {
       emaFast: getValueAt(emaFastArr, currentIndex),
       emaSlow: getValueAt(emaSlowArr, currentIndex),
