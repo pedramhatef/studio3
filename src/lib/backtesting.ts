@@ -333,6 +333,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     
     if (bestPerformance) {
         console.log(`Optimization complete. Best performance found: Profit=${bestPerformance.totalProfit.toFixed(2)}, Win Rate=${bestPerformance.winRate.toFixed(2)}%, Trades=${bestPerformance.numberOfTrades}`);
+        console.log('Best Parameters:', bestParams);
     } else {
         console.warn("No valid performance metrics were generated. The backtest might not have produced any trades with the given parameters.");
     }
@@ -386,3 +387,5 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         averageLoss: losingTrades.length > 0 ? Math.abs(totalLossAmount / losingTrades.length) : 0,
     };
 }
+
+    
