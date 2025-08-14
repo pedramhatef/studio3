@@ -16,42 +16,47 @@ interface EnhancedSignal extends Signal {
 // STRATEGY CONFIGURATION
 const DEBUG = true;
 
-// System 1: Core Trend-Following (High Probability)
-let EMA_FAST_PERIOD = 5;
-let EMA_SLOW_PERIOD = 10;
-let EMA_MEDIUM_PERIOD = 15;
-let EMA_LONG_PERIOD = 30;
-let PARABOLIC_SAR_STEP = 0.02;
-let PARABOLIC_SAR_MAX = 0.2;
+// This object holds the default parameters.
+// These will be used as a fallback if fetching from Firestore fails.
+let strategyConfig = {
+  // System 1: Core Trend-Following (High Probability)
+  EMA_FAST_PERIOD: 5,
+  EMA_SLOW_PERIOD: 10,
+  EMA_MEDIUM_PERIOD: 15,
+  EMA_LONG_PERIOD: 30,
+  PARABOLIC_SAR_STEP: 0.02,
+  PARABOLIC_SAR_MAX: 0.2,
 
-// System 2: Momentum-Reversal (Medium Probability)
-let RSI_PERIOD = 7;
-let RSI_OVERSOLD_THRESHOLD = 35;
-let RSI_OVERBOUGHT_THRESHOLD = 65;
-let DEEP_RSI_THRESHOLD = 30;
-let DEEP_RSI_OVERBOUGHT = 70;
-let BBANDS_DEEP_MULTIPLIER = 2.0;
-let BBANDS_PERIOD = 10;
-let BBANDS_STD_DEV = 1.5;
-let VOLUME_SPIKE_FACTOR = 1.5;  // Increased from 1.2
-let MIN_CANDLE_BODY = 0.0001;
+  // System 2: Momentum-Reversal (Medium Probability)
+  RSI_PERIOD: 7,
+  RSI_OVERSOLD_THRESHOLD: 35,
+  RSI_OVERBOUGHT_THRESHOLD: 65,
+  DEEP_RSI_THRESHOLD: 30,
+  DEEP_RSI_OVERBOUGHT: 70,
+  BBANDS_DEEP_MULTIPLIER: 2.0,
+  BBANDS_PERIOD: 10,
+  BBANDS_STD_DEV: 1.5,
+  VOLUME_SPIKE_FACTOR: 1.5,
+  MIN_CANDLE_BODY: 0.0001,
 
-// System 3: Momentum Shift (Low Probability)
-let RSI_CENTERLINE = 50;
-let MIN_VOL_CHANGE = 1.5;
+  // System 3: Momentum Shift (Low Probability)
+  RSI_CENTERLINE: 50,
+  MIN_VOL_CHANGE: 1.5,
 
-// Volatility Filter
-let ATR_PERIOD = 7;
-let MIN_ATR_THRESHOLD = 0.00015;
-let LOW_VOL_THRESHOLD = 0.0008;
-let AVG_ATR_MULTIPLIER = 1.0;  // Reduced from 1.2
+  // Volatility Filter
+  ATR_PERIOD: 7,
+  MIN_ATR_THRESHOLD: 0.00015,
+  LOW_VOL_THRESHOLD: 0.0008,
+  AVG_ATR_MULTIPLIER: 1.0,
 
-// Filters
-let VOLUME_CONFIRMATION_FACTOR = 1.0;  // Reduced from 1.2
-let PRICE_POSITION_FILTER = 0.20;
-let RSI_BUY_MAX = 60;
-let RSI_SELL_MIN = 40;
-let PSAR_BUFFER_FACTOR = 0.2;
+  // Filters
+  VOLUME_CONFIRMATION_FACTOR: 1.0,
+  PRICE_POSITION_FILTER: 0.20,
+  RSI_BUY_MAX: 60,
+  RSI_SELL_MIN: 40,
+  PSAR_BUFFER_FACTOR: 0.2,
+};
+
 
 export const revalidate = 0;
 
@@ -98,12 +103,10 @@ export async function GET() {
       log('Latest optimization results fetched:', latestResult);
 
       if (latestResult.bestParams) {
-        const params = latestResult.bestParams;
-        EMA_FAST_PERIOD = params.EMA_FAST_PERIOD ?? EMA_FAST_PERIOD;
-        EMA_SLOW_PERIOD = params.EMA_SLOW_PERIOD ?? EMA_SLOW_PERIOD;
-        RSI_PERIOD = params.RSI_PERIOD ?? RSI_PERIOD;
-        // ... apply other parameters
+        // Overwrite the default config with the fetched optimal parameters
+        strategyConfig = { ...strategyConfig, ...latestResult.bestParams };
         log('Applied optimal parameters from Firestore.');
+        kv(strategyConfig);
       }
       
       if (latestResult.bestPerformance) {
@@ -129,7 +132,7 @@ export async function GET() {
     // 1) Fetch data
     const chartData = await getChartData();
     const requiredPeriods = Math.max(
-      EMA_SLOW_PERIOD, BBANDS_PERIOD, RSI_PERIOD, ATR_PERIOD, EMA_LONG_PERIOD
+      strategyConfig.EMA_SLOW_PERIOD, strategyConfig.BBANDS_PERIOD, strategyConfig.RSI_PERIOD, strategyConfig.ATR_PERIOD, strategyConfig.EMA_LONG_PERIOD
     );
 
     if (!Array.isArray(chartData) || chartData.length < requiredPeriods) {
@@ -143,16 +146,16 @@ export async function GET() {
     const highSlice = chartData.map(d => d.high);
     const lowSlice = chartData.map(d => d.low);
 
-    const emaFastArr = indicators.calculateEMA(closeSlice, EMA_FAST_PERIOD);
-    const emaSlowArr = indicators.calculateEMA(closeSlice, EMA_SLOW_PERIOD);
-    const emaMedArr = indicators.calculateEMA(closeSlice, EMA_MEDIUM_PERIOD);
-    const emaLongArr = indicators.calculateEMA(closeSlice, EMA_LONG_PERIOD);
-    const psarArr = indicators.calculateParabolicSAR(chartData, PARABOLIC_SAR_STEP, PARABOLIC_SAR_MAX);
+    const emaFastArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_FAST_PERIOD);
+    const emaSlowArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_SLOW_PERIOD);
+    const emaMedArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_MEDIUM_PERIOD);
+    const emaLongArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_LONG_PERIOD);
+    const psarArr = indicators.calculateParabolicSAR(chartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
     const vwapArr = indicators.calculateVWAP(chartData);
-    const rsiArr = indicators.calculateRSI(closeSlice, RSI_PERIOD);
-    const bb = indicators.calculateBollingerBands(closeSlice, BBANDS_PERIOD, BBANDS_STD_DEV);
-    const deepBB = indicators.calculateBollingerBands(closeSlice, BBANDS_PERIOD, BBANDS_STD_DEV * BBANDS_DEEP_MULTIPLIER);
-    const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, ATR_PERIOD);
+    const rsiArr = indicators.calculateRSI(closeSlice, strategyConfig.RSI_PERIOD);
+    const bb = indicators.calculateBollingerBands(closeSlice, strategyConfig.BBANDS_PERIOD, strategyConfig.BBANDS_STD_DEV);
+    const deepBB = indicators.calculateBollingerBands(closeSlice, strategyConfig.BBANDS_PERIOD, strategyConfig.BBANDS_STD_DEV * strategyConfig.BBANDS_DEEP_MULTIPLIER);
+    const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, strategyConfig.ATR_PERIOD);
 
     // Evaluate latest candle
     const currentIndex = chartData.length - 1;
@@ -201,18 +204,18 @@ export async function GET() {
 
     const isUptrend = latest.close > (cache.emaLong as number);
     const isDowntrend = latest.close < (cache.emaLong as number);
-    const isLowVol = (cache.atr as number) < LOW_VOL_THRESHOLD;
+    const isLowVol = (cache.atr as number) < strategyConfig.LOW_VOL_THRESHOLD;
     log('Trend/Volatility:', { isUptrend, isDowntrend, isLowVol });
 
     // Compute average ATR (last 5 up to current)
     const recentAtrStart = Math.max(0, currentIndex - 4);
     const recentAtr = atrArr.slice(recentAtrStart, currentIndex + 1).filter(v => v !== null) as number[];
     const avgAtr = recentAtr.length > 0 ? recentAtr.reduce((s, v) => s + v, 0) / recentAtr.length : 0;
-    log('ATR Debug:', { currentAtr: Number(cache.atr).toFixed(6), avgAtr: avgAtr.toFixed(6), threshold: (avgAtr * AVG_ATR_MULTIPLIER).toFixed(6) });
+    log('ATR Debug:', { currentAtr: Number(cache.atr).toFixed(6), avgAtr: avgAtr.toFixed(6), threshold: (avgAtr * strategyConfig.AVG_ATR_MULTIPLIER).toFixed(6) });
 
     // Volatility filter
-    const volFilterMin = (cache.atr as number) >= MIN_ATR_THRESHOLD || isLowVol;
-    logCond(`Vol Filter: ATR >= ${MIN_ATR_THRESHOLD} or LowVol`, volFilterMin, `${Number(cache.atr).toFixed(6)}`);
+    const volFilterMin = (cache.atr as number) >= strategyConfig.MIN_ATR_THRESHOLD || isLowVol;
+    logCond(`Vol Filter: ATR >= ${strategyConfig.MIN_ATR_THRESHOLD} or LowVol`, volFilterMin, `${Number(cache.atr).toFixed(6)}`);
     if (!volFilterMin) {
       section('VOLATILITY FILTER');
       log(`✘ Market too flat`);
@@ -244,10 +247,10 @@ export async function GET() {
     
     // Deep Oversold Reversal (BUY)
     const deepBuyConditions = [
-      (cache.rsi as number) <= DEEP_RSI_THRESHOLD,
+      (cache.rsi as number) <= strategyConfig.DEEP_RSI_THRESHOLD,
       latest.low <= (cache.deepLowerBB as number),
-      (latest.close - latest.open) > MIN_CANDLE_BODY,
-      latest.volume > volumeAvg * VOLUME_SPIKE_FACTOR,
+      (latest.close - latest.open) > strategyConfig.MIN_CANDLE_BODY,
+      latest.volume > volumeAvg * strategyConfig.VOLUME_SPIKE_FACTOR,
       latest.close > (cache.pSar as number)
     ];
     deepBuyConditions.forEach((cond, i) => logCond(`Deep Buy Condition ${i+1}`, cond));
@@ -256,10 +259,10 @@ export async function GET() {
     
     // Deep Overbought Reversal (SELL)
     const deepSellConditions = [
-      (cache.rsi as number) >= DEEP_RSI_OVERBOUGHT,
+      (cache.rsi as number) >= strategyConfig.DEEP_RSI_OVERBOUGHT,
       latest.high >= (cache.deepUpperBB as number),
-      (latest.open - latest.close) > MIN_CANDLE_BODY,
-      latest.volume > volumeAvg * VOLUME_SPIKE_FACTOR,
+      (latest.open - latest.close) > strategyConfig.MIN_CANDLE_BODY,
+      latest.volume > volumeAvg * strategyConfig.VOLUME_SPIKE_FACTOR,
       latest.close < (cache.pSar as number)
     ];
     deepSellConditions.forEach((cond, i) => logCond(`Deep Sell Condition ${i+1}`, cond));
@@ -268,8 +271,8 @@ export async function GET() {
 
     // Moderate Reversal (BUY)
     const modBuyConditions = [
-      (cache.prevRsi as number) < RSI_OVERSOLD_THRESHOLD,
-      (cache.rsi as number) > RSI_OVERSOLD_THRESHOLD,
+      (cache.prevRsi as number) < strategyConfig.RSI_OVERSOLD_THRESHOLD,
+      (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD,
       latest.low <= (cache.lowerBB as number),
       latest.close > (cache.vwap as number),
       isDowntrend
@@ -280,8 +283,8 @@ export async function GET() {
     
     // Moderate Reversal (SELL)
     const modSellConditions = [
-      (cache.prevRsi as number) > RSI_OVERBOUGHT_THRESHOLD,
-      (cache.rsi as number) < RSI_OVERBOUGHT_THRESHOLD,
+      (cache.prevRsi as number) > strategyConfig.RSI_OVERBOUGHT_THRESHOLD,
+      (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD,
       latest.high >= (cache.upperBB as number),
       latest.close < (cache.vwap as number),
       isUptrend
@@ -292,8 +295,8 @@ export async function GET() {
 
     // System 1: Core Trend-Following
     section('System 1: Core Trend-Following');
-    const psarBuffer = (cache.atr as number) * PSAR_BUFFER_FACTOR;
-    log('PSAR Buffer:', `${psarBuffer.toFixed(6)} (${(PSAR_BUFFER_FACTOR*100).toFixed(0)}% ATR)`);
+    const psarBuffer = (cache.atr as number) * strategyConfig.PSAR_BUFFER_FACTOR;
+    log('PSAR Buffer:', `${psarBuffer.toFixed(6)} (${(strategyConfig.PSAR_BUFFER_FACTOR*100).toFixed(0)}% ATR)`);
     
     const emaFast = cache.emaFast as number;
     const emaSlow = cache.emaSlow as number;
@@ -306,7 +309,7 @@ export async function GET() {
       emaFastCrossedSlowUp, // This is already a boolean
       latest.close > pSar + psarBuffer,
       isUptrend,
-      rsi < RSI_BUY_MAX
+      rsi < strategyConfig.RSI_BUY_MAX
     ];
     coreBuyConditions.forEach((cond, i) => logCond(`Core Buy Condition ${i+1}`, cond));
     const coreBuyTrueCount = coreBuyConditions.filter(Boolean).length;
@@ -318,25 +321,25 @@ export async function GET() {
       emaFastCrossedSlowDown, // This is already a boolean
       latest.close < pSar - psarBuffer,
       isDowntrend,
-      rsi > RSI_SELL_MIN
+      rsi > strategyConfig.RSI_SELL_MIN
     ];
     logCond(`Core Sell Condition 1: EMA Fast < EMA Slow`, coreSellConditions[0], `${emaFast.toFixed(6)} < ${emaSlow.toFixed(6)}`);
     logCond(`Core Sell Condition 2: EMA Fast Crossed Slow Down`, coreSellConditions[1]);
     logCond(`Core Sell Condition 3: Close < PSAR - Buffer`, coreSellConditions[2], `${latest.close.toFixed(6)} < ${(pSar - psarBuffer).toFixed(6)}`);
     logCond(`Core Sell Condition 4: Is Downtrend (Close < EMA Long)`, coreSellConditions[3], `${latest.close.toFixed(6)} < ${(cache.emaLong as number).toFixed(6)}`);
-    logCond(`Core Sell Condition 5: RSI > RSI_SELL_MIN`, coreSellConditions[4], `${rsi.toFixed(2)} > ${RSI_SELL_MIN}`);
+    logCond(`Core Sell Condition 5: RSI > RSI_SELL_MIN`, coreSellConditions[4], `${rsi.toFixed(2)} > ${strategyConfig.RSI_SELL_MIN}`);
 
     const coreSellTrue = coreSellConditions.filter(Boolean).length >= 4;
 
 
     // System 3: Momentum Shift
     section('System 3: Momentum Shift');
-    const volUp = latest.volume > (prev.volume ?? 0) * MIN_VOL_CHANGE;
+    const volUp = latest.volume > (prev.volume ?? 0) * strategyConfig.MIN_VOL_CHANGE;
     
     // Momentum Shift BUY
     const shiftBuyConditions = [
-      (cache.prevRsi as number) < RSI_CENTERLINE,
-      (cache.rsi as number) > RSI_CENTERLINE,
+      (cache.prevRsi as number) < strategyConfig.RSI_CENTERLINE,
+      (cache.rsi as number) > strategyConfig.RSI_CENTERLINE,
       volUp,
       latest.close > (cache.vwap as number),
       isUptrend
@@ -346,8 +349,8 @@ export async function GET() {
     
     // Momentum Shift SELL
     const shiftSellConditions = [
-      (cache.prevRsi as number) > RSI_CENTERLINE,
-      (cache.rsi as number) < RSI_CENTERLINE,
+      (cache.prevRsi as number) > strategyConfig.RSI_CENTERLINE,
+      (cache.rsi as number) < strategyConfig.RSI_CENTERLINE,
       volUp,
       latest.close < (cache.vwap as number),
       isDowntrend
@@ -494,5 +497,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
