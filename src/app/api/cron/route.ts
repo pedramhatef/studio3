@@ -18,11 +18,12 @@ const DEBUG = true;
 
 // This object holds the default parameters.
 // These will be used as a fallback if fetching from Firestore fails.
+// This now includes ALL parameters that the optimizer uses.
 let strategyConfig = {
   // Core Trend-Following
   EMA_FAST_PERIOD: 5,
   EMA_SLOW_PERIOD: 10,
-  EMA_LONG_PERIOD: 50, // Using a longer period for a more stable trend direction
+  EMA_LONG_PERIOD: 50,
   PARABOLIC_SAR_STEP: 0.02,
   PARABOLIC_SAR_MAX: 0.2,
 
@@ -33,10 +34,12 @@ let strategyConfig = {
 
   // Volatility Filter
   ATR_PERIOD: 14,
-  ATR_VOLATILITY_THRESHOLD: 1.2, // ATR must be at least 1.2x the average ATR
+  ATR_VOLATILITY_THRESHOLD: 1.2,
   
-  // Other filters
-  VOLUME_SPIKE_FACTOR: 1.5,
+  // Backtesting-related parameters that are optimized but not directly used in live signal generation.
+  // They are included here so the config object matches the one in Firestore.
+  TAKE_PROFIT_ATR_MULTIPLIER: 2.0,
+  STOP_LOSS_ATR_MULTIPLIER: 1.5,
 };
 
 
@@ -72,6 +75,7 @@ export async function GET() {
     if (!latestResultSnapshot.empty) {
       const latestResult = latestResultSnapshot.docs[0].data();
       if (latestResult.bestParams) {
+        // Apply ALL fetched parameters, overwriting the defaults
         strategyConfig = { ...strategyConfig, ...latestResult.bestParams };
         log('Applied optimal parameters from Firestore.');
         kv(strategyConfig);
@@ -231,3 +235,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
