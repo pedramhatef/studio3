@@ -160,95 +160,94 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
         }
         
-        // --- ENTRY LOGIC ---
-        // If we are not in a trade, check for a new entry signal
-        if (!inTrade) {
-            const cache = {
-                emaFast: getValueAt(emaFastArr, i),
-                emaSlow: getValueAt(emaSlowArr, i),
-                emaLong: getValueAt(emaLongArr, i),
-                pSar: getValueAt(psarArr, i),
-                rsi: getValueAt(rsiArr, i),
-                atr: getValueAt(atrArr, i),
-            };
+        const cache = {
+            emaFast: getValueAt(emaFastArr, i),
+            emaSlow: getValueAt(emaSlowArr, i),
+            emaLong: getValueAt(emaLongArr, i),
+            pSar: getValueAt(psarArr, i),
+            rsi: getValueAt(rsiArr, i),
+            atr: getValueAt(atrArr, i),
+        };
 
-            if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
-                continue;
-            }
+        if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
+            continue;
+        }
+        
+        const isUptrend = currentCandle.close > (cache.emaLong as number);
+        const isDowntrend = currentCandle.close < (cache.emaLong as number);
+        
+        const recentAtrSlice = atrArr.slice(Math.max(0, i - 10), i).filter(v => v !== null) as number[];
+        const avgAtr = recentAtrSlice.length > 0 ? recentAtrSlice.reduce((s, v) => s + v, 0) / recentAtrSlice.length : 0;
+        const isVolatileEnough = (cache.atr as number) > (avgAtr * params.ATR_VOLATILITY_THRESHOLD);
+        
+        let signalType: 'BUY' | 'SELL' | null = null;
+        
+        if (isVolatileEnough) {
+            const emaFastPrev = getPrevValueAt(emaFastArr, i);
+            const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
             
-            const isUptrend = currentCandle.close > (cache.emaLong as number);
-            const isDowntrend = currentCandle.close < (cache.emaLong as number);
-            
-            const recentAtrSlice = atrArr.slice(Math.max(0, i - 10), i).filter(v => v !== null) as number[];
-            const avgAtr = recentAtrSlice.length > 0 ? recentAtrSlice.reduce((s, v) => s + v, 0) / recentAtrSlice.length : 0;
-            const isVolatileEnough = (cache.atr as number) > (avgAtr * params.ATR_VOLATILITY_THRESHOLD);
-            
-            let signalType: 'BUY' | 'SELL' | null = null;
-            
-            if (isVolatileEnough) {
-                const emaFastPrev = getPrevValueAt(emaFastArr, i);
-                const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
+            if (isUptrend) {
+                const rsiOk = (cache.rsi as number) > 50 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
+                const psarOk = currentCandle.close > (cache.pSar as number);
+                const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+                const isPullback = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
                 
-                if (isUptrend) {
-                    const rsiOk = (cache.rsi as number) > 50 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
-                    const psarOk = currentCandle.close > (cache.pSar as number);
-                    const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-                    const isPullback = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
-                    
-                    if ((emaCrossedUp || isPullback) && rsiOk && psarOk) {
-                        signalType = 'BUY';
-                    }
-                } else if (isDowntrend) {
-                    const rsiOk = (cache.rsi as number) < 50 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
-                    const psarOk = currentCandle.close < (cache.pSar as number);
-                    const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-                    const isPullback = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
-                    
-                    if ((emaCrossedDown || isPullback) && rsiOk && psarOk) {
-                        signalType = 'SELL';
-                    }
+                if ((emaCrossedUp || isPullback) && rsiOk && psarOk) {
+                    signalType = 'BUY';
+                }
+            } else if (isDowntrend) {
+                const rsiOk = (cache.rsi as number) < 50 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
+                const psarOk = currentCandle.close < (cache.pSar as number);
+                const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+                const isPullback = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
+                
+                if ((emaCrossedDown || isPullback) && rsiOk && psarOk) {
+                    signalType = 'SELL';
                 }
             }
+        }
 
-            if (signalType) {
-                 const timeDeltaMin = Math.abs(currentCandle.time - lastSignalTime) / 60000;
-                 let canEnter = false;
-     
-                 if (lastSignalType === null) {
-                     canEnter = true;
-                 } else if (lastSignalType === signalType && timeDeltaMin >= 5) {
-                     canEnter = true;
-                 } else if (lastSignalType !== signalType && timeDeltaMin >= 2) {
-                     canEnter = true;
-                 }
-     
-                 if (canEnter) {
-                     lastSignalType = signalType;
-                     lastSignalTime = currentCandle.time;
-                     const atrValue = cache.atr as number;
-                     
-                     // Close any existing trade if an opposite signal appears
-                     if (inTrade && inTrade.type !== signalType) {
-                         const exitPrice = currentCandle.close;
-                         const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
-                         const profitPercentage = (profit / inTrade.entryPrice) * 100;
-                         const finalCapital = inTrade.initialCapital + profit;
-                         trades.push({ ...inTrade, exitPrice, exitTime: currentCandle.time, exitCandleIndex: i, profit, profitPercentage, finalCapital, exitReason: 'Opposite Signal' });
-                         capital = finalCapital;
-                         inTrade = null;
-                     }
-                     
-                     // Enter new trade
-                     inTrade = {
-                         entryPrice: currentCandle.close,
-                         entryTime: currentCandle.time,
-                         type: signalType,
-                         entryCandleIndex: i,
-                         initialCapital: capital,
-                         stopLossPrice: signalType === 'BUY' ? currentCandle.close - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : currentCandle.close + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
-                         takeProfitPrice: signalType === 'BUY' ? currentCandle.close + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : currentCandle.close - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
-                     };
-                 }
+        if (signalType) {
+            // Close any existing trade if an opposite signal appears
+            if (inTrade && inTrade.type !== signalType) {
+                const exitPrice = currentCandle.close;
+                const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
+                const profitPercentage = (profit / inTrade.entryPrice) * 100;
+                const finalCapital = inTrade.initialCapital + profit;
+                trades.push({ ...inTrade, exitPrice, exitTime: currentCandle.time, exitCandleIndex: i, profit, profitPercentage, finalCapital, exitReason: 'Opposite Signal' });
+                capital = finalCapital;
+                inTrade = null;
+            }
+
+            // --- ENTRY LOGIC ---
+            // If we are not in a trade, check for a new entry signal
+            if (!inTrade) {
+                const timeDeltaMin = Math.abs(currentCandle.time - lastSignalTime) / 60000;
+                let canEnter = false;
+    
+                if (lastSignalType === null) {
+                    canEnter = true;
+                } else if (lastSignalType === signalType && timeDeltaMin >= 5) {
+                    canEnter = true;
+                } else if (lastSignalType !== signalType && timeDeltaMin >= 2) {
+                    canEnter = true;
+                }
+    
+                if (canEnter) {
+                    lastSignalType = signalType;
+                    lastSignalTime = currentCandle.time;
+                    const atrValue = cache.atr as number;
+                                        
+                    inTrade = {
+                        entryPrice: currentCandle.close,
+                        entryTime: currentCandle.time,
+                        type: signalType,
+                        entryCandleIndex: i,
+                        initialCapital: capital,
+                        stopLossPrice: signalType === 'BUY' ? currentCandle.close - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : currentCandle.close + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
+                        takeProfitPrice: signalType === 'BUY' ? currentCandle.close + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : currentCandle.close - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
+                    };
+                }
             }
         }
     }
@@ -319,7 +318,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
         }
     }
     
-    if (bestPerformance) {
+    if (bestPerformance && bestParams) {
         console.log(`Optimization complete. Best performance found: Profit=${bestPerformance.totalProfit.toFixed(6)}, Win Rate=${bestPerformance.winRate.toFixed(2)}%, Trades=${bestPerformance.numberOfTrades}`);
         console.log('Best Parameters:', bestParams);
     } else {
