@@ -11,45 +11,45 @@ import { setDoc, doc } from 'firebase/firestore';
 // Define the parameter ranges for optimization
 // NOTE: Keep the number of combinations low to avoid Vercel timeouts on the hobby plan.
 const parameterRanges = {
-  // Core Trend-Following - Test faster and slower trend confirmation
-  EMA_FAST_PERIOD: [5, 8, 13],
-  EMA_SLOW_PERIOD: [21, 25, 30],
-  EMA_MEDIUM_PERIOD: [15], // Keep medium stable as a reference
-  EMA_LONG_PERIOD: [40, 50],
-  PARABOLIC_SAR_STEP: [0.02],
-  PARABOLIC_SAR_MAX: [0.2],
-
-  // Momentum-Reversal - Test different sensitivity levels
-  RSI_PERIOD: [7, 9, 14],
-  RSI_OVERSOLD_THRESHOLD: [25, 30, 35],
-  RSI_OVERBOUGHT_THRESHOLD: [65, 70, 75],
-  DEEP_RSI_THRESHOLD: [20, 25],
-  DEEP_RSI_OVERBOUGHT: [75, 80],
-  BBANDS_PERIOD: [14, 20],
-  BBANDS_STD_DEV: [1.5],
-  BBANDS_DEEP_MULTIPLIER: [2.0],
-  VOLUME_SPIKE_FACTOR: [1.5, 2.0],
-  MIN_CANDLE_BODY: [0.0001],
-
-  // Momentum Shift
-  RSI_CENTERLINE: [50],
-  MIN_VOL_CHANGE: [1.5],
-
-  // Volatility & Filters
-  ATR_PERIOD: [10, 14],
-  MIN_ATR_THRESHOLD: [0.00015],
-  LOW_VOL_THRESHOLD: [0.0008],
-  AVG_ATR_MULTIPLIER: [1.0],
-  VOLUME_CONFIRMATION_FACTOR: [1.0],
-  PRICE_POSITION_FILTER: [0.20],
-  RSI_BUY_MAX: [65], // Allow buying in slightly stronger trends
-  RSI_SELL_MIN: [35], // Allow selling in slightly weaker trends
-  PSAR_BUFFER_FACTOR: [0.2],
-
-  // Backtesting Simulation - Crucial for risk/reward profile
-  TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2, 3],
-  STOP_LOSS_ATR_MULTIPLIER: [1, 1.5, 2],
-};
+    // Core Trend-Following - Test faster and slower trend confirmation
+    EMA_FAST_PERIOD: [5, 8, 13],
+    EMA_SLOW_PERIOD: [21, 25, 30],
+    EMA_MEDIUM_PERIOD: [15], // Keep medium stable as a reference
+    EMA_LONG_PERIOD: [40, 50],
+    PARABOLIC_SAR_STEP: [0.02],
+    PARABOLIC_SAR_MAX: [0.2],
+  
+    // Momentum-Reversal - Test different sensitivity levels
+    RSI_PERIOD: [7, 9, 14],
+    RSI_OVERSOLD_THRESHOLD: [25, 30, 35],
+    RSI_OVERBOUGHT_THRESHOLD: [65, 70, 75],
+    DEEP_RSI_THRESHOLD: [20, 25],
+    DEEP_RSI_OVERBOUGHT: [75, 80],
+    BBANDS_PERIOD: [14, 20],
+    BBANDS_STD_DEV: [1.5],
+    BBANDS_DEEP_MULTIPLIER: [2.0],
+    VOLUME_SPIKE_FACTOR: [1.5, 2.0],
+    MIN_CANDLE_BODY: [0.0001],
+  
+    // Momentum Shift
+    RSI_CENTERLINE: [50],
+    MIN_VOL_CHANGE: [1.5],
+  
+    // Volatility & Filters
+    ATR_PERIOD: [10, 14],
+    MIN_ATR_THRESHOLD: [0.00015],
+    LOW_VOL_THRESHOLD: [0.0008],
+    AVG_ATR_MULTIPLIER: [1.0],
+    VOLUME_CONFIRMATION_FACTOR: [1.0],
+    PRICE_POSITION_FILTER: [0.20],
+    RSI_BUY_MAX: [65], // Allow buying in slightly stronger trends
+    RSI_SELL_MIN: [35], // Allow selling in slightly weaker trends
+    PSAR_BUFFER_FACTOR: [0.2],
+  
+    // Backtesting Simulation - Crucial for risk/reward profile
+    TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2, 3],
+    STOP_LOSS_ATR_MULTIPLIER: [1, 1.5, 2],
+  };
 
 
 async function runAndSaveOptimization() {
@@ -69,7 +69,7 @@ async function runAndSaveOptimization() {
 
   // 2. Run the optimization
   console.log("Running optimizeParameters function...");
-  const { bestParams, bestPerformance } = await optimizeParameters(chartData, parameterRanges);
+  const { bestParams, bestPerformance, bestTrades } = await optimizeParameters(chartData, parameterRanges);
   
   if (!bestParams || !bestPerformance) {
     console.error("Optimization failed to find best parameters.");
@@ -86,6 +86,7 @@ async function runAndSaveOptimization() {
     await setDoc(optimizationResultDoc, {
       bestParams,
       bestPerformance,
+      bestTrades, // Save the simulated trades as well
       timestamp: new Date(),
     });
     console.log("Successfully saved optimization results to Firestore.");
@@ -116,4 +117,3 @@ export async function GET() {
     );
   }
 }
-

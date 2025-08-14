@@ -265,10 +265,11 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     return trades;
 }
 
-export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { [key: string]: number[] }): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics }> {
+export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { [key: string]: number[] }): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics | null; bestTrades: TradeResult[] }> {
     console.log('Starting parameter optimization...');
     let bestPerformance: PerformanceMetrics | null = null;
     let bestParams: StrategyParams | null = null;
+    let bestTrades: TradeResult[] = [];
     let highestScore = -Infinity;
 
     const initialCapital = 10000;
@@ -305,15 +306,16 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
             highestScore = score;
             bestPerformance = performance;
             bestParams = fullParams;
+            bestTrades = trades;
             console.log(`New best performance found. Score: ${score.toFixed(2)}, Profit: ${performance.totalProfit.toFixed(2)}, Trades: ${performance.numberOfTrades}`);
         }
     }
     
     if (!bestPerformance) {
-        throw new Error("No valid performance metrics were generated. The backtest might not have produced any trades with the given parameters.");
+        console.warn("No valid performance metrics were generated. The backtest might not have produced any trades with the given parameters.");
     }
 
-    return { bestParams, bestPerformance };
+    return { bestParams, bestPerformance, bestTrades };
 }
 
 
@@ -385,5 +387,3 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         systemPerformance,
     };
 }
-
-    
