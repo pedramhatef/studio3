@@ -104,9 +104,7 @@ export async function GET() {
     
     // Evaluate latest candle
     const currentIndex = chartData.length - 1;
-    log(`chartData length: ${chartData.length}`);
-    log('Candles:', chartData.map(c => new Date(c.time).toISOString()));
-    log('atrArr:', atrArr);    const latest = chartData[currentIndex];
+    const latest = chartData[currentIndex];
     const prev = chartData[currentIndex - 1] ?? latest;
 
     log('Latest candle:', {
