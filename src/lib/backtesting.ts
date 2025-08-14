@@ -1,9 +1,8 @@
 
 import type { ChartDataPoint } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, query, where, orderBy, getDocs, limit } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
 import * as indicators from '@/lib/indicators';
-import { doc, setDoc } from 'firebase/firestore';
 
 export type StrategyParams = {
     // Core Trend-Following

@@ -25,7 +25,7 @@ const parameterRanges = {
   
   // Volatility Filter
   ATR_PERIOD: [10, 14],
-  ATR_VOLATILITY_THRESHOLD: [1.0, 1.2],
+  ATR_VOLATILITY_THRESHOLD: [0.8, 1.0, 1.2],
 
   // Backtesting Simulation - Crucial for risk/reward profile
   TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2.0, 3.0],
