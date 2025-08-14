@@ -29,7 +29,7 @@ const DEEP_RSI_OVERBOUGHT = 70;
 const BBANDS_DEEP_MULTIPLIER = 2.0;
 const BBANDS_PERIOD = 10;
 const BBANDS_STD_DEV = 1.5;
-const VOLUME_SPIKE_FACTOR = 1.2;
+const VOLUME_SPIKE_FACTOR = 1.5;  // Increased from 1.2
 const MIN_CANDLE_BODY = 0.0001;
 
 // System 3: Momentum Shift (Low Probability)
@@ -40,10 +40,10 @@ const MIN_VOL_CHANGE = 1.5;
 const ATR_PERIOD = 7;
 const MIN_ATR_THRESHOLD = 0.00015;
 const LOW_VOL_THRESHOLD = 0.0008;
-const AVG_ATR_MULTIPLIER = 1.2;
+const AVG_ATR_MULTIPLIER = 1.0;  // Reduced from 1.2
 
 // Filters
-const VOLUME_CONFIRMATION_FACTOR = 1.2;
+const VOLUME_CONFIRMATION_FACTOR = 1.0;  // Reduced from 1.2
 const PRICE_POSITION_FILTER = 0.20;
 const RSI_BUY_MAX = 60;
 const RSI_SELL_MIN = 40;
@@ -101,7 +101,6 @@ export async function GET() {
     const deepBB = indicators.calculateBollingerBands(closeSlice, BBANDS_PERIOD, BBANDS_STD_DEV * BBANDS_DEEP_MULTIPLIER);
     const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, ATR_PERIOD);
 
-    
     // Evaluate latest candle
     const currentIndex = chartData.length - 1;
     const latest = chartData[currentIndex];
@@ -160,10 +159,8 @@ export async function GET() {
 
     // Volatility filter
     const volFilterMin = (cache.atr as number) >= MIN_ATR_THRESHOLD || isLowVol;
-    const volFilterAvg = (cache.atr as number) >= avgAtr * AVG_ATR_MULTIPLIER || isLowVol;
     logCond(`Vol Filter: ATR >= ${MIN_ATR_THRESHOLD} or LowVol`, volFilterMin, `${Number(cache.atr).toFixed(6)}`);
-    logCond(`Vol Filter: ATR >= avgAtr * ${AVG_ATR_MULTIPLIER} or LowVol`, volFilterAvg, `${Number(cache.atr).toFixed(6)}`);
-    if (!volFilterMin || !volFilterAvg) {
+    if (!volFilterMin) {
       section('VOLATILITY FILTER');
       log(`✘ Market too flat`);
       return NextResponse.json({ message: 'Market too flat for signal generation.' });
@@ -182,147 +179,125 @@ export async function GET() {
     logCond('EMA Fast Crossed Slow Up', emaFastCrossedSlowUp);
     logCond('EMA Fast Crossed Slow Down', emaFastCrossedSlowDown);
 
-    // System 2: Momentum-Reversal
+    // Calculate trend strength
+    const trendStrength = Math.abs(
+      (cache.emaFast as number) - (cache.emaLong as number)
+    ) / (cache.atr as number);
+    const isStrongTrend = trendStrength > 1.5;
+    log('Trend Strength:', { trendStrength: trendStrength.toFixed(2), isStrongTrend });
+
+    // System 2: Momentum-Reversal (Simplified)
     section('System 2: Momentum-Reversal');
-    const deepBuyC1 = (cache.rsi as number) <= DEEP_RSI_THRESHOLD;
-    const deepBuyC2 = latest.low <= (cache.deepLowerBB as number);
-    const deepBuyC3 = (latest.close - latest.open) > MIN_CANDLE_BODY;
-    const deepBuyC4 = latest.volume > (prev.volume ?? 0) * VOLUME_SPIKE_FACTOR;
-    const deepBuyC5 = latest.close > (cache.pSar as number);
-    const deepBuyC6 = isDowntrend || isLowVol;
-    const deepBuyC7 = latest.close > (cache.emaFast as number);
-    logCond(`RSI <= ${DEEP_RSI_THRESHOLD}`, deepBuyC1, `${Number(cache.rsi).toFixed(2)}`);
-    logCond('Low <= DeepLowerBB', deepBuyC2, `${latest.low.toFixed(6)} vs ${(cache.deepLowerBB as number).toFixed(6)}`);
-    logCond('Bullish body > MIN_CANDLE_BODY', deepBuyC3, `${(latest.close - latest.open).toFixed(6)} > ${MIN_CANDLE_BODY}`);
-    logCond(`Volume > ${VOLUME_SPIKE_FACTOR}x prev`, deepBuyC4, `${latest.volume} vs ${prev.volume}`);
-    logCond('Close > PSAR', deepBuyC5, `${latest.close.toFixed(6)} vs ${(cache.pSar as number).toFixed(6)}`);
-    logCond('Downtrend or LowVol', deepBuyC6);
-    logCond('Close > EMA Fast', deepBuyC7, `${latest.close.toFixed(6)} > ${(cache.emaFast as number).toFixed(6)}`);
-    const deepBuyTrueCount = [deepBuyC1, deepBuyC2, deepBuyC3, deepBuyC4, deepBuyC5, deepBuyC6, deepBuyC7].filter(Boolean).length;
-    log(`Deep Buy Conditions Met: ${deepBuyTrueCount}/7`);
-    const deepSellC1 = (cache.rsi as number) >= DEEP_RSI_OVERBOUGHT;
-    const deepSellC2 = latest.high >= (cache.deepUpperBB as number);
-    const deepSellC3 = (latest.open - latest.close) > MIN_CANDLE_BODY;
-    const deepSellC4 = latest.volume > (prev.volume ?? 0) * VOLUME_SPIKE_FACTOR;
-    const deepSellC5 = latest.close < (cache.pSar as number);
-    const deepSellC6 = isUptrend || isLowVol;
-    const deepSellC7 = latest.close < (cache.emaFast as number);
-    logCond(`RSI >= ${DEEP_RSI_OVERBOUGHT}`, deepSellC1, `${Number(cache.rsi).toFixed(2)}`);
-    logCond('High >= DeepUpperBB', deepSellC2, `${latest.high.toFixed(6)} vs ${(cache.deepUpperBB as number).toFixed(6)}`);
-    logCond('Bearish body > MIN_CANDLE_BODY', deepSellC3, `${(latest.open - latest.close).toFixed(6)} > ${MIN_CANDLE_BODY}`);
-    logCond(`Volume > ${VOLUME_SPIKE_FACTOR}x prev`, deepSellC4, `${latest.volume} vs ${prev.volume}`);
-    logCond('Close < PSAR', deepSellC5, `${latest.close.toFixed(6)} < ${(cache.pSar as number).toFixed(6)}`);
-    logCond('Uptrend or LowVol', deepSellC6);
-    logCond('Close < EMA Fast', deepSellC7, `${latest.close.toFixed(6)} < ${(cache.emaFast as number).toFixed(6)}`);
-    const deepSellTrueCount = [deepSellC1, deepSellC2, deepSellC3, deepSellC4, deepSellC5, deepSellC6, deepSellC7].filter(Boolean).length;
-    log(`Deep Sell Conditions Met: ${deepSellTrueCount}/7`);
-    const modBuyC1 = (cache.prevRsi as number) < RSI_OVERSOLD_THRESHOLD;
-    const modBuyC2 = (cache.rsi as number) > RSI_OVERSOLD_THRESHOLD;
-    const modBuyC3 = latest.low <= (cache.lowerBB as number);
-    const modBuyC4 = latest.close > (cache.vwap as number);
-    const modBuyC5 = latest.close > (cache.lowerBB as number) * 1.001;
-    const modBuyC6 = isDowntrend || isLowVol;
-    const modBuyC7 = latest.close > (cache.emaFast as number);
-    logCond(`Prev RSI < ${RSI_OVERSOLD_THRESHOLD}`, modBuyC1, `${Number(cache.prevRsi).toFixed(2)}`);
-    logCond(`Curr RSI > ${RSI_OVERSOLD_THRESHOLD}`, modBuyC2, `${Number(cache.rsi).toFixed(2)}`);
-    logCond('Low <= LowerBB', modBuyC3, `${latest.low.toFixed(6)} <= ${(cache.lowerBB as number).toFixed(6)}`);
-    logCond('Close > VWAP', modBuyC4, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Close > LowerBB + 0.1%', modBuyC5, `${latest.close.toFixed(6)} > ${((cache.lowerBB as number) * 1.001).toFixed(6)}`);
-    logCond('Downtrend or LowVol', modBuyC6);
-    logCond('Close > EMA Fast', modBuyC7, `${latest.close.toFixed(6)} > ${(cache.emaFast as number).toFixed(6)}`);
-    const modBuyTrueCount = [modBuyC1, modBuyC2, modBuyC3, modBuyC4, modBuyC5, modBuyC6, modBuyC7].filter(Boolean).length;
-    log(`Mod Buy Conditions Met: ${modBuyTrueCount}/7`);
-    const revSellC1 = (cache.prevRsi as number) > RSI_OVERBOUGHT_THRESHOLD;
-    const revSellC2 = (cache.rsi as number) < RSI_OVERBOUGHT_THRESHOLD;
-    const revSellC3 = latest.high >= (cache.upperBB as number);
-    const revSellC4 = latest.close < (cache.vwap as number);
-    const revSellC5 = latest.close < (cache.upperBB as number) * 0.999;
-    const revSellC6 = isUptrend || isLowVol;
-    logCond('Prev RSI > Overbought', revSellC1, `${Number(cache.prevRsi).toFixed(2)} > ${RSI_OVERBOUGHT_THRESHOLD}`);
-    logCond('Curr RSI < Overbought', revSellC2, `${Number(cache.rsi).toFixed(2)} < ${RSI_OVERBOUGHT_THRESHOLD}`);
-    logCond('High >= UpperBB', revSellC3, `${latest.high.toFixed(6)} >= ${(cache.upperBB as number).toFixed(6)}`);
-    logCond('Close < VWAP', revSellC4, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Close < UpperBB - 0.1%', revSellC5, `${latest.close.toFixed(6)} < ${((cache.upperBB as number) * 0.999).toFixed(6)}`);
-    logCond('Uptrend or LowVol', revSellC6);
-    const revSellTrueCount = [revSellC1, revSellC2, revSellC3, revSellC4, revSellC5, revSellC6].filter(Boolean).length;
-    log(`Mod Sell Conditions Met: ${revSellTrueCount}/6`);
+    
+    // Deep Oversold Reversal (BUY)
+    const deepBuyConditions = [
+      (cache.rsi as number) <= DEEP_RSI_THRESHOLD,
+      latest.low <= (cache.deepLowerBB as number),
+      (latest.close - latest.open) > MIN_CANDLE_BODY,
+      latest.volume > volumeAvg * VOLUME_SPIKE_FACTOR,
+      latest.close > (cache.pSar as number)
+    ];
+    deepBuyConditions.forEach((cond, i) => logCond(`Deep Buy Condition ${i+1}`, cond));
+    const deepBuyTrueCount = deepBuyConditions.filter(Boolean).length;
+    log(`Deep Buy Conditions Met: ${deepBuyTrueCount}/${deepBuyConditions.length}`);
+    
+    // Deep Overbought Reversal (SELL)
+    const deepSellConditions = [
+      (cache.rsi as number) >= DEEP_RSI_OVERBOUGHT,
+      latest.high >= (cache.deepUpperBB as number),
+      (latest.open - latest.close) > MIN_CANDLE_BODY,
+      latest.volume > volumeAvg * VOLUME_SPIKE_FACTOR,
+      latest.close < (cache.pSar as number)
+    ];
+    deepSellConditions.forEach((cond, i) => logCond(`Deep Sell Condition ${i+1}`, cond));
+    const deepSellTrueCount = deepSellConditions.filter(Boolean).length;
+    log(`Deep Sell Conditions Met: ${deepSellTrueCount}/${deepSellConditions.length}`);
+
+    // Moderate Reversal (BUY)
+    const modBuyConditions = [
+      (cache.prevRsi as number) < RSI_OVERSOLD_THRESHOLD,
+      (cache.rsi as number) > RSI_OVERSOLD_THRESHOLD,
+      latest.low <= (cache.lowerBB as number),
+      latest.close > (cache.vwap as number),
+      isDowntrend
+    ];
+    modBuyConditions.forEach((cond, i) => logCond(`Mod Buy Condition ${i+1}`, cond));
+    const modBuyTrueCount = modBuyConditions.filter(Boolean).length;
+    log(`Mod Buy Conditions Met: ${modBuyTrueCount}/${modBuyConditions.length}`);
+    
+    // Moderate Reversal (SELL)
+    const modSellConditions = [
+      (cache.prevRsi as number) > RSI_OVERBOUGHT_THRESHOLD,
+      (cache.rsi as number) < RSI_OVERBOUGHT_THRESHOLD,
+      latest.high >= (cache.upperBB as number),
+      latest.close < (cache.vwap as number),
+      isUptrend
+    ];
+    modSellConditions.forEach((cond, i) => logCond(`Mod Sell Condition ${i+1}`, cond));
+    const modSellTrueCount = modSellConditions.filter(Boolean).length;
+    log(`Mod Sell Conditions Met: ${modSellTrueCount}/${modSellConditions.length}`);
 
     // System 1: Core Trend-Following
     section('System 1: Core Trend-Following');
-    const volumeOK = latest.volume > volumeAvg * VOLUME_CONFIRMATION_FACTOR;
-    const volumeOK1 = latest.volume > volumeAvg * 1.0;
-    const bbWidth = (cache.upperBB as number) - (cache.lowerBB as number);
-    const pricePos = (latest.close - (cache.lowerBB as number)) / bbWidth;
-    const priceInMiddle = pricePos > PRICE_POSITION_FILTER && pricePos < (1 - PRICE_POSITION_FILTER);
     const psarBuffer = (cache.atr as number) * PSAR_BUFFER_FACTOR;
-    logCond(`Volume > ${VOLUME_CONFIRMATION_FACTOR*100}% of avg`, volumeOK, `${latest.volume} vs ${volumeAvg.toFixed(0)}`);
-    logCond('Price in middle BB range', priceInMiddle, `pos ${(pricePos*100).toFixed(1)}%`);
-    logCond('PSAR Buffer', true, `${psarBuffer.toFixed(6)} (${(PSAR_BUFFER_FACTOR*100).toFixed(0)}% ATR)`);
-    logCond(`Volume > 1.0x avg`, volumeOK1, `${latest.volume} vs ${volumeAvg.toFixed(0)}`);
-    let coreBuyC1: boolean;
-    if (isLowVol) {
-      coreBuyC1 = (cache.emaFast as number) > (cache.emaSlow as number) && emaFastCrossedSlowUp;
-      logCond('LowVol: EMA(5) > EMA(10) + Crossover', coreBuyC1, `${(cache.emaFast as number).toFixed(6)} > ${(cache.emaSlow as number).toFixed(6)}`);
-    } else {
-      coreBuyC1 = (cache.emaFast as number) > (cache.emaSlow as number) && (cache.emaSlow as number) > (cache.emaMedium as number) && emaFastCrossedSlowUp;
-      logCond('EMA(5) > EMA(10) > EMA(15) + Crossover', coreBuyC1, `${(cache.emaFast as number).toFixed(6)} > ${(cache.emaSlow as number).toFixed(6)} > ${(cache.emaMedium as number).toFixed(6)}`);
-    }
-    const coreBuyC2 = latest.close > (cache.vwap as number);
-    const coreBuyC3 = latest.close > ((cache.pSar as number) + psarBuffer);
-    const coreBuyC4 = (cache.rsi as number) < RSI_BUY_MAX;
-    const coreBuyC5 = isUptrend;
-    logCond('Close > VWAP', coreBuyC2, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Close > PSAR + buffer', coreBuyC3, `${latest.close.toFixed(6)} > ${((cache.pSar as number)+psarBuffer).toFixed(6)}`);
-    logCond(`RSI < ${RSI_BUY_MAX}`, coreBuyC4, `${(cache.rsi as number).toFixed(2)}`);
-    logCond('Uptrend (price > EMA30)', coreBuyC5);
-    let coreSellC1: boolean;
-    if (isLowVol) {
-      coreSellC1 = (cache.emaFast as number) < (cache.emaSlow as number) && emaFastCrossedSlowDown;
-      logCond('LowVol: EMA(5) < EMA(10) + Crossover', coreSellC1, `${(cache.emaFast as number).toFixed(6)} < ${(cache.emaSlow as number).toFixed(6)}`);
-    } else {
-      coreSellC1 = (cache.emaFast as number) < (cache.emaSlow as number) && (cache.emaSlow as number) < (cache.emaMedium as number) && emaFastCrossedSlowDown;
-      logCond('EMA(5) < EMA(10) < EMA(15) + Crossover', coreSellC1, `${(cache.emaFast as number).toFixed(6)} < ${(cache.emaSlow as number).toFixed(6)} < ${(cache.emaMedium as number).toFixed(6)}`);
-    }
-    const coreSellC2 = latest.close < (cache.vwap as number);
-    const coreSellC3 = latest.close < ((cache.pSar as number) - psarBuffer);
-    const coreSellC4 = (cache.rsi as number) > RSI_SELL_MIN;
-    const coreSellC5 = isDowntrend;
-    logCond('Close < VWAP', coreSellC2, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Close < PSAR - buffer', coreSellC3, `${latest.close.toFixed(6)} < ${((cache.pSar as number)-psarBuffer).toFixed(6)}`);
-    logCond(`RSI > ${RSI_SELL_MIN}`, coreSellC4, `${(cache.rsi as number).toFixed(2)}`);
-    logCond('Downtrend (price < EMA30)', coreSellC5);
+    log('PSAR Buffer:', `${psarBuffer.toFixed(6)} (${(PSAR_BUFFER_FACTOR*100).toFixed(0)}% ATR)`);
+    
+    // Core Trend BUY
+    const coreBuyConditions = [
+      (cache.emaFast as number) > (cache.emaSlow as number),
+      emaFastCrossedSlowUp,
+      latest.close > (cache.pSar as number) + psarBuffer,
+      isUptrend,
+      (cache.rsi as number) < RSI_BUY_MAX
+    ];
+    coreBuyConditions.forEach((cond, i) => logCond(`Core Buy Condition ${i+1}`, cond));
+    const coreBuyTrue = coreBuyConditions.filter(Boolean).length >= 4;
+    
+    // Core Trend SELL
+    const coreSellConditions = [
+      (cache.emaFast as number) < (cache.emaSlow as number),
+      emaFastCrossedSlowDown,
+      latest.close < (cache.pSar as number) - psarBuffer,
+      isDowntrend,
+      (cache.rsi as number) > RSI_SELL_MIN
+    ];
+    coreSellConditions.forEach((cond, i) => logCond(`Core Sell Condition ${i+1}`, cond));
+    const coreSellTrue = coreSellConditions.filter(Boolean).length >= 4;
 
     // System 3: Momentum Shift
     section('System 3: Momentum Shift');
     const volUp = latest.volume > (prev.volume ?? 0) * MIN_VOL_CHANGE;
-    const shiftBuyC1 = (cache.prevRsi as number) < RSI_CENTERLINE;
-    const shiftBuyC2 = (cache.rsi as number) > RSI_CENTERLINE;
-    const shiftBuyC3 = volUp;
-    const shiftBuyC4 = latest.close > (cache.vwap as number);
-    const shiftBuyC5 = isUptrend;
-    logCond('Prev RSI < 50', shiftBuyC1, `${Number(cache.prevRsi).toFixed(2)}`);
-    logCond('Curr RSI > 50', shiftBuyC2, `${Number(cache.rsi).toFixed(2)}`);
-    logCond(`Volume > ${MIN_VOL_CHANGE}x prev`, shiftBuyC3, `${latest.volume} vs ${prev.volume}`);
-    logCond('Close > VWAP', shiftBuyC4, `${latest.close.toFixed(6)} > ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Uptrend', shiftBuyC5);
-    const shiftSellC1 = (cache.prevRsi as number) > RSI_CENTERLINE;
-    const shiftSellC2 = (cache.rsi as number) < RSI_CENTERLINE;
-    const shiftSellC3 = volUp;
-    const shiftSellC4 = latest.close < (cache.vwap as number);
-    const shiftSellC5 = isDowntrend;
-    logCond('Prev RSI > 50', shiftSellC1, `${Number(cache.prevRsi).toFixed(2)}`);
-    logCond('Curr RSI < 50', shiftSellC2, `${Number(cache.rsi).toFixed(2)}`);
-    logCond(`Volume > ${MIN_VOL_CHANGE}x prev`, shiftSellC3, `${latest.volume} vs ${prev.volume}`);
-    logCond('Close < VWAP', shiftSellC4, `${latest.close.toFixed(6)} < ${(cache.vwap as number).toFixed(6)}`);
-    logCond('Downtrend', shiftSellC5);
+    
+    // Momentum Shift BUY
+    const shiftBuyConditions = [
+      (cache.prevRsi as number) < RSI_CENTERLINE,
+      (cache.rsi as number) > RSI_CENTERLINE,
+      volUp,
+      latest.close > (cache.vwap as number),
+      isUptrend
+    ];
+    shiftBuyConditions.forEach((cond, i) => logCond(`Shift Buy Condition ${i+1}`, cond));
+    const shiftBuyTrue = shiftBuyConditions.filter(Boolean).length >= 4;
+    
+    // Momentum Shift SELL
+    const shiftSellConditions = [
+      (cache.prevRsi as number) > RSI_CENTERLINE,
+      (cache.rsi as number) < RSI_CENTERLINE,
+      volUp,
+      latest.close < (cache.vwap as number),
+      isDowntrend
+    ];
+    shiftSellConditions.forEach((cond, i) => logCond(`Shift Sell Condition ${i+1}`, cond));
+    const shiftSellTrue = shiftSellConditions.filter(Boolean).length >= 4;
 
     // BB Width Filter
     section('BB Width Filter');
-    const atrThreshold = (cache.atr as number) * 1.2;
-    const bbWidthOK = bbWidth >= atrThreshold;
-    logCond(`BB Width >= ATR * 1.2`, bbWidthOK, `${bbWidth.toFixed(6)} >= ${atrThreshold.toFixed(6)}`);
+    const bbWidth = (cache.upperBB as number) - (cache.lowerBB as number);
+    const atrThreshold = (cache.atr as number);
+    const bbWidthOK = bbWidth >= atrThreshold * 0.8;  // Reduced threshold
+    logCond(`BB Width >= ATR * 0.8`, bbWidthOK, `${bbWidth.toFixed(6)} >= ${(atrThreshold * 0.8).toFixed(6)}`);
     if (!bbWidthOK) {
-      log(`✘ BB Width too tight: ${bbWidth.toFixed(6)} < ${atrThreshold.toFixed(6)}`);
+      log(`✘ BB Width too tight: ${bbWidth.toFixed(6)} < ${(atrThreshold * 0.8).toFixed(6)}`);
       return NextResponse.json({ message: 'BB Width too tight for signal generation.' });
     }
 
@@ -330,41 +305,39 @@ export async function GET() {
     type Cand = Omit<EnhancedSignal, 'displayTime' | 'serverTime'>;
     const candidates: Cand[] = [];
 
-    if (deepBuyTrueCount >= 4) {
+    // Add candidates with priority weighting
+    if (deepBuyTrueCount >= 3) {  // Reduced threshold
       log('→ Candidate: HIGH BUY (Deep Oversold Reversal)');
       candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
     }
-    if (deepSellTrueCount >= 4) {
+    if (deepSellTrueCount >= 3) {  // Reduced threshold
       log('→ Candidate: HIGH SELL (Deep Overbought Reversal)');
       candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time });
     }
-    if (modBuyTrueCount >= 4) {
+    if (modBuyTrueCount >= 3) {  // Reduced threshold
       log('→ Candidate: MEDIUM BUY (Moderate Reversal)');
       candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time });
     }
-    if (revSellTrueCount >= 4) {
+    if (modSellTrueCount >= 3) {  // Reduced threshold
       log('→ Candidate: MEDIUM SELL (Moderate Reversal)');
       candidates.push({ type: 'SELL', level: 'Medium', price: latest.close, time: latest.time });
     }
-    if (coreBuyC1 && coreBuyC2 && coreBuyC3 && coreBuyC4 && coreBuyC5 && volumeOK && volumeOK1) {
+    if (coreBuyTrue) {
       log('→ Candidate: HIGH BUY (Core Trend-Following)');
       candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
     }
-    if (coreSellC1 && coreSellC2 && coreSellC3 && coreSellC4 && coreSellC5 && volumeOK && volumeOK1) {
+    if (coreSellTrue) {
       log('→ Candidate: HIGH SELL (Core Trend-Following)');
       candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time });
     }
-    if (shiftBuyC1 && shiftBuyC2 && shiftBuyC3 && shiftBuyC4 && shiftBuyC5) {
+    if (shiftBuyTrue) {
       log('→ Candidate: LOW BUY (RSI Centerline Cross)');
       candidates.push({ type: 'BUY', level: 'Low', price: latest.close, time: latest.time });
     }
-    if (shiftSellC1 && shiftSellC2 && shiftSellC3 && shiftSellC4 && shiftSellC5) {
+    if (shiftSellTrue) {
       log('→ Candidate: LOW SELL (RSI Centerline Cross)');
       candidates.push({ type: 'SELL', level: 'Low', price: latest.close, time: latest.time });
     }
-
-    // Log filter rejections
-    log(`Volatility filter rejections: ${volFilterMin && volFilterAvg ? 0 : 1}`);
 
     // Selection & Post filters
     section('Selection');
@@ -373,21 +346,37 @@ export async function GET() {
       return NextResponse.json({ message: 'No signal generated.' });
     }
 
+    // Prioritize signals based on level and trend strength
     const priority = { High: 3, Medium: 2, Low: 1 } as const;
-    candidates.sort((a, b) => priority[b.level as keyof typeof priority] - priority[a.level as keyof typeof priority]);
+    candidates.sort((a, b) => {
+      const priorityDiff = priority[b.level as keyof typeof priority] - priority[a.level as keyof typeof priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      
+      // For same priority level, prefer signals with stronger trend
+      return (b.type === 'BUY' ? trendStrength : -trendStrength) - (a.type === 'BUY' ? trendStrength : -trendStrength);
+    });
+    
     log('Candidates sorted (best first):', candidates);
     let newSignal = candidates[0];
     log('Selected:', newSignal);
 
     // Price Action Confirmation
     section('Price Action Confirmation');
+    const priceConfirmationThreshold = isStrongTrend ? 0.0002 : 0.0005; // Dynamic threshold
+    
     if (newSignal.type === 'BUY') {
-      const ok = latest.close > prev.close * 1.0001;
-      logCond('BUY must exceed prev close + 0.01%', ok, `${latest.close.toFixed(6)} > ${(prev.close * 1.0001).toFixed(6)}`);
+      const ok = latest.close > prev.close * (1 + priceConfirmationThreshold);
+      logCond(`BUY must exceed prev close + ${(priceConfirmationThreshold * 100).toFixed(2)}%`, 
+        ok, 
+        `${latest.close.toFixed(6)} > ${(prev.close * (1 + priceConfirmationThreshold)).toFixed(6)}`
+      );
       if (!ok) return NextResponse.json({ message: 'Signal unconfirmed by price action (BUY).' });
     } else {
-      const ok = latest.close < prev.close * 0.9999;
-      logCond('SELL must break prev close - 0.01%', ok, `${latest.close.toFixed(6)} < ${(prev.close * 0.9999).toFixed(6)}`);
+      const ok = latest.close < prev.close * (1 - priceConfirmationThreshold);
+      logCond(`SELL must break prev close - ${(priceConfirmationThreshold * 100).toFixed(2)}%`, 
+        ok, 
+        `${latest.close.toFixed(6)} < ${(prev.close * (1 - priceConfirmationThreshold)).toFixed(6)}`
+      );
       if (!ok) return NextResponse.json({ message: 'Signal unconfirmed by price action (SELL).' });
     }
 
@@ -402,12 +391,14 @@ export async function GET() {
       const atrAvgOk = (cache.atr as number) > avgAtr;
       log('Last signal:', lastSignal);
       log('New vs Last:', { priceBps: priceBps.toFixed(2), timeDeltaMin: timeDeltaMin.toFixed(2), isOpposite, atrAvgOk });
-      if (lastSignal.type === newSignal.type && lastSignal.level === newSignal.level && priceBps < 1 && timeDeltaMin < 3) {
-        log('✘ Duplicate skipped (same direction+level, <1 bps diff, <3 min).');
+      
+      if (lastSignal.type === newSignal.type && priceBps < 1.5 && timeDeltaMin < 5) {
+        log('✘ Duplicate skipped (same direction, <1.5 bps diff, <5 min).');
         return NextResponse.json({ message: 'Duplicate signal skipped.' });
       }
-      if (isOpposite && timeDeltaMin < 10 && !atrAvgOk) {
-        log('✘ Opposite signal skipped (within 10 min, ATR not above avg).');
+      
+      if (isOpposite && timeDeltaMin < 5 && !atrAvgOk) {
+        log('✘ Opposite signal skipped (within 5 min, ATR not above avg).');
         return NextResponse.json({ message: 'Opposite signal skipped due to low volatility.' });
       }
     } else {
@@ -415,7 +406,10 @@ export async function GET() {
     }
 
     // Save Signal
-    const suggestedLeverage = Math.min(20, 1 / ((cache.atr as number) / latest.close * 100));
+    const suggestedLeverage = Math.min(
+      20, 
+      Math.round(5 / ((cache.atr as number) / latest.close))
+    );
     const stopBuffer = (cache.atr as number) * 1.5;
     const enhancedSignal: EnhancedSignal = { ...newSignal, suggestedLeverage, stopBuffer };
     section('Save Signal');
