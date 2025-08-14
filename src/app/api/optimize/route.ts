@@ -46,7 +46,7 @@ const parameterRanges = {
   RSI_SELL_MIN: [40],
   PSAR_BUFFER_FACTOR: [0.2],
 
-  // New backtesting parameters
+  // New backtesting parameters for simulation
   TAKE_PROFIT_ATR_MULTIPLIER: [2, 3],
   STOP_LOSS_ATR_MULTIPLIER: [1.5, 2],
 };

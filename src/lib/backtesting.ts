@@ -34,7 +34,6 @@ export type StrategyParams = {
     RSI_BUY_MAX: number;
     RSI_SELL_MIN: number;
     PSAR_BUFFER_FACTOR: number;
-    // New parameters for improved backtesting
     TAKE_PROFIT_ATR_MULTIPLIER: number;
     STOP_LOSS_ATR_MULTIPLIER: number;
 };
@@ -125,7 +124,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     const deepBB = indicators.calculateBollingerBands(closeSlice, params.BBANDS_PERIOD, params.BBANDS_STD_DEV * params.BBANDS_DEEP_MULTIPLIER);
     const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, params.ATR_PERIOD);
 
-    for (let i = requiredPeriods - 1; i < data.length; i++) {
+    for (let i = requiredPeriods; i < data.length; i++) {
         const currentCandle = data[i];
 
         const cache = {
@@ -147,9 +146,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
             continue;
         }
-
-        let system: TradeResult['system'] | null = null;
-        let signalType: 'BUY' | 'SELL' | null = null;
         
         const isUptrend = currentCandle.close > (cache.emaLong as number);
         const isDowntrend = currentCandle.close < (cache.emaLong as number);
@@ -158,31 +154,27 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
         const emaFastCrossedSlowUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
         const emaFastCrossedSlowDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-
+        
         const psarBuffer = (cache.atr as number) * params.PSAR_BUFFER_FACTOR;
-        const coreBuyTrue = ((cache.emaFast as number) > (cache.emaSlow as number)) && emaFastCrossedSlowUp && (currentCandle.close > (cache.pSar as number) + psarBuffer) && isUptrend && ((cache.rsi as number) < params.RSI_BUY_MAX);
-        const coreSellTrue = ((cache.emaFast as number) < (cache.emaSlow as number)) && emaFastCrossedSlowDown && (currentCandle.close < (cache.pSar as number) - psarBuffer) && isDowntrend && ((cache.rsi as number) > params.RSI_SELL_MIN);
-
-        if (coreBuyTrue) {
+        const coreBuySignal = emaFastCrossedSlowUp && (cache.emaFast as number) > (cache.emaSlow as number) && currentCandle.close > (cache.pSar as number) + psarBuffer;
+        const coreSellSignal = emaFastCrossedSlowDown && (cache.emaFast as number) < (cache.emaSlow as number) && currentCandle.close < (cache.pSar as number) - psarBuffer;
+        
+        let signalType: 'BUY' | 'SELL' | null = null;
+        let system: TradeResult['system'] | null = null;
+        
+        if (coreBuySignal) {
             signalType = 'BUY';
             system = 'Core Trend-Following';
-        } else if (coreSellTrue) {
+        } else if (coreSellSignal) {
             signalType = 'SELL';
             system = 'Core Trend-Following';
         }
+
 
         if (inTrade) {
             let exitPrice: number | null = null;
             let exitReason: TradeResult['exitReason'] | null = null;
 
-            // Trailing Stop Loss Logic
-            if (inTrade.type === 'BUY') {
-                inTrade.stopLossPrice = Math.max(inTrade.stopLossPrice, currentCandle.close - (cache.atr as number) * params.STOP_LOSS_ATR_MULTIPLIER);
-            } else { // SELL
-                inTrade.stopLossPrice = Math.min(inTrade.stopLossPrice, currentCandle.close + (cache.atr as number) * params.STOP_LOSS_ATR_MULTIPLIER);
-            }
-
-            // Check for exit conditions
             if (inTrade.type === 'BUY') {
                 if (currentCandle.low <= inTrade.stopLossPrice) {
                     exitPrice = inTrade.stopLossPrice;
@@ -234,13 +226,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
 
         if (!inTrade && signalType && system) {
             const atrValue = cache.atr as number;
-            const takeProfitPrice = signalType === 'BUY' 
-                ? currentCandle.close + atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER
-                : currentCandle.close - atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER;
-            const stopLossPrice = signalType === 'BUY' 
-                ? currentCandle.close - atrValue * params.STOP_LOSS_ATR_MULTIPLIER
-                : currentCandle.close + atrValue * params.STOP_LOSS_ATR_MULTIPLIER;
-            
             inTrade = {
                 entryPrice: currentCandle.close,
                 entryTime: currentCandle.time,
@@ -248,8 +233,8 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 entryCandleIndex: i,
                 initialCapital: capital,
                 system: system,
-                stopLossPrice: stopLossPrice,
-                takeProfitPrice: takeProfitPrice
+                stopLossPrice: signalType === 'BUY' ? currentCandle.close - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : currentCandle.close + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
+                takeProfitPrice: signalType === 'BUY' ? currentCandle.close + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : currentCandle.close - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
             };
         }
     }
@@ -280,42 +265,40 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     return trades;
 }
 
-// A simpler, iterative approach for parameter optimization
 export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { [key: string]: number[] }): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics }> {
-    console.log('Starting parameter optimization with iterative approach.');
+    console.log('Starting parameter optimization...');
     let bestPerformance: PerformanceMetrics | null = null;
     let bestParams: StrategyParams | null = null;
     let highestScore = -Infinity;
 
     const initialCapital = 10000;
     
-    // This is a simplified grid search. For a large number of parameters, this can be very slow.
-    // We are deliberately keeping the number of options in route.ts low.
     const keys = Object.keys(paramRanges);
     const combinations: any[] = [];
-    const buildCombinations = (index: number, current: any) => {
+    
+    const generateCombinations = (index: number, currentCombination: any) => {
         if (index === keys.length) {
-            combinations.push(current);
+            combinations.push(currentCombination);
             return;
         }
         const key = keys[index];
         const values = paramRanges[key as keyof typeof paramRanges];
         for (const value of values) {
-            buildCombinations(index + 1, { ...current, [key]: value });
+            generateCombinations(index + 1, { ...currentCombination, [key]: value });
         }
     };
-    buildCombinations(0, {});
+    
+    generateCombinations(0, {});
     
     console.log(`Generated ${combinations.length} parameter combinations to test.`);
 
-    for (const params of combinations) {
-        const fullParams = { ...params, initialCapital } as StrategyParams;
+    for (const currentParams of combinations) {
+        const fullParams = { ...currentParams, initialCapital } as StrategyParams;
         const trades = runBacktest(data, fullParams, initialCapital);
         if (trades.length === 0) continue;
 
         const performance = calculatePerformanceMetrics(trades, initialCapital);
 
-        // Scoring: Higher profit and more trades is better. Penalize low trade count.
         const score = performance.totalProfit * Math.log(performance.numberOfTrades + 1);
 
         if (score > highestScore) {
@@ -325,7 +308,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
             console.log(`New best performance found. Score: ${score.toFixed(2)}, Profit: ${performance.totalProfit.toFixed(2)}, Trades: ${performance.numberOfTrades}`);
         }
     }
-
+    
     if (!bestPerformance) {
         throw new Error("No valid performance metrics were generated. The backtest might not have produced any trades with the given parameters.");
     }
