@@ -158,10 +158,7 @@ export async function GET() {
     const avgAtr = recentAtrSlice.length > 0 ? recentAtrSlice.reduce((s,v) => s + v, 0) / recentAtrSlice.length : 0;
     const isVolatileEnough = (cache.atr as number) > (avgAtr * strategyConfig.ATR_VOLATILITY_THRESHOLD);
     logCond(`ATR > Avg ATR * ${strategyConfig.ATR_VOLATILITY_THRESHOLD}`, isVolatileEnough, `ATR: ${cache.atr?.toFixed(6)}, Avg ATR: ${avgAtr.toFixed(6)}`);
-    if (!isVolatileEnough) {
-        log('Market not volatile enough. No signal.');
-        return NextResponse.json({ message: 'Market not volatile enough.' });
-    }
+
 
     // 5) Entry Conditions
     section('Entry Signal Logic');
@@ -238,6 +235,17 @@ export async function GET() {
             }
        }
     }
+    
+    // Check if volatility filter should block the signal
+    if (signal && !isVolatileEnough) {
+        // Allow pullback signals even in lower volatility
+        if (signal.level !== 'Medium') {
+            log('Market not volatile enough for non-pullback signal. No signal.');
+            return NextResponse.json({ message: 'Market not volatile enough for non-pullback signal.' });
+        }
+        log('Volatility filter bypassed for Medium confidence pullback signal.');
+    }
+
 
     if (!signal) {
         log('No signal generated based on entry conditions.');
