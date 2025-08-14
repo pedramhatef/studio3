@@ -52,7 +52,7 @@ const parameterRanges = {
 };
 
 async function runAndSaveOptimization() {
-  console.log("Starting optimization process...");
+  console.log("=== STRATEGY OPTIMIZATION CRON (BACKTESTING) STARTING ===");
 
   // 1. Load data
   const chartData: ChartDataPoint[] = await getChartData();

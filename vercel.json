@@ -4,6 +4,10 @@
     {
       "path": "/api/cron",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/optimize",
+      "schedule": "0 * * * *"
     }
   ]
 }
