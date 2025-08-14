@@ -9,25 +9,27 @@ import { db } from '@/lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
 // Define the parameter ranges for optimization
+// NOTE: Keep the number of combinations low to avoid Vercel timeouts on the hobby plan.
+// Total combinations = 3 * 2 * 1 * ...
 const parameterRanges = {
   // Core Trend-Following
   EMA_FAST_PERIOD: [5, 7, 10],
-  EMA_SLOW_PERIOD: [15, 20, 25],
-  EMA_MEDIUM_PERIOD: [12, 15, 18],
-  EMA_LONG_PERIOD: [30, 40, 50],
-  PARABOLIC_SAR_STEP: [0.01, 0.02],
-  PARABOLIC_SAR_MAX: [0.1, 0.2],
+  EMA_SLOW_PERIOD: [20, 25],
+  EMA_MEDIUM_PERIOD: [15],
+  EMA_LONG_PERIOD: [40],
+  PARABOLIC_SAR_STEP: [0.02],
+  PARABOLIC_SAR_MAX: [0.2],
 
   // Momentum-Reversal
-  RSI_PERIOD: [7, 9, 14],
+  RSI_PERIOD: [9, 14],
   RSI_OVERSOLD_THRESHOLD: [30, 35],
   RSI_OVERBOUGHT_THRESHOLD: [65, 70],
-  DEEP_RSI_THRESHOLD: [25, 30],
-  DEEP_RSI_OVERBOUGHT: [70, 75],
-  BBANDS_PERIOD: [10, 14, 20],
-  BBANDS_STD_DEV: [1.5, 2.0],
-  BBANDS_DEEP_MULTIPLIER: [2.0, 2.5],
-  VOLUME_SPIKE_FACTOR: [1.5, 2.0],
+  DEEP_RSI_THRESHOLD: [25],
+  DEEP_RSI_OVERBOUGHT: [75],
+  BBANDS_PERIOD: [14],
+  BBANDS_STD_DEV: [1.5],
+  BBANDS_DEEP_MULTIPLIER: [2.0],
+  VOLUME_SPIKE_FACTOR: [1.5],
   MIN_CANDLE_BODY: [0.0001],
 
   // Momentum Shift
@@ -35,14 +37,14 @@ const parameterRanges = {
   MIN_VOL_CHANGE: [1.5],
 
   // Volatility & Filters
-  ATR_PERIOD: [7, 10, 14],
+  ATR_PERIOD: [10],
   MIN_ATR_THRESHOLD: [0.00015],
   LOW_VOL_THRESHOLD: [0.0008],
   AVG_ATR_MULTIPLIER: [1.0],
   VOLUME_CONFIRMATION_FACTOR: [1.0],
   PRICE_POSITION_FILTER: [0.20],
-  RSI_BUY_MAX: [60, 65],
-  RSI_SELL_MIN: [35, 40],
+  RSI_BUY_MAX: [60],
+  RSI_SELL_MIN: [40],
   PSAR_BUFFER_FACTOR: [0.2],
 };
 
@@ -99,6 +101,14 @@ async function runAndSaveOptimization() {
 }
 
 export async function GET() {
+  // Increase the max duration for this function on Vercel
+  // This is a Vercel-specific feature
+  // Note: this is only available on paid plans. It will have no effect on the Hobby plan.
+  // The hobby plan has a hard limit of 10-15s.
+  // We keep the logic here for when you upgrade.
+  // See: https://vercel.com/docs/functions/serverless-functions/runtimes#max-duration
+  // export const maxDuration = 300; // 5 minutes
+
   try {
     const result = await runAndSaveOptimization();
     return NextResponse.json(result);
