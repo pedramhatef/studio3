@@ -118,9 +118,14 @@ export async function GET() {
       volume: latest.volume
     });
 
-    const getValueAt = (arr: (number | null)[], idx: number) => arr[idx] ?? null;
-    const getPrevValueAt = (arr: (number | null)[], idx: number) => arr[idx - 1] ?? null;
-    
+    const getValueAt = (arr: (number | null)[], idx: number) => {
+      if (idx < 0 || idx >= arr.length) return null;
+      return arr[idx] ?? arr.slice(0, idx + 1).reverse().find(v => v !== null) ?? null;
+    };
+    const getPrevValueAt = (arr: (number | null)[], idx: number) => {
+      if (idx <= 0 || idx >= arr.length) return null;
+      return arr[idx - 1] ?? arr.slice(0, idx).reverse().find(v => v !== null) ?? null;
+    };    
     const cache = {
       emaFast: getValueAt(emaFastArr, currentIndex),
       emaSlow: getValueAt(emaSlowArr, currentIndex),
