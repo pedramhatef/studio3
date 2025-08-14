@@ -1,7 +1,11 @@
+
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore } from '@/app/actions';
 import type { Signal } from '@/lib/types';
-import * as indicators from '@/lib/indicators';
+import { db } from '@/lib/firebase';
+import * as indicators from '@/lib/indicators'; 
+import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+
 
 // Extend Signal type to include new fields
 interface EnhancedSignal extends Signal {
@@ -13,45 +17,56 @@ interface EnhancedSignal extends Signal {
 const DEBUG = true;
 
 // System 1: Core Trend-Following (High Probability)
-const EMA_FAST_PERIOD = 5;
-const EMA_SLOW_PERIOD = 10;
-const EMA_MEDIUM_PERIOD = 15;
-const EMA_LONG_PERIOD = 30;
-const PARABOLIC_SAR_STEP = 0.02;
-const PARABOLIC_SAR_MAX = 0.2;
+let EMA_FAST_PERIOD = 5;
+let EMA_SLOW_PERIOD = 10;
+let EMA_MEDIUM_PERIOD = 15;
+let EMA_LONG_PERIOD = 30;
+let PARABOLIC_SAR_STEP = 0.02;
+let PARABOLIC_SAR_MAX = 0.2;
 
 // System 2: Momentum-Reversal (Medium Probability)
-const RSI_PERIOD = 7;
-const RSI_OVERSOLD_THRESHOLD = 35;
-const RSI_OVERBOUGHT_THRESHOLD = 65;
-const DEEP_RSI_THRESHOLD = 30;
-const DEEP_RSI_OVERBOUGHT = 70;
-const BBANDS_DEEP_MULTIPLIER = 2.0;
-const BBANDS_PERIOD = 10;
-const BBANDS_STD_DEV = 1.5;
-const VOLUME_SPIKE_FACTOR = 1.5;  // Increased from 1.2
-const MIN_CANDLE_BODY = 0.0001;
+let RSI_PERIOD = 7;
+let RSI_OVERSOLD_THRESHOLD = 35;
+let RSI_OVERBOUGHT_THRESHOLD = 65;
+let DEEP_RSI_THRESHOLD = 30;
+let DEEP_RSI_OVERBOUGHT = 70;
+let BBANDS_DEEP_MULTIPLIER = 2.0;
+let BBANDS_PERIOD = 10;
+let BBANDS_STD_DEV = 1.5;
+let VOLUME_SPIKE_FACTOR = 1.5;  // Increased from 1.2
+let MIN_CANDLE_BODY = 0.0001;
 
 // System 3: Momentum Shift (Low Probability)
-const RSI_CENTERLINE = 50;
-const MIN_VOL_CHANGE = 1.5;
+let RSI_CENTERLINE = 50;
+let MIN_VOL_CHANGE = 1.5;
 
 // Volatility Filter
-const ATR_PERIOD = 7;
-const MIN_ATR_THRESHOLD = 0.00015;
-const LOW_VOL_THRESHOLD = 0.0008;
-const AVG_ATR_MULTIPLIER = 1.0;  // Reduced from 1.2
+let ATR_PERIOD = 7;
+let MIN_ATR_THRESHOLD = 0.00015;
+let LOW_VOL_THRESHOLD = 0.0008;
+let AVG_ATR_MULTIPLIER = 1.0;  // Reduced from 1.2
 
 // Filters
-const VOLUME_CONFIRMATION_FACTOR = 1.0;  // Reduced from 1.2
-const PRICE_POSITION_FILTER = 0.20;
-const RSI_BUY_MAX = 60;
-const RSI_SELL_MIN = 40;
-const PSAR_BUFFER_FACTOR = 0.2;
+let VOLUME_CONFIRMATION_FACTOR = 1.0;  // Reduced from 1.2
+let PRICE_POSITION_FILTER = 0.20;
+let RSI_BUY_MAX = 60;
+let RSI_SELL_MIN = 40;
+let PSAR_BUFFER_FACTOR = 0.2;
 
 export const revalidate = 0;
 
 // Logging helpers
+
+// Define types for systems for clarity
+type TradingSystem = 'Core Trend-Following' | 'Momentum-Reversal-Deep' | 'Momentum-Reversal-Moderate' | 'Momentum-Shift';
+
+let dynamicPriority: Record<TradingSystem, number> = {
+    'Core Trend-Following': 4,
+    'Momentum-Reversal-Deep': 3,
+    'Momentum-Reversal-Moderate': 2,
+    'Momentum-Shift': 1
+} as Record<TradingSystem, number>;
+
 function log(message: string, ...args: any[]) {
   if (DEBUG) {
     const timestamp = new Date().toISOString();
@@ -70,6 +85,44 @@ function logCond(name: string, passed: boolean, details?: string) {
 
 export async function GET() {
   const ts = new Date().toISOString();
+
+  // 0) Fetch Optimal Parameters and Dynamic Priority from Firestore
+  section('Fetch Optimal Parameters and Dynamic Priority');
+  try {
+    const optimizationResultsCol = collection(db, 'optimizationResults');
+    const q = query(optimizationResultsCol, orderBy('timestamp', 'desc'), limit(1));
+    const latestResultSnapshot = await getDocs(q);
+
+    if (!latestResultSnapshot.empty) {
+      const latestResult = latestResultSnapshot.docs[0].data();
+      log('Latest optimization results fetched:', latestResult);
+
+      if (latestResult.bestParams) {
+        const params = latestResult.bestParams;
+        EMA_FAST_PERIOD = params.EMA_FAST_PERIOD ?? EMA_FAST_PERIOD;
+        EMA_SLOW_PERIOD = params.EMA_SLOW_PERIOD ?? EMA_SLOW_PERIOD;
+        RSI_PERIOD = params.RSI_PERIOD ?? RSI_PERIOD;
+        // ... apply other parameters
+        log('Applied optimal parameters from Firestore.');
+      }
+      
+      if (latestResult.bestPerformance) {
+        const perf = latestResult.bestPerformance; 
+        dynamicPriority = {
+            'Core Trend-Following': (perf.systemPerformance['Core Trend-Following']?.totalProfitLoss || 0) > 0 ? 4 : 1,
+            'Momentum-Reversal-Deep': (perf.systemPerformance['Momentum-Reversal-Deep']?.totalProfitLoss || 0) > 0 ? 3 : 1,
+            'Momentum-Reversal-Moderate': (perf.systemPerformance['Momentum-Reversal-Moderate']?.totalProfitLoss || 0) > 0 ? 2 : 1,
+            'Momentum-Shift': (perf.systemPerformance['Momentum-Shift']?.totalProfitLoss || 0) > 0 ? 1 : 0,
+        };
+        log('Dynamic Priority set:', dynamicPriority);
+      }
+    } else {
+      log('No optimization results found in Firestore. Using default parameters and priority.');
+    }
+  } catch (error) {
+    console.error(`Error fetching optimization results:`, error);
+    log('Using default parameters and priority due to fetch error.');
+  }
   section(`CRON RUN @ ${ts}`);
 
   try {
@@ -242,27 +295,39 @@ export async function GET() {
     const psarBuffer = (cache.atr as number) * PSAR_BUFFER_FACTOR;
     log('PSAR Buffer:', `${psarBuffer.toFixed(6)} (${(PSAR_BUFFER_FACTOR*100).toFixed(0)}% ATR)`);
     
+    const emaFast = cache.emaFast as number;
+    const emaSlow = cache.emaSlow as number;
+    const pSar = cache.pSar as number;
+    const rsi = cache.rsi as number;
+
     // Core Trend BUY
     const coreBuyConditions = [
-      (cache.emaFast as number) > (cache.emaSlow as number),
-      emaFastCrossedSlowUp,
-      latest.close > (cache.pSar as number) + psarBuffer,
+      emaFast > emaSlow,
+      emaFastCrossedSlowUp, // This is already a boolean
+      latest.close > pSar + psarBuffer,
       isUptrend,
-      (cache.rsi as number) < RSI_BUY_MAX
+      rsi < RSI_BUY_MAX
     ];
     coreBuyConditions.forEach((cond, i) => logCond(`Core Buy Condition ${i+1}`, cond));
-    const coreBuyTrue = coreBuyConditions.filter(Boolean).length >= 4;
-    
-    // Core Trend SELL
+    const coreBuyTrueCount = coreBuyConditions.filter(Boolean).length;
+    log(`Core Buy Conditions Met: ${coreBuyTrueCount}/${coreBuyConditions.length}`);
+    const coreBuyTrue = coreBuyTrueCount >= 4;
+
     const coreSellConditions = [
-      (cache.emaFast as number) < (cache.emaSlow as number),
-      emaFastCrossedSlowDown,
-      latest.close < (cache.pSar as number) - psarBuffer,
+      emaFast < emaSlow,
+      emaFastCrossedSlowDown, // This is already a boolean
+      latest.close < pSar - psarBuffer,
       isDowntrend,
-      (cache.rsi as number) > RSI_SELL_MIN
+      rsi > RSI_SELL_MIN
     ];
-    coreSellConditions.forEach((cond, i) => logCond(`Core Sell Condition ${i+1}`, cond));
+    logCond(`Core Sell Condition 1: EMA Fast < EMA Slow`, coreSellConditions[0], `${emaFast.toFixed(6)} < ${emaSlow.toFixed(6)}`);
+    logCond(`Core Sell Condition 2: EMA Fast Crossed Slow Down`, coreSellConditions[1]);
+    logCond(`Core Sell Condition 3: Close < PSAR - Buffer`, coreSellConditions[2], `${latest.close.toFixed(6)} < ${(pSar - psarBuffer).toFixed(6)}`);
+    logCond(`Core Sell Condition 4: Is Downtrend (Close < EMA Long)`, coreSellConditions[3], `${latest.close.toFixed(6)} < ${(cache.emaLong as number).toFixed(6)}`);
+    logCond(`Core Sell Condition 5: RSI > RSI_SELL_MIN`, coreSellConditions[4], `${rsi.toFixed(2)} > ${RSI_SELL_MIN}`);
+
     const coreSellTrue = coreSellConditions.filter(Boolean).length >= 4;
+
 
     // System 3: Momentum Shift
     section('System 3: Momentum Shift');
@@ -302,41 +367,47 @@ export async function GET() {
     }
 
     // Candidates
-    type Cand = Omit<EnhancedSignal, 'displayTime' | 'serverTime'>;
+    type Cand = Omit<EnhancedSignal, 'displayTime' | 'serverTime'> & { system: TradingSystem };
     const candidates: Cand[] = [];
 
     // Add candidates with priority weighting
     if (deepBuyTrueCount >= 3) {  // Reduced threshold
       log('→ Candidate: HIGH BUY (Deep Oversold Reversal)');
-      candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
+      candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time, system: 'Momentum-Reversal-Deep' });
     }
     if (deepSellTrueCount >= 3) {  // Reduced threshold
       log('→ Candidate: HIGH SELL (Deep Overbought Reversal)');
-      candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time });
+      candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time, system: 'Momentum-Reversal-Deep' });
+
     }
-    if (modBuyTrueCount >= 3) {  // Reduced threshold
+    if (modBuyTrueCount >= 3 && !candidates.some(c => c.type === 'BUY' && c.level === 'High')) { // Add only if no High BUY signal exists
       log('→ Candidate: MEDIUM BUY (Moderate Reversal)');
-      candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time });
+      candidates.push({ type: 'BUY', level: 'Medium', price: latest.close, time: latest.time, system: 'Momentum-Reversal-Moderate' });
+
     }
-    if (modSellTrueCount >= 3) {  // Reduced threshold
+    if (modSellTrueCount >= 3 && !candidates.some(c => c.type === 'SELL' && c.level === 'High')) { // Add only if no High SELL signal exists
       log('→ Candidate: MEDIUM SELL (Moderate Reversal)');
-      candidates.push({ type: 'SELL', level: 'Medium', price: latest.close, time: latest.time });
+      candidates.push({ type: 'SELL', level: 'Medium', price: latest.close, time: latest.time, system: 'Momentum-Reversal-Moderate' });
     }
     if (coreBuyTrue) {
       log('→ Candidate: HIGH BUY (Core Trend-Following)');
-      candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time });
+      candidates.push({ type: 'BUY', level: 'High', price: latest.close, time: latest.time, system: 'Core Trend-Following' });
+
     }
     if (coreSellTrue) {
       log('→ Candidate: HIGH SELL (Core Trend-Following)');
-      candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time });
+      candidates.push({ type: 'SELL', level: 'High', price: latest.close, time: latest.time, system: 'Core Trend-Following' });
+
     }
-    if (shiftBuyTrue) {
+    if (shiftBuyTrue && !candidates.some(c => c.type === 'BUY' && c.level !== 'Low')) { // Add only if no higher confidence BUY signal exists
       log('→ Candidate: LOW BUY (RSI Centerline Cross)');
-      candidates.push({ type: 'BUY', level: 'Low', price: latest.close, time: latest.time });
+      candidates.push({ type: 'BUY', level: 'Low', price: latest.close, time: latest.time, system: 'Momentum-Shift' });
+
     }
-    if (shiftSellTrue) {
+    if (shiftSellTrue && !candidates.some(c => c.type === 'SELL' && c.level !== 'Low')) { // Add only if no higher confidence SELL signal exists
       log('→ Candidate: LOW SELL (RSI Centerline Cross)');
-      candidates.push({ type: 'SELL', level: 'Low', price: latest.close, time: latest.time });
+      candidates.push({ type: 'SELL', level: 'Low', price: latest.close, time: latest.time, system: 'Momentum-Shift' });
+
     }
 
     // Selection & Post filters
@@ -346,13 +417,18 @@ export async function GET() {
       return NextResponse.json({ message: 'No signal generated.' });
     }
 
-    // Prioritize signals based on level and trend strength
+    // Prioritize signals based on dynamic priority, level, and trend strength
     const priority = { High: 3, Medium: 2, Low: 1 } as const;
     candidates.sort((a, b) => {
+      const dynamicPriorityA = dynamicPriority[a.system] ?? 0;
+      const dynamicPriorityB = dynamicPriority[b.system] ?? 0;
+
+      const dynamicPriorityDiff = dynamicPriorityB - dynamicPriorityA;
+      if (dynamicPriorityDiff !== 0) return dynamicPriorityDiff;
+
       const priorityDiff = priority[b.level as keyof typeof priority] - priority[a.level as keyof typeof priority];
       if (priorityDiff !== 0) return priorityDiff;
       
-      // For same priority level, prefer signals with stronger trend
       return (b.type === 'BUY' ? trendStrength : -trendStrength) - (a.type === 'BUY' ? trendStrength : -trendStrength);
     });
     
@@ -406,19 +482,17 @@ export async function GET() {
     }
 
     // Save Signal
-    const suggestedLeverage = Math.min(
-      20, 
-      Math.round(5 / ((cache.atr as number) / latest.close))
-    );
-    const stopBuffer = (cache.atr as number) * 1.5;
-    const enhancedSignal: EnhancedSignal = { ...newSignal, suggestedLeverage, stopBuffer };
-    section('Save Signal');
+    const enhancedSignal: EnhancedSignal = { ...newSignal };
     await saveSignalToFirestore(enhancedSignal);
     log('✓ Signal saved:', enhancedSignal);
     return NextResponse.json({ signal: enhancedSignal });
 
   } catch (err) {
-    log(`Error: ${String(err)}`);
-    return NextResponse.json({ error: String(err) });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? err.stack : undefined;
+    log(`Error: ${errorMessage}`, errorStack ? `\nStack: ${errorStack}`: '');
+    return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
