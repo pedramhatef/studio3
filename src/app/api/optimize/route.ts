@@ -11,24 +11,24 @@ import { setDoc, doc } from 'firebase/firestore';
 // Define the parameter ranges for optimization
 // NOTE: Keep the number of combinations low to avoid Vercel timeouts on the hobby plan.
 const parameterRanges = {
-  // Core Trend-Following
-  EMA_FAST_PERIOD: [5, 7, 10],
-  EMA_SLOW_PERIOD: [20, 25],
-  EMA_MEDIUM_PERIOD: [15],
-  EMA_LONG_PERIOD: [40],
+  // Core Trend-Following - Test faster and slower trend confirmation
+  EMA_FAST_PERIOD: [5, 8, 13],
+  EMA_SLOW_PERIOD: [21, 25, 30],
+  EMA_MEDIUM_PERIOD: [15], // Keep medium stable as a reference
+  EMA_LONG_PERIOD: [40, 50],
   PARABOLIC_SAR_STEP: [0.02],
   PARABOLIC_SAR_MAX: [0.2],
 
-  // Momentum-Reversal
-  RSI_PERIOD: [9, 14],
-  RSI_OVERSOLD_THRESHOLD: [30, 35],
-  RSI_OVERBOUGHT_THRESHOLD: [65, 70],
-  DEEP_RSI_THRESHOLD: [25],
-  DEEP_RSI_OVERBOUGHT: [75],
-  BBANDS_PERIOD: [14],
+  // Momentum-Reversal - Test different sensitivity levels
+  RSI_PERIOD: [7, 9, 14],
+  RSI_OVERSOLD_THRESHOLD: [25, 30, 35],
+  RSI_OVERBOUGHT_THRESHOLD: [65, 70, 75],
+  DEEP_RSI_THRESHOLD: [20, 25],
+  DEEP_RSI_OVERBOUGHT: [75, 80],
+  BBANDS_PERIOD: [14, 20],
   BBANDS_STD_DEV: [1.5],
   BBANDS_DEEP_MULTIPLIER: [2.0],
-  VOLUME_SPIKE_FACTOR: [1.5],
+  VOLUME_SPIKE_FACTOR: [1.5, 2.0],
   MIN_CANDLE_BODY: [0.0001],
 
   // Momentum Shift
@@ -36,20 +36,21 @@ const parameterRanges = {
   MIN_VOL_CHANGE: [1.5],
 
   // Volatility & Filters
-  ATR_PERIOD: [10],
+  ATR_PERIOD: [10, 14],
   MIN_ATR_THRESHOLD: [0.00015],
   LOW_VOL_THRESHOLD: [0.0008],
   AVG_ATR_MULTIPLIER: [1.0],
   VOLUME_CONFIRMATION_FACTOR: [1.0],
   PRICE_POSITION_FILTER: [0.20],
-  RSI_BUY_MAX: [60],
-  RSI_SELL_MIN: [40],
+  RSI_BUY_MAX: [65], // Allow buying in slightly stronger trends
+  RSI_SELL_MIN: [35], // Allow selling in slightly weaker trends
   PSAR_BUFFER_FACTOR: [0.2],
 
-  // New backtesting parameters for simulation
-  TAKE_PROFIT_ATR_MULTIPLIER: [2, 3],
-  STOP_LOSS_ATR_MULTIPLIER: [1.5, 2],
+  // Backtesting Simulation - Crucial for risk/reward profile
+  TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2, 3],
+  STOP_LOSS_ATR_MULTIPLIER: [1, 1.5, 2],
 };
+
 
 async function runAndSaveOptimization() {
   console.log("=== STRATEGY OPTIMIZATION CRON (BACKTESTING) STARTING ===");
@@ -70,7 +71,7 @@ async function runAndSaveOptimization() {
   console.log("Running optimizeParameters function...");
   const { bestParams, bestPerformance } = await optimizeParameters(chartData, parameterRanges);
   
-  if (!bestParams) {
+  if (!bestParams || !bestPerformance) {
     console.error("Optimization failed to find best parameters.");
     return {
       success: false,
@@ -115,3 +116,4 @@ export async function GET() {
     );
   }
 }
+
