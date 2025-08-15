@@ -13,21 +13,21 @@ import { setDoc, doc } from 'firebase/firestore';
 // the optimizer with more meaningful choices to adapt to different market conditions.
 const parameterRanges = {
   // Core Trend-Following - Using Fibonacci-like numbers, common in trading analysis
-  EMA_FAST_PERIOD: [8, 13],
-  EMA_SLOW_PERIOD: [21, 34],
-  EMA_LONG_PERIOD: [50, 55],
+  EMA_FAST_PERIOD: [8, 13, 21],
+  EMA_SLOW_PERIOD: [21, 34, 55],
+  EMA_LONG_PERIOD: [50, 100, 200],
   PARABOLIC_SAR_STEP: [0.02], // Standard value, less need for optimization here
   PARABOLIC_SAR_MAX: [0.2],   // Standard value
 
   // Momentum - Wider ranges to find different types of momentum conditions
   RSI_PERIOD: [9, 14],
-  RSI_OVERSOLD_THRESHOLD: [25, 30, 35, 40], // Can it find entries in oversold or just pullback zones?
-  RSI_OVERBOUGHT_THRESHOLD: [60, 65, 70, 75], // Symmetrical to oversold
-  RSI_BREAKOUT_THRESHOLD: [55, 60], // Threshold for confirming a volume breakout
-  RSI_BREAKDOWN_THRESHOLD: [40, 45], // Threshold for confirming a volume breakdown
+  RSI_OVERSOLD_THRESHOLD: [20, 25, 30, 35, 40], // Can it find entries in oversold or just pullback zones?
+  RSI_OVERBOUGHT_THRESHOLD: [60, 65, 70, 75, 80], // Symmetrical to oversold
+  RSI_BREAKOUT_THRESHOLD: [52, 55, 60], // Threshold for confirming a volume breakout
+  RSI_BREAKDOWN_THRESHOLD: [40, 45, 48], // Threshold for confirming a volume breakdown
   
   // Volatility Filter - More granular options to adapt to different volatility regimes
-  ATR_PERIOD: [7, 10, 14],
+  ATR_PERIOD: [10, 14],
   ATR_VOLATILITY_THRESHOLD: [0.8, 1.0, 1.25, 1.5], // Key for adapting to market pace
 
   // Volume Filter
@@ -35,8 +35,8 @@ const parameterRanges = {
   VOLUME_THRESHOLD_MULTIPLIER: [1.5, 2.0, 2.5], // How much larger the volume needs to be
   
   // Backtesting Simulation & Risk - Wider risk/reward profiles
-  TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2.0, 2.5, 3.0], // Test different reward targets
-  STOP_LOSS_ATR_MULTIPLIER: [1.0, 1.5, 2.0], // Test different risk tolerances
+  TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2.0, 2.5, 3.0, 3.5], // Test different reward targets
+  STOP_LOSS_ATR_MULTIPLIER: [1.0, 1.5, 2.0, 2.5], // Test different risk tolerances
 
   // Market Friction - Simulate real-world trading costs
   SPREAD_PERCENT: [0.005, 0.01] // Represents a realistic trading spread
