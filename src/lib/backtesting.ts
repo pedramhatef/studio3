@@ -200,7 +200,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         
         let signalType: 'BUY' | 'SELL' | null = null;
         let signalLevel: 'High' | 'Medium' | null = null;
-
         
         const emaFastPrev = getPrevValueAt(emaFastArr, i);
         const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
@@ -209,12 +208,13 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         if (isUptrend) {
             const macdConfirm = (cache.macdHistogram as number) > 0;
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+            
             if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && macdConfirm) {
                 signalType = 'BUY';
                 signalLevel = 'High';
             } else {
                 const isPullback = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
-                if (isPullback && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && (cache.rsi as number) > 40) {
+                if (isPullback && (cache.rsi as number) > 40 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD) {
                     signalType = 'BUY';
                     signalLevel = 'Medium';
                 } else if (volumeOk && currentCandle.close > (cache.pSar as number) && (cache.rsi as number) > params.RSI_BREAKOUT_THRESHOLD && macdConfirm) {
@@ -225,12 +225,13 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         } else if (isDowntrend) {
             const macdConfirm = (cache.macdHistogram as number) < 0;
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+
             if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && macdConfirm) {
                 signalType = 'SELL';
                 signalLevel = 'High';
             } else {
                 const isPullback = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
-                if (isPullback && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && (cache.rsi as number) < 60) {
+                if (isPullback && (cache.rsi as number) < 60 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD) {
                     signalType = 'SELL';
                     signalLevel = 'Medium';
                 } else if (volumeOk && currentCandle.close < (cache.pSar as number) && (cache.rsi as number) < params.RSI_BREAKDOWN_THRESHOLD && macdConfirm) {
@@ -240,10 +241,8 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
         }
         
-        if (signalType && !isVolatileEnough) {
-            if (signalLevel !== 'Medium') {
-                signalType = null; // Invalidate signal
-            }
+        if (signalLevel === 'High' && !isVolatileEnough) {
+            signalType = null; // Invalidate high confidence signal if not volatile
         }
 
         if (signalType) {
@@ -345,7 +344,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
         // A scoring model that rewards profit and win rate, and penalizes having too few trades.
         const score = (performance.sharpeRatio * 0.5) + (performance.profitFactor * 0.3) + (Math.log10(performance.numberOfTrades) * 0.2);
 
-        if (score > highestScore && performance.sharpeRatio > 0) { // Only consider strategies with positive Sharpe Ratio
+        if (score > highestScore && performance.sharpeRatio > 0.1) { // Only consider strategies with positive Sharpe Ratio
             highestScore = score;
             bestPerformance = performance;
             bestParams = currentParams;
@@ -419,3 +418,5 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         sharpeRatio,
     };
 }
+
+    

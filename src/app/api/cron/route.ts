@@ -177,7 +177,7 @@ export async function GET() {
         
         const macdConfirm = (cache.macdHistogram as number) > 0;
         
-        // A) Crossover Signal
+        // A) Crossover Signal (High confidence)
         const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
         logCond('BUY Crossover: EMA Fast crossed Slow Up & MACD Confirmed', emaCrossedUp && macdConfirm);
         if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && macdConfirm) {
@@ -185,17 +185,17 @@ export async function GET() {
             log('→ Candidate: HIGH BUY (Crossover)');
         }
 
-        // B) Pullback Signal (if no crossover)
+        // B) Pullback Signal (Medium confidence, relaxed conditions)
         if (!signal) {
             const isPullback = latest.low <= (cache.emaFast as number) && latest.close > (cache.emaFast as number);
-            logCond('BUY Pullback: Price touched EMA Fast & RSI in range', isPullback && (cache.rsi as number) > 40);
-            if(isPullback && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && (cache.rsi as number) > 40) {
+            logCond('BUY Pullback: Price touched EMA Fast & RSI in range', isPullback && (cache.rsi as number) > 40 && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD);
+            if(isPullback && (cache.rsi as number) > 40 && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD) {
                 signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
                 log('→ Candidate: MEDIUM BUY (Pullback)');
             }
         }
         
-        // C) Breakout Signal (if no other signal)
+        // C) Breakout Signal (High confidence, requires volume)
         if (!signal && volumeOk) {
              const psarOk = latest.close > (cache.pSar as number);
              const rsiOk = (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD;
@@ -212,7 +212,7 @@ export async function GET() {
         
         const macdConfirm = (cache.macdHistogram as number) < 0;
 
-        // A) Crossover Signal
+        // A) Crossover Signal (High confidence)
         const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
         logCond('SELL Crossover: EMA Fast crossed Slow Down & MACD Confirmed', emaCrossedDown && macdConfirm);
         if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && macdConfirm) {
@@ -220,17 +220,17 @@ export async function GET() {
             log('→ Candidate: HIGH SELL (Crossover)');
         }
 
-        // B) Pullback Signal (if no crossover)
+        // B) Pullback Signal (Medium confidence, relaxed conditions)
         if (!signal) {
             const isPullback = latest.high >= (cache.emaFast as number) && latest.close < (cache.emaFast as number);
-            logCond('SELL Pullback: Price touched EMA Fast & RSI in range', isPullback && (cache.rsi as number) < 60);
-            if(isPullback && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && (cache.rsi as number) < 60) {
+            logCond('SELL Pullback: Price touched EMA Fast & RSI in range', isPullback && (cache.rsi as number) < 60 && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD);
+            if(isPullback && (cache.rsi as number) < 60 && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD) {
                 signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
                 log('→ Candidate: MEDIUM SELL (Pullback)');
             }
         }
         
-        // C) Breakdown Signal (if no other signal)
+        // C) Breakdown Signal (High confidence, requires volume)
         if (!signal && volumeOk) {
             const psarOk = latest.close < (cache.pSar as number);
             const rsiOk = (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD;
@@ -296,3 +296,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
