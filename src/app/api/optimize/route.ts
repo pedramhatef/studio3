@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { NextResponse } from 'next/server';
@@ -9,44 +10,53 @@ import { db } from '@/lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
 // Define the parameter ranges for optimization
-const parameterRanges = {
+const parameterRanges: { [key in keyof Omit<StrategyParams, 
+    'EMA_MEDIUM_PERIOD' |
+    'DEEP_RSI_THRESHOLD' |
+    'DEEP_RSI_OVERBOUGHT' |
+    'BBANDS_PERIOD' |
+    'BBANDS_STD_DEV' |
+    'BBANDS_DEEP_MULTIPLIER' |
+    'VOLUME_SPIKE_FACTOR' |
+    'MIN_CANDLE_BODY' |
+    'RSI_CENTERLINE' |
+    'MIN_VOL_CHANGE' |
+    'MIN_ATR_THRESHOLD' |
+    'LOW_VOL_THRESHOLD' |
+    'AVG_ATR_MULTIPLIER' |
+    'VOLUME_CONFIRMATION_FACTOR' |
+    'PRICE_POSITION_FILTER' |
+    'RSI_BUY_MAX' |
+    'RSI_SELL_MIN' |
+    'PSAR_BUFFER_FACTOR' |
+    'initialCapital'
+>]: number[] } = {
   // Core Trend-Following
-  EMA_FAST_PERIOD: [5, 7, 10],
+  EMA_FAST_PERIOD: [5, 7, 10, 13,],
   EMA_SLOW_PERIOD: [15, 20, 25],
-  EMA_MEDIUM_PERIOD: [12, 15, 18],
   EMA_LONG_PERIOD: [30, 40, 50],
   PARABOLIC_SAR_STEP: [0.01, 0.02],
   PARABOLIC_SAR_MAX: [0.1, 0.2],
 
   // Momentum-Reversal
   RSI_PERIOD: [7, 9, 14],
-  RSI_OVERSOLD_THRESHOLD: [30, 35],
-  RSI_OVERBOUGHT_THRESHOLD: [65, 70],
-  DEEP_RSI_THRESHOLD: [25, 30],
-  DEEP_RSI_OVERBOUGHT: [70, 75],
-  BBANDS_PERIOD: [10, 14, 20],
-  BBANDS_STD_DEV: [1.5, 2.0],
-  BBANDS_DEEP_MULTIPLIER: [2.0, 2.5],
-  VOLUME_SPIKE_FACTOR: [1.5, 2.0],
-  MIN_CANDLE_BODY: [0.0001],
-
-  // Momentum Shift
-  RSI_CENTERLINE: [50],
-  MIN_VOL_CHANGE: [1.5],
+  RSI_OVERSOLD_THRESHOLD: [30, 35, 40],
+  RSI_OVERBOUGHT_THRESHOLD: [60, 65, 70],
 
   // Volatility & Filters
   ATR_PERIOD: [7, 10, 14],
-  MIN_ATR_THRESHOLD: [0.00015],
-  LOW_VOL_THRESHOLD: [0.0008],
-  AVG_ATR_MULTIPLIER: [1.0],
-  VOLUME_CONFIRMATION_FACTOR: [1.0],
-  PRICE_POSITION_FILTER: [0.20],
-  RSI_BUY_MAX: [60, 65],
-  RSI_SELL_MIN: [35, 40],
-  PSAR_BUFFER_FACTOR: [0.2],
-
-  // Financial
-  initialCapital: [10000],
+  
+  // Risk
+  TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2.0, 2.5],
+  STOP_LOSS_ATR_MULTIPLIER: [1.0, 1.5, 2.0],
+  SPREAD_PERCENT: [0.01, 0.02],
+  
+  // Custom Filters
+  ATR_VOLATILITY_THRESHOLD: [1.1, 1.2],
+  VOLUME_PERIOD: [20],
+  VOLUME_THRESHOLD_MULTIPLIER: [1.5, 2.0],
+  RSI_BREAKOUT_THRESHOLD: [55],
+  RSI_BREAKDOWN_THRESHOLD: [45]
 };
 
 
@@ -70,7 +80,7 @@ async function runAndSaveOptimization() {
 
   // 2. Run the optimization
   console.log("Running optimizeParameters function...");
-  const { bestParams, bestPerformance } = await optimizeParameters(chartData, parameterRanges);
+  const { bestParams, bestPerformance } = await optimizeParameters(chartData, parameterRanges as any);
   
   if (!bestParams) {
     console.error("Optimization failed to find best parameters.");
@@ -119,3 +129,5 @@ export async function GET() {
     );
   }
 }
+
+    

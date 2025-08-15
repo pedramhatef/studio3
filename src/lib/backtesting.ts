@@ -2,6 +2,8 @@
 import type { ChartDataPoint, StrategyParams } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 
+export type { StrategyParams };
+
 export type TradeResult = {
     entryPrice: number;
     exitPrice: number;
@@ -280,7 +282,7 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
     };
 }
 
-export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { [key: string]: number[] }): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics | null; bestTrades: TradeResult[] }> {
+export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { [key in keyof StrategyParams]: number[] }): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics | null; bestTrades: TradeResult[] }> {
     console.log('Starting parameter optimization...');
     let bestPerformance: PerformanceMetrics | null = null;
     let bestParams: StrategyParams | null = null;
@@ -289,16 +291,16 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     const initialCapital = 10000;
     
-    const keys = Object.keys(paramRanges);
+    const keys = Object.keys(paramRanges) as (keyof StrategyParams)[];
     const combinations: StrategyParams[] = [];
     
-    function generateCombinations(index: number, currentCombination: any) {
+    function generateCombinations(index: number, currentCombination: Partial<StrategyParams>) {
         if (index === keys.length) {
-            combinations.push(currentCombination);
+            combinations.push(currentCombination as StrategyParams);
             return;
         }
         const key = keys[index];
-        const values = paramRanges[key as keyof typeof paramRanges];
+        const values = paramRanges[key];
         for (const value of values) {
             generateCombinations(index + 1, { ...currentCombination, [key]: value });
         }
@@ -314,13 +316,10 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
         const performance = calculatePerformanceMetrics(trades, initialCapital);
         
-        // Robust scoring function
-        const sharpe = isFinite(performance.sharpeRatio) ? performance.sharpeRatio : 0;
-        const profitFactor = isFinite(performance.profitFactor) ? performance.profitFactor : 0;
-        const winRate = isFinite(performance.winRate) ? performance.winRate : 0;
+        const sharpe = isFinite(performance.sharpeRatio) && !isNaN(performance.sharpeRatio) ? performance.sharpeRatio : 0;
+        const profitFactor = isFinite(performance.profitFactor) && !isNaN(performance.profitFactor) ? performance.profitFactor : 0;
         
-        // Give more weight to profit factor and sharpe ratio
-        const score = (sharpe * 0.4) + (profitFactor * 0.3) + (winRate * 0.2) + (Math.log10(performance.numberOfTrades + 1) * 0.1);
+        const score = (sharpe * 0.4) + (profitFactor * 0.3) + (performance.winRate * 0.2) + (Math.log10(performance.numberOfTrades + 1) * 0.1);
 
         if (score > highestScore) {
             highestScore = score;
@@ -339,5 +338,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     return { bestParams, bestPerformance, bestTrades };
 }
+
+    
 
     
