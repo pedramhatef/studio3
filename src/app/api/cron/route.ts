@@ -28,8 +28,8 @@ let strategyConfig = {
   RSI_PERIOD: 14,
   RSI_OVERSOLD_THRESHOLD: 35,
   RSI_OVERBOUGHT_THRESHOLD: 65,
-  RSI_BREAKOUT_THRESHOLD: 40, // For breakout signals
-  RSI_BREAKDOWN_THRESHOLD: 60, // For breakdown signals
+  RSI_BREAKOUT_THRESHOLD: 55, // For breakout signals
+  RSI_BREAKDOWN_THRESHOLD: 45, // For breakdown signals
 
 
   // Volatility Filter
@@ -91,7 +91,7 @@ export async function GET() {
     // 1) Fetch data
     const chartData = await getChartData();
     const requiredPeriods = Math.max(
-      strategyConfig.EMA_SLOW_PERIOD, strategyConfig.RSI_PERIOD, strategyConfig.ATR_PERIOD, strategyConfig.EMA_LONG_PERIOD, strategyConfig.VOLUME_PERIOD
+      strategyConfig.EMA_SLOW_PERIOD, strategyConfig.RSI_PERIOD, strategyConfig.ATR_PERIOD, strategyConfig.EMA_LONG_PERIOD, strategyConfig.VOLUME_PERIOD, 26 // MACD slow period
     );
 
     if (!Array.isArray(chartData) || chartData.length < requiredPeriods) {
@@ -114,6 +114,7 @@ export async function GET() {
     const rsiArr = indicators.calculateRSI(closeSlice, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(chartData, strategyConfig.ATR_PERIOD);
     const avgVolumeArr = indicators.calculateSMA(volumeSlice, strategyConfig.VOLUME_PERIOD);
+    const macd = indicators.calculateMACD(closeSlice, 12, 26, 9);
 
 
     // Evaluate latest candle
@@ -136,6 +137,7 @@ export async function GET() {
       rsi: getValueAt(rsiArr, currentIndex),
       atr: getValueAt(atrArr, currentIndex),
       avgVolume: getValueAt(avgVolumeArr, currentIndex),
+      macdHistogram: getValueAt(macd.histogram, currentIndex),
     };
 
     if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
@@ -173,10 +175,12 @@ export async function GET() {
     if (isUptrend) {
         log('Mode: UPTREND');
         
+        const macdConfirm = (cache.macdHistogram as number) > 0;
+        
         // A) Crossover Signal
         const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-        logCond('BUY Crossover: EMA Fast crossed Slow Up', emaCrossedUp);
-        if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD) {
+        logCond('BUY Crossover: EMA Fast crossed Slow Up & MACD Confirmed', emaCrossedUp && macdConfirm);
+        if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && macdConfirm) {
             signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
             log('→ Candidate: HIGH BUY (Crossover)');
         }
@@ -184,8 +188,8 @@ export async function GET() {
         // B) Pullback Signal (if no crossover)
         if (!signal) {
             const isPullback = latest.low <= (cache.emaFast as number) && latest.close > (cache.emaFast as number);
-            logCond('BUY Pullback: Price touched EMA Fast', isPullback);
-            if(isPullback && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD) {
+            logCond('BUY Pullback: Price touched EMA Fast & RSI in range', isPullback && (cache.rsi as number) > 40);
+            if(isPullback && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && (cache.rsi as number) > 40) {
                 signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
                 log('→ Candidate: MEDIUM BUY (Pullback)');
             }
@@ -195,8 +199,8 @@ export async function GET() {
         if (!signal && volumeOk) {
              const psarOk = latest.close > (cache.pSar as number);
              const rsiOk = (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD;
-             logCond('BUY Breakout: Volume & RSI & PSAR Confirmation', volumeOk && psarOk && rsiOk);
-             if(psarOk && rsiOk) {
+             logCond('BUY Breakout: Volume & RSI & PSAR & MACD Confirmed', volumeOk && psarOk && rsiOk && macdConfirm);
+             if(psarOk && rsiOk && macdConfirm) {
                 signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
                 log('→ Candidate: HIGH BUY (Volume Breakout)');
              }
@@ -206,10 +210,12 @@ export async function GET() {
     else if (isDowntrend) {
         log('Mode: DOWNTREND');
         
+        const macdConfirm = (cache.macdHistogram as number) < 0;
+
         // A) Crossover Signal
         const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-        logCond('SELL Crossover: EMA Fast crossed Slow Down', emaCrossedDown);
-        if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD) {
+        logCond('SELL Crossover: EMA Fast crossed Slow Down & MACD Confirmed', emaCrossedDown && macdConfirm);
+        if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && macdConfirm) {
             signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
             log('→ Candidate: HIGH SELL (Crossover)');
         }
@@ -217,8 +223,8 @@ export async function GET() {
         // B) Pullback Signal (if no crossover)
         if (!signal) {
             const isPullback = latest.high >= (cache.emaFast as number) && latest.close < (cache.emaFast as number);
-            logCond('SELL Pullback: Price touched EMA Fast', isPullback);
-            if(isPullback && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD) {
+            logCond('SELL Pullback: Price touched EMA Fast & RSI in range', isPullback && (cache.rsi as number) < 60);
+            if(isPullback && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && (cache.rsi as number) < 60) {
                 signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
                 log('→ Candidate: MEDIUM SELL (Pullback)');
             }
@@ -228,8 +234,8 @@ export async function GET() {
         if (!signal && volumeOk) {
             const psarOk = latest.close < (cache.pSar as number);
             const rsiOk = (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD;
-            logCond('SELL Breakdown: Volume & RSI & PSAR Confirmation', volumeOk && psarOk && rsiOk);
-            if(psarOk && rsiOk) {
+            logCond('SELL Breakdown: Volume & RSI & PSAR & MACD Confirmed', volumeOk && psarOk && rsiOk && macdConfirm);
+            if(psarOk && rsiOk && macdConfirm) {
                signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
                log('→ Candidate: HIGH SELL (Volume Breakdown)');
             }
@@ -240,10 +246,11 @@ export async function GET() {
     if (signal && !isVolatileEnough) {
         // Allow pullback signals even in lower volatility
         if (signal.level !== 'Medium') {
-            log('Market not volatile enough for non-pullback signal. No signal.');
-            return NextResponse.json({ message: 'Market not volatile enough for non-pullback signal.' });
+            log(`Volatility filter blocked ${signal.level} signal. No signal.`);
+            signal = null;
+        } else {
+            log('Volatility filter bypassed for Medium confidence pullback signal.');
         }
-        log('Volatility filter bypassed for Medium confidence pullback signal.');
     }
 
 
@@ -270,7 +277,14 @@ export async function GET() {
         log('No previous signals found.');
     }
 
-    // 7) Save Signal
+    // 7) Enhance Signal with Risk Management Data
+    const atrAsVolatility = (cache.atr as number) / latest.close;
+    // Cap leverage at 10x for safety
+    signal.suggestedLeverage = Math.max(1, Math.min(10, Math.round(1 / atrAsVolatility)));
+    signal.stopBuffer = (cache.atr as number) * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
+
+
+    // 8) Save Signal
     await saveSignalToFirestore(signal);
     log('✓ Signal saved:', signal);
     return NextResponse.json({ signal });
@@ -282,7 +296,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
-
-    

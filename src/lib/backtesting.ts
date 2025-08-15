@@ -96,7 +96,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     let lastSignalTime = 0;
 
     const requiredPeriods = Math.max(
-        params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD
+        params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26 // MACD slow period
     );
 
     if (data.length < requiredPeriods) {
@@ -104,8 +104,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     }
 
     const closeSlice = data.map(d => d.close);
-    const highSlice = data.map(d => d.high);
-    const lowSlice = data.map(d => d.low);
     const volumeSlice = data.map(d => d.volume);
 
 
@@ -116,10 +114,12 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     const rsiArr = indicators.calculateRSI(closeSlice, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(data, params.ATR_PERIOD);
     const avgVolumeArr = indicators.calculateSMA(volumeSlice, params.VOLUME_PERIOD);
+    const macd = indicators.calculateMACD(closeSlice, 12, 26, 9);
+
 
     for (let i = requiredPeriods; i < data.length; i++) {
         const currentCandle = data[i];
-
+        
         // --- EXIT LOGIC ---
         if (inTrade) {
             let exitPrice: number | null = null;
@@ -175,6 +175,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             rsi: getValueAt(rsiArr, i),
             atr: getValueAt(atrArr, i),
             avgVolume: getValueAt(avgVolumeArr, i),
+            macdHistogram: getValueAt(macd.histogram, i),
         };
 
         if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
@@ -189,7 +190,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         const isVolatileEnough = (cache.atr as number) > (avgAtr * params.ATR_VOLATILITY_THRESHOLD);
         
         let signalType: 'BUY' | 'SELL' | null = null;
-        let signalLevel: 'High' | 'Medium' | 'Low' = 'Low';
+        let signalLevel: 'High' | 'Medium' | null = null;
 
         
         const emaFastPrev = getPrevValueAt(emaFastArr, i);
@@ -197,31 +198,33 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         const volumeOk = currentCandle.volume > (cache.avgVolume as number) * params.VOLUME_THRESHOLD_MULTIPLIER;
 
         if (isUptrend) {
+            const macdConfirm = (cache.macdHistogram as number) > 0;
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-            if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD) {
+            if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && macdConfirm) {
                 signalType = 'BUY';
                 signalLevel = 'High';
             } else {
                 const isPullback = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
-                if (isPullback && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD) {
+                if (isPullback && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && (cache.rsi as number) > 40) {
                     signalType = 'BUY';
                     signalLevel = 'Medium';
-                } else if (volumeOk && currentCandle.close > (cache.pSar as number) && (cache.rsi as number) > params.RSI_BREAKOUT_THRESHOLD) {
+                } else if (volumeOk && currentCandle.close > (cache.pSar as number) && (cache.rsi as number) > params.RSI_BREAKOUT_THRESHOLD && macdConfirm) {
                     signalType = 'BUY';
                     signalLevel = 'High';
                 }
             }
         } else if (isDowntrend) {
+            const macdConfirm = (cache.macdHistogram as number) < 0;
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-            if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD) {
+            if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && macdConfirm) {
                 signalType = 'SELL';
                 signalLevel = 'High';
             } else {
                 const isPullback = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
-                if (isPullback && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD) {
+                if (isPullback && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && (cache.rsi as number) < 60) {
                     signalType = 'SELL';
                     signalLevel = 'Medium';
-                } else if (volumeOk && currentCandle.close < (cache.pSar as number) && (cache.rsi as number) < params.RSI_BREAKDOWN_THRESHOLD) {
+                } else if (volumeOk && currentCandle.close < (cache.pSar as number) && (cache.rsi as number) < params.RSI_BREAKDOWN_THRESHOLD && macdConfirm) {
                     signalType = 'SELL';
                     signalLevel = 'High';
                 }
@@ -401,5 +404,3 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         averageLoss: losingTrades.length > 0 ? Math.abs(totalLossAmount / losingTrades.length) : 0,
     };
 }
-
-    
