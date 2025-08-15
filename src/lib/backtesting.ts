@@ -46,6 +46,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     const trades: TradeResult[] = [];
     let capital = initialCapital;
     let inTrade: InTradeState | null = null;
+    let recentSignals: { type: 'BUY' | 'SELL' }[] = [];
     
     const requiredPeriods = Math.max(
         params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26 // MACD slow period
@@ -147,32 +148,47 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             const emaFastPrev = getPrevValueAt(emaFastArr, i);
             const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
             const volumeOk = currentCandle.volume > (cache.avgVolume as number) * params.VOLUME_THRESHOLD_MULTIPLIER;
-    
-            if (isUptrend) {
-                const macdConfirm = (cache.macdHistogram as number) > 0;
+            const macdConfirmBuy = (cache.macdHistogram as number) > 0;
+            const macdConfirmSell = (cache.macdHistogram as number) < 0;
+
+            const recentSells = recentSignals.filter(s => s.type === 'SELL').length;
+            const inDowntrendCooldown = recentSells > 1 && (cache.emaFast as number) < (cache.emaSlow as number);
+            
+            const recentBuys = recentSignals.filter(s => s.type === 'BUY').length;
+            const inUptrendCooldown = recentBuys > 1 && (cache.emaFast as number) > (cache.emaSlow as number);
+
+            if (isUptrend && !inDowntrendCooldown) {
                 const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-                
-                if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && macdConfirm) {
-                    signalType = 'BUY';
-                } else if (currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number) && (cache.rsi as number) > 40 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD) {
-                    signalType = 'BUY';
-                } else if (volumeOk && currentCandle.close > (cache.pSar as number) && (cache.rsi as number) > params.RSI_BREAKOUT_THRESHOLD && macdConfirm) {
+                if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && macdConfirmBuy) {
                     signalType = 'BUY';
                 }
-            } else if (isDowntrend) {
-                const macdConfirm = (cache.macdHistogram as number) < 0;
+                const isPullback = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
+                if (!signalType && isPullback && (cache.rsi as number) > 40 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD) {
+                    signalType = 'BUY';
+                }
+                const psarOk = currentCandle.close > (cache.pSar as number);
+                if (!signalType && volumeOk && psarOk && (cache.rsi as number) > params.RSI_BREAKOUT_THRESHOLD && macdConfirmBuy) {
+                    signalType = 'BUY';
+                }
+            } else if (isDowntrend && !inUptrendCooldown) {
                 const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-    
-                if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && macdConfirm) {
+                if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && macdConfirmSell) {
                     signalType = 'SELL';
-                } else if (currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number) && (cache.rsi as number) < 60 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD) {
+                }
+                const isPullback = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
+                if (!signalType && isPullback && (cache.rsi as number) < 60 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD) {
                     signalType = 'SELL';
-                } else if (volumeOk && currentCandle.close < (cache.pSar as number) && (cache.rsi as number) < params.RSI_BREAKDOWN_THRESHOLD && macdConfirm) {
+                }
+                const psarOk = currentCandle.close < (cache.pSar as number);
+                if (!signalType && volumeOk && psarOk && (cache.rsi as number) < params.RSI_BREAKDOWN_THRESHOLD && macdConfirmSell) {
                     signalType = 'SELL';
                 }
             }
             
             if (signalType && isVolatileEnough) {
+                recentSignals.push({ type: signalType });
+                if (recentSignals.length > 5) recentSignals.shift(); // Keep last 5 signals
+
                 const entryPrice = applySpread(currentCandle.close, signalType, params.SPREAD_PERCENT);
                 inTrade = {
                     entryPrice: entryPrice,
@@ -343,3 +359,5 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     return { bestParams, bestPerformance, bestTrades };
 }
+
+    

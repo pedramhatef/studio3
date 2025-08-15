@@ -179,12 +179,18 @@ export async function GET() {
     const macdConfirmBuy = (cache.macdHistogram as number) > 0;
     const macdConfirmSell = (cache.macdHistogram as number) < 0;
 
-    // Downtrend Reversal Cooldown: Prevents buying false bottoms
     const recentSells = recentSignals.filter(s => s.type === 'SELL').length;
     const inDowntrendCooldown = recentSells > 1 && (cache.emaFast as number) < (cache.emaSlow as number);
     if (inDowntrendCooldown) {
       log('In downtrend cooldown. Ignoring BUY signals until trend confirms reversal (EMA Fast > EMA Slow).');
     }
+
+    const recentBuys = recentSignals.filter(s => s.type === 'BUY').length;
+    const inUptrendCooldown = recentBuys > 1 && (cache.emaFast as number) > (cache.emaSlow as number);
+    if (inUptrendCooldown) {
+      log('In uptrend cooldown. Ignoring SELL signals until trend confirms reversal (EMA Fast < EMA Slow).');
+    }
+
 
     // BUY Logic
     if (isUptrend && !inDowntrendCooldown) {
@@ -210,7 +216,7 @@ export async function GET() {
         }
     }
     // SELL Logic
-    else if (isDowntrend) {
+    else if (isDowntrend && !inUptrendCooldown) {
         const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
         const rsiInRange = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
         logCond('SELL Crossover', emaCrossedDown && rsiInRange && macdConfirmSell);
@@ -254,3 +260,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
