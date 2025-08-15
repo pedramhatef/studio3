@@ -320,7 +320,6 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     for (const currentParams of combinations) {
         const trades = runBacktest(data, currentParams, initialCapital);
-        if (trades.length < 5) continue; 
 
         const performance = calculatePerformanceMetrics(trades, initialCapital);
         
