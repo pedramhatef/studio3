@@ -96,6 +96,7 @@ export async function GET() {
 
     section('Find New Signal');
     const closeSlice = chartData.map(d => d.close);
+    const volumeSlice = chartData.map(d => d.volume);
 
     const emaFastArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_SLOW_PERIOD);
@@ -103,6 +104,7 @@ export async function GET() {
     const psarArr = indicators.calculateParabolicSAR(chartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
     const rsiArr = indicators.calculateRSI(closeSlice, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(chartData, strategyConfig.ATR_PERIOD);
+    const avgVolumeArr = indicators.calculateSMA(volumeSlice, strategyConfig.VOLUME_PERIOD);
 
     // We check for signals on the PREVIOUS candle (i-1) and execute on the CURRENT candle (i)
     const i = chartData.length - 1; // Current, open candle
@@ -124,6 +126,7 @@ export async function GET() {
       emaLong: getValueAt(emaLongArr, prev_i),
       pSar: getValueAt(psarArr, prev_i),
       rsi: getValueAt(rsiArr, prev_i),
+      avgVolume: getValueAt(avgVolumeArr, prev_i)
     };
 
     if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
@@ -139,14 +142,16 @@ export async function GET() {
 
     const isUptrend = prevCandle.close > (cache.emaLong as number);
     const isDowntrend = prevCandle.close < (cache.emaLong as number);
+    const volumeConfirmation = prevCandle.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+
 
     // --- HIGH CONFIDENCE ---
     // BUY Logic (Crossover)
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
     const psarConfirmBuy = prevCandle.close > (cache.pSar as number);
-    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend);
-    if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend) {
+    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend && volumeConfirmation);
+    if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend && volumeConfirmation) {
         signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
 
@@ -154,8 +159,8 @@ export async function GET() {
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
     const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
     const psarConfirmSell = prevCandle.close < (cache.pSar as number);
-    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend);
-    if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend) {
+    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend && volumeConfirmation);
+    if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend && volumeConfirmation) {
         signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
     }
     
@@ -187,7 +192,13 @@ export async function GET() {
     // Enhance and Save
     const atrValue = getValueAt(atrArr, i); // Use current ATR for buffer
      if (atrValue) {
-        signal.suggestedLeverage = Math.max(1, Math.min(10, Math.round(1 / (atrValue / latest.close))));
+        const capital = 1000; // Assume a constant capital for leverage calculation for now
+        const riskPercent = 1;
+        const dollarRisk = capital * (riskPercent / 100);
+        const positionSize = dollarRisk / (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
+        const leverage = (positionSize * latest.close) / capital;
+
+        signal.suggestedLeverage = Math.max(1, Math.min(10, Math.round(leverage)));
         signal.stopBuffer = atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
      }
     

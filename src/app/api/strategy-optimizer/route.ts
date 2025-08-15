@@ -9,7 +9,7 @@ import type { ChartDataPoint, StrategyParams } from '../../../lib/types';
 import { db } from '../../../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
-const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]?: number[] } = {
+const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } = {
   // Core Trend-Following
   EMA_FAST_PERIOD: [5, 10, 15],
   EMA_SLOW_PERIOD: [20, 30, 40],
@@ -23,13 +23,13 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]?:
   RSI_PERIOD: [14],
   RSI_OVERSOLD_THRESHOLD: [30, 35],
   RSI_OVERBOUGHT_THRESHOLD: [65, 70],
-  RSI_BREAKOUT_THRESHOLD: [55], // Not currently used in main logic but kept for potential future use
-  RSI_BREAKDOWN_THRESHOLD: [45], // Not currently used in main logic but kept for potential future use
+  RSI_BREAKOUT_THRESHOLD: [55], 
+  RSI_BREAKDOWN_THRESHOLD: [45], 
 
-  // Volatility & Volume (Not varied in this optimization)
+  // Volatility & Volume
   ATR_VOLATILITY_THRESHOLD: [1.2],
   VOLUME_PERIOD: [20],
-  VOLUME_THRESHOLD_MULTIPLIER: [2.0],
+  VOLUME_THRESHOLD_MULTIPLIER: [2.0, 3.0],
   
   // Risk Management
   ATR_PERIOD: [7, 10, 12],
@@ -39,13 +39,13 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]?:
 
 
 async function runAndSaveOptimization() {
-  console.log("=== STRATEGY OPTIMIZATION (BACKTESTING) STARTING ===");
+  console.log("=== STRATEGY OPTIMIZATION (GENETIC ALGORITHM) STARTING ===");
 
   // 1. Load data
   const chartData: ChartDataPoint[] = await getChartData();
   console.log(`Loaded ${chartData.length} data points for backtesting.`);
 
-  if (chartData.length < 50) { // Need a reasonable amount of data
+  if (chartData.length < 100) { // Need a reasonable amount of data
     console.error("Not enough historical data to run optimization.");
     return {
       success: false,
@@ -54,7 +54,7 @@ async function runAndSaveOptimization() {
   }
 
   // 2. Run the optimization
-  console.log("Running optimizeParameters function...");
+  console.log("Running optimizeParameters (Genetic Algorithm) function...");
   const { bestParams, bestPerformance, bestTrades } = await optimizeParameters(chartData, parameterRanges);
   
   if (!bestParams || !bestPerformance) {
@@ -93,8 +93,11 @@ async function runAndSaveOptimization() {
 
 export async function GET() {
   try {
-    const result = await runAndSaveOptimization();
-    return NextResponse.json(result);
+    // Non-blocking execution
+    runAndSaveOptimization().catch(err => {
+        console.error("Error in background optimization task:", err);
+    });
+    return NextResponse.json({ message: "Strategy optimization started in the background." });
   } catch (error) {
     console.error("An error occurred during the optimization GET request:", error);
     return NextResponse.json(
