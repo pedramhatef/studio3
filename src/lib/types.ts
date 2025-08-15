@@ -1,4 +1,5 @@
 
+
 export interface ChartDataPoint {
   time: number;
   open: number;
@@ -10,7 +11,7 @@ export interface ChartDataPoint {
 
 export interface Signal {
   type: 'BUY' | 'SELL';
-  level: 'High' | 'Medium' | 'Low';
+  level: 'High' | 'Medium';
   price: number;
   time: number;
   displayTime?: string;

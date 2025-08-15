@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -110,7 +111,6 @@ export function SignalDashboard() {
                 const toastTitles = {
                   High: `🚀 High ${newSignal.type} Signal!`,
                   Medium: `🔥 Medium ${newSignal.type} Signal!`,
-                  Low: `🤔 Low ${newSignal.type} Signal`
                 };
 
                 toast({
@@ -168,23 +168,19 @@ export function SignalDashboard() {
                         <div className="h-3 w-3 rounded-full bg-red-500" />
                         <span>Sell Signal</span>
                     </div>
-                     <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded-full bg-yellow-400" />
-                        <span>Low Confidence</span>
-                    </div>
                     <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1">
-                            <div className="h-3 w-3 rounded-full bg-green-500" />
-                            <div className="h-3 w-3 rounded-full bg-red-500" />
+                            <div className="h-3 w-3 rounded-full bg-green-500 opacity-80" />
+                            <div className="h-3 w-3 rounded-full bg-red-500 opacity-80" />
                         </div>
-                        <span>High (Solid)</span>
+                        <span>High Confidence (Solid)</span>
                     </div>
                      <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1">
-                          <div className="h-3 w-3 rounded-full ring-2 ring-offset-2 ring-offset-background ring-green-500" />
-                          <div className="h-3 w-3 rounded-full ring-2 ring-offset-2 ring-offset-background ring-red-500" />
+                          <div className="h-3 w-3 rounded-full bg-green-500 opacity-50" />
+                          <div className="h-3 w-3 rounded-full bg-red-500 opacity-50" />
                         </div>
-                        <span>Medium (Ring)</span>
+                        <span>Medium Confidence (Transparent)</span>
                     </div>
                 </div>
             </div>

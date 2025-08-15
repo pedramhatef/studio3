@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -11,13 +12,11 @@ interface SignalHistoryProps {
 }
 
 const levelVariantMap: { [key in Signal['level']]: 'default' | 'secondary' | 'destructive' } = {
-    'Low': 'secondary',
-    'Medium': 'default',
-    'High': 'destructive'
+    'Medium': 'secondary',
+    'High': 'default'
 };
 
 const levelTextMap: { [key in Signal['level']]: string } = {
-    'Low': 'Low Confidence',
     'Medium': 'Medium Confidence',
     'High': 'High Confidence'
 };

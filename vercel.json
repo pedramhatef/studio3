@@ -6,7 +6,7 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/optimize",
+      "path": "/api/strategy-optimizer",
       "schedule": "*/15 * * * *"
     }
   ]

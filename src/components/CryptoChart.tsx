@@ -35,10 +35,6 @@ const chartConfig = {
     label: 'Sell Signal',
     color: '#ef4444',
   },
-  lowConfidence: {
-    label: 'Low Confidence',
-    color: '#FFC107', // Yellow for low confidence
-  },
 };
 
 const CustomTooltipContent = ({ active, payload, label }: any) => {
@@ -74,10 +70,7 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
     return [min - padding, max + padding];
   }, [data]);
 
-  const getSignalColor = (level: Signal['level'], type: 'BUY' | 'SELL') => {
-    if (level === 'Low') {
-      return chartConfig.lowConfidence.color;
-    }
+  const getSignalColor = (type: 'BUY' | 'SELL') => {
     return type === 'BUY' ? chartConfig.buy.color : chartConfig.sell.color;
   };
   
@@ -85,7 +78,6 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
     switch(level) {
         case 'High': return { fillOpacity: 0.8, strokeOpacity: 1 };
         case 'Medium': return { fillOpacity: 0.5, strokeOpacity: 0.9 };
-        case 'Low': return { fillOpacity: 0.2, strokeOpacity: 0.7 };
         default: return { fillOpacity: 0.5, strokeOpacity: 0.9 };
     }
   }
@@ -140,7 +132,7 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
           fill="url(#colorClose)"
         />
         {signals.map((signal, index) => {
-           const signalColor = getSignalColor(signal.level, signal.type);
+           const signalColor = getSignalColor(signal.type);
            const { fillOpacity, strokeOpacity } = getSignalOpacity(signal.level);
 
            return (
