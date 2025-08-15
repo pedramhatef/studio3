@@ -18,7 +18,7 @@ export type StrategyParams = {
     RSI_OVERBOUGHT_THRESHOLD: number;
     RSI_BREAKOUT_THRESHOLD: number;
     RSI_BREAKDOWN_THRESHOLD: number;
-  
+
     // Volatility Filter
     ATR_PERIOD: number;
     ATR_VOLATILITY_THRESHOLD: number;
@@ -27,9 +27,10 @@ export type StrategyParams = {
     VOLUME_PERIOD: number;
     VOLUME_THRESHOLD_MULTIPLIER: number;
     
-    // Backtesting Simulation
+    // Backtesting Simulation & Risk
     TAKE_PROFIT_ATR_MULTIPLIER: number;
     STOP_LOSS_ATR_MULTIPLIER: number;
+    SPREAD_PERCENT: number; // For simulating market friction
 };
 
 export type TradeResult = {
@@ -88,6 +89,13 @@ const getPrevValueAt = (arr: (number | null)[], idx: number): number | null => {
     return arr[idx - 1] ?? arr.slice(0, idx).reverse().find(v => v !== null) ?? null;
 };
 
+// Applies a spread to simulate real market conditions
+const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number): number => {
+    const spread = price * (spreadPercent / 100);
+    return type === 'BUY' ? price + spread : price - spread;
+};
+
+
 export function runBacktest(data: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): TradeResult[] {
     const trades: TradeResult[] = [];
     let capital = initialCapital;
@@ -144,7 +152,8 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
             
             if (exitPrice !== null && exitReason !== null) {
-                const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
+                const effectiveExitPrice = applySpread(exitPrice, inTrade.type === 'BUY' ? 'SELL' : 'BUY', params.SPREAD_PERCENT);
+                const profit = (inTrade.type === 'BUY' ? effectiveExitPrice - inTrade.entryPrice : inTrade.entryPrice - effectiveExitPrice);
                 const profitPercentage = (profit / inTrade.entryPrice) * 100;
                 const finalCapital = inTrade.initialCapital + profit;
                 
@@ -154,7 +163,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                     type: inTrade.type,
                     entryCandleIndex: inTrade.entryCandleIndex,
                     initialCapital: inTrade.initialCapital,
-                    exitPrice,
+                    exitPrice: effectiveExitPrice,
                     exitTime: currentCandle.time,
                     exitCandleIndex: i,
                     profit,
@@ -238,28 +247,22 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         }
 
         if (signalType) {
-            // Close any existing trade if an opposite signal appears
             if (inTrade && inTrade.type !== signalType) {
                 const exitPrice = currentCandle.close;
-                const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
+                const effectiveExitPrice = applySpread(exitPrice, inTrade.type === 'BUY' ? 'SELL' : 'BUY', params.SPREAD_PERCENT);
+                const profit = (inTrade.type === 'BUY' ? effectiveExitPrice - inTrade.entryPrice : inTrade.entryPrice - effectiveExitPrice);
                 const profitPercentage = (profit / inTrade.entryPrice) * 100;
                 const finalCapital = inTrade.initialCapital + profit;
-                trades.push({ ...inTrade, exitPrice, exitTime: currentCandle.time, exitCandleIndex: i, profit, profitPercentage, finalCapital, exitReason: 'Opposite Signal' });
+                trades.push({ ...inTrade, exitPrice: effectiveExitPrice, exitTime: currentCandle.time, exitCandleIndex: i, profit, profitPercentage, finalCapital, exitReason: 'Opposite Signal' });
                 capital = finalCapital;
                 inTrade = null;
             }
 
-            // --- ENTRY LOGIC ---
-            // If we are not in a trade, check for a new entry signal
             if (!inTrade) {
                 const timeDeltaMin = Math.abs(currentCandle.time - lastSignalTime) / 60000;
                 let canEnter = false;
     
-                if (lastSignalType === null) {
-                    canEnter = true;
-                } else if (lastSignalType === signalType && timeDeltaMin >= 5) {
-                    canEnter = true;
-                } else if (lastSignalType !== signalType && timeDeltaMin >= 2) {
+                if (lastSignalType === null || (lastSignalType === signalType && timeDeltaMin >= 5) || (lastSignalType !== signalType && timeDeltaMin >= 2)) {
                     canEnter = true;
                 }
     
@@ -267,15 +270,16 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                     lastSignalType = signalType;
                     lastSignalTime = currentCandle.time;
                     const atrValue = cache.atr as number;
+                    const entryPrice = applySpread(currentCandle.close, signalType, params.SPREAD_PERCENT);
                                         
                     inTrade = {
-                        entryPrice: currentCandle.close,
+                        entryPrice: entryPrice,
                         entryTime: currentCandle.time,
                         type: signalType,
                         entryCandleIndex: i,
                         initialCapital: capital,
-                        stopLossPrice: signalType === 'BUY' ? currentCandle.close - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : currentCandle.close + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
-                        takeProfitPrice: signalType === 'BUY' ? currentCandle.close + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : currentCandle.close - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
+                        stopLossPrice: signalType === 'BUY' ? entryPrice - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : entryPrice + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
+                        takeProfitPrice: signalType === 'BUY' ? entryPrice + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : entryPrice - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
                     };
                 }
             }
@@ -285,12 +289,13 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     if (inTrade) {
         const lastCandle = data[data.length - 1];
         const exitPrice = lastCandle.close;
-        const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
+        const effectiveExitPrice = applySpread(exitPrice, inTrade.type === 'BUY' ? 'SELL' : 'BUY', params.SPREAD_PERCENT);
+        const profit = (inTrade.type === 'BUY' ? effectiveExitPrice - inTrade.entryPrice : inTrade.entryPrice - effectiveExitPrice);
         const profitPercentage = (profit / inTrade.entryPrice) * 100;
         const finalCapital = inTrade.initialCapital + profit;
         trades.push({
             ...inTrade,
-            exitPrice,
+            exitPrice: effectiveExitPrice,
             exitTime: lastCandle.time,
             exitCandleIndex: data.length - 1,
             profit,
@@ -333,14 +338,14 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     for (const currentParams of combinations) {
         const trades = runBacktest(data, currentParams, initialCapital);
-        if (trades.length === 0) continue;
+        if (trades.length < 5) continue; // Require a minimum number of trades for statistical significance
 
         const performance = calculatePerformanceMetrics(trades, initialCapital);
 
         // A scoring model that rewards profit and win rate, and penalizes having too few trades.
-        const score = performance.totalProfit * (performance.winRate / 100) * Math.log10(performance.numberOfTrades + 1);
+        const score = (performance.sharpeRatio * 0.5) + (performance.profitFactor * 0.3) + (Math.log10(performance.numberOfTrades) * 0.2);
 
-        if (score > highestScore) {
+        if (score > highestScore && performance.sharpeRatio > 0) { // Only consider strategies with positive Sharpe Ratio
             highestScore = score;
             bestPerformance = performance;
             bestParams = currentParams;
@@ -349,7 +354,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     }
     
     if (bestPerformance && bestParams) {
-        console.log(`Optimization complete. Best performance found: Profit=${bestPerformance.totalProfit.toFixed(6)}, Win Rate=${bestPerformance.winRate.toFixed(2)}%, Trades=${bestPerformance.numberOfTrades}`);
+        console.log(`Optimization complete. Best performance found: Sharpe=${bestPerformance.sharpeRatio.toFixed(2)}, Profit=${bestPerformance.totalProfit.toFixed(6)}, Win Rate=${bestPerformance.winRate.toFixed(2)}%, Trades=${bestPerformance.numberOfTrades}`);
         console.log('Best Parameters:', bestParams);
     } else {
         console.warn("No valid performance metrics were generated. The backtest might not have produced any trades with the given parameters.");
@@ -370,14 +375,17 @@ export type PerformanceMetrics = {
     lossRate: number;
     averageWin: number;
     averageLoss: number;
+    profitFactor: number;
+    sharpeRatio: number;
 };
 
 export function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): PerformanceMetrics {
     const numberOfTrades = trades.length;
-    if (numberOfTrades === 0) {
+    if (numberOfTrades < 2) { // Sharpe Ratio needs at least 2 trades
         return {
             totalProfit: 0, totalProfitPercentage: 0, numberOfTrades: 0, winningTrades: 0,
             losingTrades: 0, winRate: 0, lossRate: 0, averageWin: 0, averageLoss: 0,
+            profitFactor: 0, sharpeRatio: 0
         };
     }
     
@@ -389,8 +397,13 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
     const losingTrades = trades.filter(t => t.profit <= 0);
 
     const totalWinAmount = winningTrades.reduce((sum, t) => sum + t.profit, 0);
-    const totalLossAmount = losingTrades.reduce((sum, t) => sum + t.profit, 0);
+    const totalLossAmount = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
 
+    // Sharpe Ratio Calculation
+    const returns = trades.map(t => t.profitPercentage / 100);
+    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / numberOfTrades;
+    const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (numberOfTrades - 1));
+    const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(numberOfTrades) : 0; // Annualized for simplicity
 
     return {
         totalProfit,
@@ -401,6 +414,8 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         winRate: (winningTrades.length / numberOfTrades) * 100,
         lossRate: (losingTrades.length / numberOfTrades) * 100,
         averageWin: winningTrades.length > 0 ? totalWinAmount / winningTrades.length : 0,
-        averageLoss: losingTrades.length > 0 ? Math.abs(totalLossAmount / losingTrades.length) : 0,
+        averageLoss: losingTrades.length > 0 ? totalLossAmount / losingTrades.length : 0,
+        profitFactor: totalLossAmount > 0 ? totalWinAmount / totalLossAmount : Infinity,
+        sharpeRatio,
     };
 }

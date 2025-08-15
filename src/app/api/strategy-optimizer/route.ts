@@ -37,6 +37,9 @@ const parameterRanges = {
   // Backtesting Simulation - Wider risk/reward profiles
   TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2.0, 2.5, 3.0], // Test different reward targets
   STOP_LOSS_ATR_MULTIPLIER: [1.0, 1.5, 2.0], // Test different risk tolerances
+
+  // Market Friction
+  SPREAD_PERCENT: [0.005, 0.01] // Represents a realistic trading spread
 };
 
 
