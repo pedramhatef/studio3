@@ -43,8 +43,8 @@ const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number)
     const spread = price * (spreadPercent / 100);
     return type === 'BUY' ? price + spread : price - spread;
 };
-
-export function runBacktest(data: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): TradeResult[] {
+    
+export async function runBacktest(data: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): Promise<TradeResult[]> {
     const trades: TradeResult[] = [];
     let capital = initialCapital;
     let inTrade: InTradeState | null = null;
@@ -214,7 +214,7 @@ export type PerformanceMetrics = {
     sharpeRatio: number;
 };
 
-export function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): PerformanceMetrics {
+export async function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): Promise<PerformanceMetrics> {
     const numberOfTrades = trades.length;
     if (numberOfTrades < 2) { 
         return {
@@ -285,11 +285,11 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     console.log(`Generated ${combinations.length} parameter combinations to test.`);
 
     for (const currentParams of combinations) {
-        const trades = runBacktest(data, currentParams, initialCapital);
+        const trades = await runBacktest(data, currentParams, initialCapital);
 
         if (trades.length < 2) continue;
 
-        const performance = calculatePerformanceMetrics(trades, initialCapital);
+        const performance = await calculatePerformanceMetrics(trades, initialCapital);
         
         const pf = isFinite(performance.profitFactor) ? performance.profitFactor : 100;
         const score = (performance.totalProfit) + (performance.winRate * 0.2) + (pf * 0.1);
@@ -311,5 +311,3 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     return { bestParams, bestPerformance, bestTrades };
 }
-
-    
