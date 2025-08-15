@@ -75,8 +75,8 @@ export async function GET() {
       strategyConfig.EMA_SLOW_PERIOD, strategyConfig.RSI_PERIOD, strategyConfig.ATR_PERIOD, strategyConfig.EMA_LONG_PERIOD, strategyConfig.VOLUME_PERIOD, 26
     );
 
-    if (!Array.isArray(chartData) || chartData.length < requiredPeriods) {
-      log(`Not enough data to calculate indicators. Have=${chartData?.length ?? 0} Need>=${requiredPeriods}`);
+    if (!Array.isArray(chartData) || chartData.length < requiredPeriods + 1) { // Need +1 for lookback
+      log(`Not enough data to calculate indicators. Have=${chartData?.length ?? 0} Need>=${requiredPeriods + 1}`);
       return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
     }
     
@@ -96,7 +96,6 @@ export async function GET() {
 
     section('Find New Signal');
     const closeSlice = chartData.map(d => d.close);
-    const volumeSlice = chartData.map(d => d.volume);
 
     const emaFastArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_SLOW_PERIOD);
@@ -105,71 +104,59 @@ export async function GET() {
     const rsiArr = indicators.calculateRSI(closeSlice, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(chartData, strategyConfig.ATR_PERIOD);
 
-    const currentIndex = chartData.length - 1;
-    const latest = chartData[currentIndex];
-    
-    log('Latest candle:', {
-      time: new Date(latest.time).toISOString(),
-      close: Number(latest.close).toFixed(6),
+    // We check for signals on the PREVIOUS candle (i-1) and execute on the CURRENT candle (i)
+    const i = chartData.length - 1; // Current, open candle
+    const prev_i = i - 1; // Previous, closed candle
+
+    const latest = chartData[i];
+    const prevCandle = chartData[prev_i];
+
+    log('Evaluating signal on previous candle:', {
+      time: new Date(prevCandle.time).toISOString(),
+      close: Number(prevCandle.close).toFixed(6),
     });
 
     const getValueAt = (arr: (number | null)[], idx: number) => arr[idx] ?? null;
     
     const cache = {
-      emaFast: getValueAt(emaFastArr, currentIndex),
-      emaSlow: getValueAt(emaSlowArr, currentIndex),
-      emaLong: getValueAt(emaLongArr, currentIndex),
-      pSar: getValueAt(psarArr, currentIndex),
-      rsi: getValueAt(rsiArr, currentIndex),
-      atr: getValueAt(atrArr, currentIndex),
+      emaFast: getValueAt(emaFastArr, prev_i),
+      emaSlow: getValueAt(emaSlowArr, prev_i),
+      emaLong: getValueAt(emaLongArr, prev_i),
+      pSar: getValueAt(psarArr, prev_i),
+      rsi: getValueAt(rsiArr, prev_i),
     };
 
     if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
-      log('Indicator calculation incomplete:', cache);
+      log('Indicator calculation incomplete on previous candle:', cache);
       return NextResponse.json({ message: 'Indicator calculation incomplete.' });
     }
     kv(cache);
     
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     
-    const emaFastPrev = getValueAt(emaFastArr, currentIndex - 1);
-    const emaSlowPrev = getValueAt(emaSlowArr, currentIndex - 1);
+    const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
+    const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
 
-    const isUptrend = latest.close > (cache.emaLong as number);
-    const isDowntrend = latest.close < (cache.emaLong as number);
+    const isUptrend = prevCandle.close > (cache.emaLong as number);
+    const isDowntrend = prevCandle.close < (cache.emaLong as number);
 
-    // BUY Logic
+    // BUY Logic (based on prev candle's data)
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-    const psarConfirmBuy = latest.close > (cache.pSar as number);
+    const psarConfirmBuy = prevCandle.close > (cache.pSar as number);
     logCond('BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend);
     if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend) {
         signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
 
-    const isPullbackBuy = latest.low <= (cache.emaFast as number) && latest.close > (cache.emaFast as number);
-    const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
-    logCond('BUY Pullback', isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && isUptrend);
-    if (!signal && isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && isUptrend) {
-        signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
-    }
-
-    // SELL Logic
+    // SELL Logic (based on prev candle's data)
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
     const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-    const psarConfirmSell = latest.close < (cache.pSar as number);
+    const psarConfirmSell = prevCandle.close < (cache.pSar as number);
     logCond('SELL Crossover', emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend);
     if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend) {
         signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
     }
-
-    const isPullbackSell = latest.high >= (cache.emaFast as number) && latest.close < (cache.emaFast as number);
-    const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
-    logCond('SELL Pullback', isPullbackSell && rsiPullbackOkSell && psarConfirmSell && isDowntrend);
-    if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && isDowntrend) {
-        signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
-    }
-
 
     if (!signal) {
         log('No signal generated based on entry conditions.');
@@ -177,9 +164,11 @@ export async function GET() {
     }
 
     // Enhance and Save
-    const atrAsVolatility = (cache.atr as number) / latest.close;
-    signal.suggestedLeverage = Math.max(1, Math.min(10, Math.round(1 / atrAsVolatility)));
-    signal.stopBuffer = (cache.atr as number) * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
+    const atrValue = getValueAt(atrArr, i); // Use current ATR for buffer
+     if (atrValue) {
+        signal.suggestedLeverage = Math.max(1, Math.min(10, Math.round(1 / (atrValue / latest.close))));
+        signal.stopBuffer = atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
+     }
     
     await saveSignalToFirestore(signal);
     log('✓ Signal saved:', signal);
@@ -192,3 +181,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    

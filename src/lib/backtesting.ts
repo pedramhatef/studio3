@@ -2,39 +2,9 @@
 
 'use server';
 
-import type { ChartDataPoint, Signal } from '@/lib/types';
-import { db } from '@/lib/firebase';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
+import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 
-export type StrategyParams = {
-    // Core Trend-Following
-    EMA_FAST_PERIOD: number;
-    EMA_SLOW_PERIOD: number;
-    EMA_LONG_PERIOD: number;
-    PARABOLIC_SAR_STEP: number;
-    PARABOLIC_SAR_MAX: number;
-  
-    // Momentum
-    RSI_PERIOD: number;
-    RSI_OVERSOLD_THRESHOLD: number;
-    RSI_OVERBOUGHT_THRESHOLD: number;
-    RSI_BREAKOUT_THRESHOLD: number;
-    RSI_BREAKDOWN_THRESHOLD: number;
-  
-    // Volatility Filter
-    ATR_PERIOD: number;
-    ATR_VOLATILITY_THRESHOLD: number;
-
-    // Volume Filter
-    VOLUME_PERIOD: number;
-    VOLUME_THRESHOLD_MULTIPLIER: number;
-    
-    // Backtesting Simulation
-    TAKE_PROFIT_ATR_MULTIPLIER: number;
-    STOP_LOSS_ATR_MULTIPLIER: number;
-    SPREAD_PERCENT: number;
-};
 
 export type TradeResult = {
     entryPrice: number;
@@ -61,36 +31,16 @@ type InTradeState = {
     takeProfitPrice: number;
 };
 
-
-async function loadHistoricalData(collectionPath: string, startTime: number, endTime: number): Promise<ChartDataPoint[]> {
-    console.log(`Loading historical data from Firestore collection: ${collectionPath}`);
-    try {
-        const candlesCollection = collection(db, collectionPath);
-        const q = query(
-            candlesCollection,
-            where('time', '>=', startTime),
-            where('time', '<=', endTime),
-            orderBy('time', 'asc')
-        );
-        const querySnapshot = await getDocs(q);
-        const candles: ChartDataPoint[] = querySnapshot.docs.map(doc => doc.data() as ChartDataPoint);
-        console.log(`Loaded ${candles.length} candles.`);
-        return candles;
-    } catch (error) {
-        console.error('Error loading historical data from Firestore:', error);
-        throw error;
-    }
-}
-
 const getValueAt = (arr: (number | null)[], idx: number): number | null => {
     if (idx < 0 || idx >= arr.length) return null;
-    return arr[idx] ?? arr.slice(0, idx + 1).reverse().find(v => v !== null) ?? null;
+    const value = arr[idx];
+    return value === null || typeof value === 'undefined' ? null : value;
 };
 
 const getPrevValueAt = (arr: (number | null)[], idx: number): number | null => {
-    if (idx <= 0 || idx >= arr.length) return null;
-    return arr[idx - 1] ?? arr.slice(0, idx).reverse().find(v => v !== null) ?? null;
+    return getValueAt(arr, idx - 1);
 };
+
 
 const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number) => {
     const spread = price * (spreadPercent / 100);
@@ -104,7 +54,7 @@ export async function runBacktest(data: ChartDataPoint[], params: StrategyParams
     
     const requiredPeriods = Math.max(
         params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26
-    );
+    ) + 1; // +1 to have a previous candle for signal generation
 
     if (data.length < requiredPeriods) {
         return trades;
@@ -119,20 +69,16 @@ export async function runBacktest(data: ChartDataPoint[], params: StrategyParams
     const psarArr = indicators.calculateParabolicSAR(data, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
     const rsiArr = indicators.calculateRSI(closeSlice, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(data, params.ATR_PERIOD);
-    const avgVolumeArr = indicators.calculateSMA(volumeSlice, params.VOLUME_PERIOD);
-    const macd = indicators.calculateMACD(closeSlice, 12, 26, 9);
     
-    // Guard against empty indicator arrays
-    const allIndicators = [emaFastArr, emaSlowArr, emaLongArr, psarArr, rsiArr, atrArr, avgVolumeArr, macd.histogram, macd.macd, macd.signal];
+    const allIndicators = [emaFastArr, emaSlowArr, emaLongArr, psarArr, rsiArr, atrArr];
     if (allIndicators.some(arr => arr.length === 0)) {
-        // Not enough data to compute indicators for this parameter set
-        return [];
+        return []; 
     }
 
     for (let i = requiredPeriods; i < data.length; i++) {
-        const currentCandle = data[i];
-        const atrValue = getValueAt(atrArr, i);
-
+        const currentCandle = data[i]; // This is the candle we would enter on
+        const prevCandle = data[i-1]; // This is the candle we check for a signal
+        
         // --- EXIT LOGIC ---
         if (inTrade) {
             let exitPrice: number | null = null;
@@ -181,67 +127,59 @@ export async function runBacktest(data: ChartDataPoint[], params: StrategyParams
             }
         }
         
-        // --- ENTRY LOGIC ---
+        // --- ENTRY LOGIC (operates on candle i-1) ---
         if (!inTrade) {
             const cache = {
-                emaFast: getValueAt(emaFastArr, i),
-                emaSlow: getValueAt(emaSlowArr, i),
-                emaLong: getValueAt(emaLongArr, i),
-                pSar: getValueAt(psarArr, i),
-                rsi: getValueAt(rsiArr, i),
+                emaFast: getValueAt(emaFastArr, i - 1),
+                emaSlow: getValueAt(emaSlowArr, i - 1),
+                emaLong: getValueAt(emaLongArr, i - 1),
+                pSar: getValueAt(psarArr, i - 1),
+                rsi: getValueAt(rsiArr, i - 1),
             };
     
-            if (Object.values(cache).some(v => v === null || Number.isNaN(v)) || atrValue === null) {
+            if (Object.values(cache).some(v => v === null)) {
                 continue;
             }
             
-            let signal: Omit<Signal, 'displayTime' | 'serverTime'> | null = null;
-            const emaFastPrev = getPrevValueAt(emaFastArr, i);
-            const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
+            let signalType: Signal['type'] | null = null;
+            const emaFastPrev = getPrevValueAt(emaFastArr, i - 1);
+            const emaSlowPrev = getPrevValueAt(emaSlowArr, i - 1);
             
-            const isUptrend = currentCandle.close > (cache.emaLong as number);
-            const isDowntrend = currentCandle.close < (cache.emaLong as number);
+            const isUptrend = prevCandle.close > (cache.emaLong as number);
+            const isDowntrend = prevCandle.close < (cache.emaLong as number);
 
             // BUY Logic
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
             const rsiInRangeBuy = (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
-            const psarConfirmBuy = currentCandle.close > (cache.pSar as number);
+            const psarConfirmBuy = prevCandle.close > (cache.pSar as number);
 
             if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend) {
-                signal = { type: 'BUY', level: 'High', price: currentCandle.close, time: currentCandle.time };
-            }
-
-            const isPullbackBuy = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
-            const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
-            if (!signal && isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && isUptrend) {
-                signal = { type: 'BUY', level: 'Medium', price: currentCandle.close, time: currentCandle.time };
+                signalType = 'BUY';
             }
 
             // SELL Logic
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
             const rsiInRangeSell = (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
-            const psarConfirmSell = currentCandle.close < (cache.pSar as number);
+            const psarConfirmSell = prevCandle.close < (cache.pSar as number);
 
-            if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend) {
-                signal = { type: 'SELL', level: 'High', price: currentCandle.close, time: currentCandle.time };
-            }
-
-            const isPullbackSell = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
-            const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
-            if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && isDowntrend) {
-                signal = { type: 'SELL', level: 'Medium', price: currentCandle.close, time: currentCandle.time };
+            if (!signalType && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend) {
+                signalType = 'SELL';
             }
             
-            if (signal) {
-                const entryPrice = applySpread(currentCandle.close, signal.type, params.SPREAD_PERCENT);
+            if (signalType) {
+                // Enter on the open of the *current* candle
+                const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
+                const atrValue = getValueAt(atrArr, i - 1); // Use ATR from the signal candle for setting SL/TP
+                if (atrValue === null) continue;
+
                 inTrade = {
                     entryPrice: entryPrice,
                     entryTime: currentCandle.time,
-                    type: signal.type,
+                    type: signalType,
                     entryCandleIndex: i,
                     initialCapital: capital,
-                    stopLossPrice: signal.type === 'BUY' ? entryPrice - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : entryPrice + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
-                    takeProfitPrice: signal.type === 'BUY' ? entryPrice + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : entryPrice - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
+                    stopLossPrice: signalType === 'BUY' ? entryPrice - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : entryPrice + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
+                    takeProfitPrice: signalType === 'BUY' ? entryPrice + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : entryPrice - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
                 };
             }
         }
@@ -285,7 +223,7 @@ export type PerformanceMetrics = {
 
 export async function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): Promise<PerformanceMetrics> {
     const numberOfTrades = trades.length;
-    if (numberOfTrades < 2) { 
+    if (numberOfTrades < 1) { 
         return {
             totalProfit: 0, totalProfitPercentage: 0, numberOfTrades: 0, winningTrades: 0,
             losingTrades: 0, winRate: 0, lossRate: 0, averageWin: 0, averageLoss: 0,
@@ -359,14 +297,16 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
             SPREAD_PERCENT: 0.01 // Add default spread
         };
         const trades = await runBacktest(data, currentParams, initialCapital);
-        if (trades.length < 2) continue;
+        if (trades.length < 1) continue;
 
         const performance = await calculatePerformanceMetrics(trades, initialCapital);
 
+        // Score prioritizes profitability and consistency
         const score = (performance.totalProfit) * (performance.winRate / 100);
+        const saneScore = isNaN(score) || !isFinite(score) ? -Infinity : score;
 
-        if (score > highestScore) {
-            highestScore = score;
+        if (saneScore > highestScore) {
+            highestScore = saneScore;
             bestPerformance = performance;
             bestParams = currentParams;
             bestTrades = trades;
@@ -382,3 +322,5 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     return { bestParams, bestPerformance, bestTrades };
 }
+
+    
