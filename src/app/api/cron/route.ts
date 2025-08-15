@@ -83,33 +83,11 @@ export async function GET() {
     const lastSignal = recentSignals?.[0] ?? null;
 
     if (lastSignal) {
-        const lastSignalTime = lastSignal.time;
-        const latestCandleTime = chartData[chartData.length - 1].time;
-        const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
-
-        if (timeSinceLastSignalMs > 0) {
-            const candlesSinceLastSignal = chartData.filter(d => d.time > lastSignalTime && d.time <= latestCandleTime);
-            let positionExited = false;
-            for (const candle of candlesSinceLastSignal) {
-                const atrValue = indicators.calculateATR(chartData.slice(0, chartData.indexOf(candle) + 1), strategyConfig.ATR_PERIOD).pop() ?? 0;
-                const stopLossPrice = lastSignal.type === 'BUY'
-                    ? lastSignal.price - (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER)
-                    : lastSignal.price + (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
-                const takeProfitPrice = lastSignal.type === 'BUY'
-                    ? lastSignal.price + (atrValue * strategyConfig.TAKE_PROFIT_ATR_MULTIPLIER)
-                    : lastSignal.price - (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
-
-                if ((lastSignal.type === 'BUY' && (candle.low <= stopLossPrice || candle.high >= takeProfitPrice)) ||
-                    (lastSignal.type === 'SELL' && (candle.high >= stopLossPrice || candle.low <= takeProfitPrice))) {
-                    log(`Position from signal at ${new Date(lastSignalTime).toISOString()} would have exited. Clearing last signal.`);
-                    positionExited = true;
-                    break; 
-                }
-            }
-            if (!positionExited) {
-                 log(`Still in active trade based on signal from ${new Date(lastSignalTime).toISOString()}. No new signals will be generated.`);
-                 return NextResponse.json({ message: 'In active trade. No new signal generated.' });
-            }
+        const timeSinceLastSignal = chartData[chartData.length - 1].time - lastSignal.time;
+        // If last signal was less than 2 minutes ago, don't generate a new one to prevent conflicts.
+        if (timeSinceLastSignal < 2 * 60 * 1000) { 
+            log(`Still in active trade based on signal from ${new Date(lastSignal.time).toISOString()}. No new signals will be generated.`);
+            return NextResponse.json({ message: 'In active trade. No new signal generated.' });
         }
     }
 
