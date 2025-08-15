@@ -9,17 +9,29 @@ import type { ChartDataPoint, StrategyParams } from '../../../lib/types';
 import { db } from '../../../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
-const parameterRanges: { [key in keyof StrategyParams]?: number[] } = {
+const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]?: number[] } = {
   // Core Trend-Following
   EMA_FAST_PERIOD: [5, 10, 15],
   EMA_SLOW_PERIOD: [20, 30, 40],
+  EMA_LONG_PERIOD: [50],
   
+  // Confirmation
+  PARABOLIC_SAR_STEP: [0.02],
+  PARABOLIC_SAR_MAX: [0.2],
+
   // Momentum
   RSI_PERIOD: [14],
   RSI_OVERSOLD_THRESHOLD: [30, 35],
   RSI_OVERBOUGHT_THRESHOLD: [65, 70],
+  RSI_BREAKOUT_THRESHOLD: [55], // Not currently used in main logic but kept for potential future use
+  RSI_BREAKDOWN_THRESHOLD: [45], // Not currently used in main logic but kept for potential future use
+
+  // Volatility & Volume (Not varied in this optimization)
+  ATR_VOLATILITY_THRESHOLD: [1.2],
+  VOLUME_PERIOD: [20],
+  VOLUME_THRESHOLD_MULTIPLIER: [2.0],
   
-  // Volatility Filter & Risk Management
+  // Risk Management
   ATR_PERIOD: [7, 10, 12],
   TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0],
   STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0],

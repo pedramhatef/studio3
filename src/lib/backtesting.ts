@@ -1,5 +1,8 @@
 
-import type { ChartDataPoint } from '@/lib/types';
+
+'use server';
+
+import type { ChartDataPoint, Signal } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
 import * as indicators from '@/lib/indicators';
@@ -30,6 +33,7 @@ export type StrategyParams = {
     // Backtesting Simulation
     TAKE_PROFIT_ATR_MULTIPLIER: number;
     STOP_LOSS_ATR_MULTIPLIER: number;
+    SPREAD_PERCENT: number;
 };
 
 export type TradeResult = {
@@ -58,7 +62,7 @@ type InTradeState = {
 };
 
 
-export async function loadHistoricalData(collectionPath: string, startTime: number, endTime: number): Promise<ChartDataPoint[]> {
+async function loadHistoricalData(collectionPath: string, startTime: number, endTime: number): Promise<ChartDataPoint[]> {
     console.log(`Loading historical data from Firestore collection: ${collectionPath}`);
     try {
         const candlesCollection = collection(db, collectionPath);
@@ -88,15 +92,18 @@ const getPrevValueAt = (arr: (number | null)[], idx: number): number | null => {
     return arr[idx - 1] ?? arr.slice(0, idx).reverse().find(v => v !== null) ?? null;
 };
 
-export function runBacktest(data: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): TradeResult[] {
+const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number) => {
+    const spread = price * (spreadPercent / 100);
+    return type === 'BUY' ? price + spread : price - spread;
+};
+
+export async function runBacktest(data: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): Promise<TradeResult[]> {
     const trades: TradeResult[] = [];
     let capital = initialCapital;
     let inTrade: InTradeState | null = null;
-    let lastSignalType: 'BUY' | 'SELL' | null = null;
-    let lastSignalTime = 0;
-
+    
     const requiredPeriods = Math.max(
-        params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26 // MACD slow period
+        params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26
     );
 
     if (data.length < requiredPeriods) {
@@ -106,7 +113,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     const closeSlice = data.map(d => d.close);
     const volumeSlice = data.map(d => d.volume);
 
-
     const emaFastArr = indicators.calculateEMA(closeSlice, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(closeSlice, params.EMA_SLOW_PERIOD);
     const emaLongArr = indicators.calculateEMA(closeSlice, params.EMA_LONG_PERIOD);
@@ -115,11 +121,18 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     const atrArr = indicators.calculateATR(data, params.ATR_PERIOD);
     const avgVolumeArr = indicators.calculateSMA(volumeSlice, params.VOLUME_PERIOD);
     const macd = indicators.calculateMACD(closeSlice, 12, 26, 9);
-
+    
+    // Guard against empty indicator arrays
+    const allIndicators = [emaFastArr, emaSlowArr, emaLongArr, psarArr, rsiArr, atrArr, avgVolumeArr, macd.histogram, macd.macd, macd.signal];
+    if (allIndicators.some(arr => arr.length === 0)) {
+        // Not enough data to compute indicators for this parameter set
+        return [];
+    }
 
     for (let i = requiredPeriods; i < data.length; i++) {
         const currentCandle = data[i];
-        
+        const atrValue = getValueAt(atrArr, i);
+
         // --- EXIT LOGIC ---
         if (inTrade) {
             let exitPrice: number | null = null;
@@ -144,7 +157,8 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
             
             if (exitPrice !== null && exitReason !== null) {
-                const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
+                const effectiveExitPrice = applySpread(exitPrice, inTrade.type === 'BUY' ? 'SELL' : 'BUY', params.SPREAD_PERCENT);
+                const profit = (inTrade.type === 'BUY' ? effectiveExitPrice - inTrade.entryPrice : inTrade.entryPrice - effectiveExitPrice);
                 const profitPercentage = (profit / inTrade.entryPrice) * 100;
                 const finalCapital = inTrade.initialCapital + profit;
                 
@@ -154,7 +168,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                     type: inTrade.type,
                     entryCandleIndex: inTrade.entryCandleIndex,
                     initialCapital: inTrade.initialCapital,
-                    exitPrice,
+                    exitPrice: effectiveExitPrice,
                     exitTime: currentCandle.time,
                     exitCandleIndex: i,
                     profit,
@@ -167,117 +181,68 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
         }
         
-        const cache = {
-            emaFast: getValueAt(emaFastArr, i),
-            emaSlow: getValueAt(emaSlowArr, i),
-            emaLong: getValueAt(emaLongArr, i),
-            pSar: getValueAt(psarArr, i),
-            rsi: getValueAt(rsiArr, i),
-            atr: getValueAt(atrArr, i),
-            avgVolume: getValueAt(avgVolumeArr, i),
-            macdHistogram: getValueAt(macd.histogram, i),
-        };
+        // --- ENTRY LOGIC ---
+        if (!inTrade) {
+            const cache = {
+                emaFast: getValueAt(emaFastArr, i),
+                emaSlow: getValueAt(emaSlowArr, i),
+                emaLong: getValueAt(emaLongArr, i),
+                pSar: getValueAt(psarArr, i),
+                rsi: getValueAt(rsiArr, i),
+            };
+    
+            if (Object.values(cache).some(v => v === null || Number.isNaN(v)) || atrValue === null) {
+                continue;
+            }
+            
+            let signal: Omit<Signal, 'displayTime' | 'serverTime'> | null = null;
+            const emaFastPrev = getPrevValueAt(emaFastArr, i);
+            const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
+            
+            const isUptrend = currentCandle.close > (cache.emaLong as number);
+            const isDowntrend = currentCandle.close < (cache.emaLong as number);
 
-        if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
-            continue;
-        }
-        
-        const isUptrend = currentCandle.close > (cache.emaLong as number);
-        const isDowntrend = currentCandle.close < (cache.emaLong as number);
-        
-        const recentAtrSlice = atrArr.slice(Math.max(0, i - 10), i).filter(v => v !== null) as number[];
-        const avgAtr = recentAtrSlice.length > 0 ? recentAtrSlice.reduce((s, v) => s + v, 0) / recentAtrSlice.length : 0;
-        const isVolatileEnough = (cache.atr as number) > (avgAtr * params.ATR_VOLATILITY_THRESHOLD);
-        
-        let signalType: 'BUY' | 'SELL' | null = null;
-        let signalLevel: 'High' | 'Medium' | null = null;
-
-        
-        const emaFastPrev = getPrevValueAt(emaFastArr, i);
-        const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
-        const volumeOk = currentCandle.volume > (cache.avgVolume as number) * params.VOLUME_THRESHOLD_MULTIPLIER;
-
-        if (isUptrend) {
-            const macdConfirm = (cache.macdHistogram as number) > 0;
+            // BUY Logic
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-            if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && macdConfirm) {
-                signalType = 'BUY';
-                signalLevel = 'High';
-            } else {
-                const isPullback = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
-                if (isPullback && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && (cache.rsi as number) > 40) {
-                    signalType = 'BUY';
-                    signalLevel = 'Medium';
-                } else if (volumeOk && currentCandle.close > (cache.pSar as number) && (cache.rsi as number) > params.RSI_BREAKOUT_THRESHOLD && macdConfirm) {
-                    signalType = 'BUY';
-                    signalLevel = 'High';
-                }
+            const rsiInRangeBuy = (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
+            const psarConfirmBuy = currentCandle.close > (cache.pSar as number);
+
+            if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend) {
+                signal = { type: 'BUY', level: 'High', price: currentCandle.close, time: currentCandle.time };
             }
-        } else if (isDowntrend) {
-            const macdConfirm = (cache.macdHistogram as number) < 0;
+
+            const isPullbackBuy = currentCandle.low <= (cache.emaFast as number) && currentCandle.close > (cache.emaFast as number);
+            const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
+            if (!signal && isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && isUptrend) {
+                signal = { type: 'BUY', level: 'Medium', price: currentCandle.close, time: currentCandle.time };
+            }
+
+            // SELL Logic
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-            if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && macdConfirm) {
-                signalType = 'SELL';
-                signalLevel = 'High';
-            } else {
-                const isPullback = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
-                if (isPullback && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && (cache.rsi as number) < 60) {
-                    signalType = 'SELL';
-                    signalLevel = 'Medium';
-                } else if (volumeOk && currentCandle.close < (cache.pSar as number) && (cache.rsi as number) < params.RSI_BREAKDOWN_THRESHOLD && macdConfirm) {
-                    signalType = 'SELL';
-                    signalLevel = 'High';
-                }
-            }
-        }
-        
-        if (signalType && !isVolatileEnough) {
-            if (signalLevel !== 'Medium') {
-                signalType = null; // Invalidate signal
-            }
-        }
+            const rsiInRangeSell = (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
+            const psarConfirmSell = currentCandle.close < (cache.pSar as number);
 
-        if (signalType) {
-            // Close any existing trade if an opposite signal appears
-            if (inTrade && inTrade.type !== signalType) {
-                const exitPrice = currentCandle.close;
-                const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
-                const profitPercentage = (profit / inTrade.entryPrice) * 100;
-                const finalCapital = inTrade.initialCapital + profit;
-                trades.push({ ...inTrade, exitPrice, exitTime: currentCandle.time, exitCandleIndex: i, profit, profitPercentage, finalCapital, exitReason: 'Opposite Signal' });
-                capital = finalCapital;
-                inTrade = null;
+            if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend) {
+                signal = { type: 'SELL', level: 'High', price: currentCandle.close, time: currentCandle.time };
             }
 
-            // --- ENTRY LOGIC ---
-            // If we are not in a trade, check for a new entry signal
-            if (!inTrade) {
-                const timeDeltaMin = Math.abs(currentCandle.time - lastSignalTime) / 60000;
-                let canEnter = false;
-    
-                if (lastSignalType === null) {
-                    canEnter = true;
-                } else if (lastSignalType === signalType && timeDeltaMin >= 5) {
-                    canEnter = true;
-                } else if (lastSignalType !== signalType && timeDeltaMin >= 2) {
-                    canEnter = true;
-                }
-    
-                if (canEnter) {
-                    lastSignalType = signalType;
-                    lastSignalTime = currentCandle.time;
-                    const atrValue = cache.atr as number;
-                                        
-                    inTrade = {
-                        entryPrice: currentCandle.close,
-                        entryTime: currentCandle.time,
-                        type: signalType,
-                        entryCandleIndex: i,
-                        initialCapital: capital,
-                        stopLossPrice: signalType === 'BUY' ? currentCandle.close - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : currentCandle.close + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
-                        takeProfitPrice: signalType === 'BUY' ? currentCandle.close + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : currentCandle.close - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
-                    };
-                }
+            const isPullbackSell = currentCandle.high >= (cache.emaFast as number) && currentCandle.close < (cache.emaFast as number);
+            const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
+            if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && isDowntrend) {
+                signal = { type: 'SELL', level: 'Medium', price: currentCandle.close, time: currentCandle.time };
+            }
+            
+            if (signal) {
+                const entryPrice = applySpread(currentCandle.close, signal.type, params.SPREAD_PERCENT);
+                inTrade = {
+                    entryPrice: entryPrice,
+                    entryTime: currentCandle.time,
+                    type: signal.type,
+                    entryCandleIndex: i,
+                    initialCapital: capital,
+                    stopLossPrice: signal.type === 'BUY' ? entryPrice - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : entryPrice + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
+                    takeProfitPrice: signal.type === 'BUY' ? entryPrice + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : entryPrice - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
+                };
             }
         }
     }
@@ -285,12 +250,13 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     if (inTrade) {
         const lastCandle = data[data.length - 1];
         const exitPrice = lastCandle.close;
-        const profit = (inTrade.type === 'BUY' ? exitPrice - inTrade.entryPrice : inTrade.entryPrice - exitPrice);
+        const effectiveExitPrice = applySpread(exitPrice, inTrade.type === 'BUY' ? 'SELL' : 'BUY', params.SPREAD_PERCENT);
+        const profit = (inTrade.type === 'BUY' ? effectiveExitPrice - inTrade.entryPrice : inTrade.entryPrice - effectiveExitPrice);
         const profitPercentage = (profit / inTrade.entryPrice) * 100;
         const finalCapital = inTrade.initialCapital + profit;
         trades.push({
             ...inTrade,
-            exitPrice,
+            exitPrice: effectiveExitPrice,
             exitTime: lastCandle.time,
             exitCandleIndex: data.length - 1,
             profit,
@@ -303,7 +269,61 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     return trades;
 }
 
-export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { [key: string]: number[] }): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics | null; bestTrades: TradeResult[] }> {
+export type PerformanceMetrics = {
+    totalProfit: number;
+    totalProfitPercentage: number;
+    numberOfTrades: number;
+    winningTrades: number;
+    losingTrades: number;
+    winRate: number;
+    lossRate: number;
+    averageWin: number;
+    averageLoss: number;
+    profitFactor: number;
+    sharpeRatio: number;
+};
+
+export async function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): Promise<PerformanceMetrics> {
+    const numberOfTrades = trades.length;
+    if (numberOfTrades < 2) { 
+        return {
+            totalProfit: 0, totalProfitPercentage: 0, numberOfTrades: 0, winningTrades: 0,
+            losingTrades: 0, winRate: 0, lossRate: 0, averageWin: 0, averageLoss: 0,
+            profitFactor: 0, sharpeRatio: 0
+        };
+    }
+    
+    const finalCapital = trades.length > 0 ? trades[trades.length - 1].finalCapital : initialCapital;
+    const totalProfit = finalCapital - initialCapital;
+    const totalProfitPercentage = (totalProfit / initialCapital) * 100;
+
+    const winningTrades = trades.filter(t => t.profit > 0);
+    const losingTrades = trades.filter(t => t.profit <= 0);
+
+    const totalWinAmount = winningTrades.reduce((sum, t) => sum + t.profit, 0);
+    const totalLossAmount = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
+    
+    const returns = trades.map(t => t.profitPercentage / 100);
+    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / numberOfTrades;
+    const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (numberOfTrades - 1));
+    const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(numberOfTrades) : 0; 
+
+    return {
+        totalProfit,
+        totalProfitPercentage,
+        numberOfTrades,
+        winningTrades: winningTrades.length,
+        losingTrades: losingTrades.length,
+        winRate: (winningTrades.length / numberOfTrades) * 100,
+        lossRate: (losingTrades.length / numberOfTrades) * 100,
+        averageWin: winningTrades.length > 0 ? totalWinAmount / winningTrades.length : 0,
+        averageLoss: losingTrades.length > 0 ? totalLossAmount / losingTrades.length : 0,
+        profitFactor: totalLossAmount > 0 ? totalWinAmount / totalLossAmount : Infinity,
+        sharpeRatio: isNaN(sharpeRatio) ? 0 : sharpeRatio,
+    };
+}
+
+export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]?: number[] }): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics | null; bestTrades: TradeResult[] }> {
     console.log('Starting parameter optimization...');
     let bestPerformance: PerformanceMetrics | null = null;
     let bestParams: StrategyParams | null = null;
@@ -313,7 +333,7 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     const initialCapital = 10000;
     
     const keys = Object.keys(paramRanges);
-    const combinations: StrategyParams[] = [];
+    const combinations: Omit<StrategyParams, 'SPREAD_PERCENT'>[] = [];
     
     function generateCombinations(index: number, currentCombination: any) {
         if (index === keys.length) {
@@ -322,8 +342,10 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
         }
         const key = keys[index];
         const values = paramRanges[key as keyof typeof paramRanges];
-        for (const value of values) {
-            generateCombinations(index + 1, { ...currentCombination, [key]: value });
+        if (values) {
+            for (const value of values) {
+                generateCombinations(index + 1, { ...currentCombination, [key]: value });
+            }
         }
     }
     
@@ -331,14 +353,17 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     
     console.log(`Generated ${combinations.length} parameter combinations to test.`);
 
-    for (const currentParams of combinations) {
-        const trades = runBacktest(data, currentParams, initialCapital);
-        if (trades.length === 0) continue;
+    for (const currentParamCombination of combinations) {
+        const currentParams: StrategyParams = {
+            ...currentParamCombination,
+            SPREAD_PERCENT: 0.01 // Add default spread
+        };
+        const trades = await runBacktest(data, currentParams, initialCapital);
+        if (trades.length < 2) continue;
 
-        const performance = calculatePerformanceMetrics(trades, initialCapital);
+        const performance = await calculatePerformanceMetrics(trades, initialCapital);
 
-        // A scoring model that rewards profit and win rate, and penalizes having too few trades.
-        const score = performance.totalProfit * (performance.winRate / 100) * Math.log10(performance.numberOfTrades + 1);
+        const score = (performance.totalProfit) * (performance.winRate / 100);
 
         if (score > highestScore) {
             highestScore = score;
@@ -355,52 +380,5 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
         console.warn("No valid performance metrics were generated. The backtest might not have produced any trades with the given parameters.");
     }
 
-
     return { bestParams, bestPerformance, bestTrades };
-}
-
-
-export type PerformanceMetrics = {
-    totalProfit: number;
-    totalProfitPercentage: number;
-    numberOfTrades: number;
-    winningTrades: number;
-    losingTrades: number;
-    winRate: number;
-    lossRate: number;
-    averageWin: number;
-    averageLoss: number;
-};
-
-export function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): PerformanceMetrics {
-    const numberOfTrades = trades.length;
-    if (numberOfTrades === 0) {
-        return {
-            totalProfit: 0, totalProfitPercentage: 0, numberOfTrades: 0, winningTrades: 0,
-            losingTrades: 0, winRate: 0, lossRate: 0, averageWin: 0, averageLoss: 0,
-        };
-    }
-    
-    const finalCapital = trades.length > 0 ? trades[trades.length - 1].finalCapital : initialCapital;
-    const totalProfit = finalCapital - initialCapital;
-    const totalProfitPercentage = (totalProfit / initialCapital) * 100;
-
-    const winningTrades = trades.filter(t => t.profit > 0);
-    const losingTrades = trades.filter(t => t.profit <= 0);
-
-    const totalWinAmount = winningTrades.reduce((sum, t) => sum + t.profit, 0);
-    const totalLossAmount = losingTrades.reduce((sum, t) => sum + t.profit, 0);
-
-
-    return {
-        totalProfit,
-        totalProfitPercentage,
-        numberOfTrades,
-        winningTrades: winningTrades.length,
-        losingTrades: losingTrades.length,
-        winRate: (winningTrades.length / numberOfTrades) * 100,
-        lossRate: (losingTrades.length / numberOfTrades) * 100,
-        averageWin: winningTrades.length > 0 ? totalWinAmount / winningTrades.length : 0,
-        averageLoss: losingTrades.length > 0 ? Math.abs(totalLossAmount / losingTrades.length) : 0,
-    };
 }
