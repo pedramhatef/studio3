@@ -94,6 +94,19 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                     exitReason = 'Take Profit';
                 }
             }
+
+            // Check for exit on opposite signal
+            const cache = {
+                emaFast: getValueAt(emaFastArr, i),
+                emaSlow: getValueAt(emaSlowArr, i),
+            };
+            if (!exitPrice && cache.emaFast !== null && cache.emaSlow !== null) {
+                const oppositeSignal = (inTrade.type === 'BUY' && cache.emaFast < cache.emaSlow) || (inTrade.type === 'SELL' && cache.emaFast > cache.emaSlow);
+                if (oppositeSignal) {
+                    exitPrice = currentCandle.close;
+                    exitReason = 'Opposite Signal';
+                }
+            }
             
             if (exitPrice !== null && exitReason !== null) {
                 const effectiveExitPrice = applySpread(exitPrice, inTrade.type === 'BUY' ? 'SELL' : 'BUY', params.SPREAD_PERCENT);
@@ -199,33 +212,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                     stopLossPrice: signalType === 'BUY' ? entryPrice - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : entryPrice + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
                     takeProfitPrice: signalType === 'BUY' ? entryPrice + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : entryPrice - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
                 };
-            }
-        } else { // Handle exit on opposite signal
-            const cache = {
-                emaFast: getValueAt(emaFastArr, i),
-                emaSlow: getValueAt(emaSlowArr, i),
-            };
-            if (cache.emaFast === null || cache.emaSlow === null) continue;
-
-            const oppositeSignal = (inTrade.type === 'BUY' && cache.emaFast < cache.emaSlow) || (inTrade.type === 'SELL' && cache.emaFast > cache.emaSlow);
-            if (oppositeSignal) {
-                const exitPrice = currentCandle.close;
-                const effectiveExitPrice = applySpread(exitPrice, inTrade.type === 'BUY' ? 'SELL' : 'BUY', params.SPREAD_PERCENT);
-                const profit = (inTrade.type === 'BUY' ? effectiveExitPrice - inTrade.entryPrice : inTrade.entryPrice - effectiveExitPrice);
-                const profitPercentage = (profit / inTrade.entryPrice) * 100;
-                const finalCapital = inTrade.initialCapital + profit;
-                trades.push({
-                    ...inTrade,
-                    exitPrice: effectiveExitPrice,
-                    exitTime: currentCandle.time,
-                    exitCandleIndex: i,
-                    profit,
-                    profitPercentage,
-                    finalCapital,
-                    exitReason: 'Opposite Signal'
-                });
-                capital = finalCapital;
-                inTrade = null;
             }
         }
     }
@@ -335,6 +321,11 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     console.log(`Generated ${combinations.length} parameter combinations to test.`);
 
     for (const currentParams of combinations) {
+        // Skip invalid parameter combinations
+        if (currentParams.EMA_FAST_PERIOD >= currentParams.EMA_SLOW_PERIOD) continue;
+        if (currentParams.RSI_OVERSOLD_THRESHOLD >= currentParams.RSI_OVERBOUGHT_THRESHOLD) continue;
+        if (currentParams.RSI_BREAKDOWN_THRESHOLD >= currentParams.RSI_BREAKOUT_THRESHOLD) continue;
+
         const trades = runBacktest(data, currentParams, initialCapital);
         if (trades.length < 5) continue; 
 
@@ -359,5 +350,3 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     return { bestParams, bestPerformance, bestTrades };
 }
-
-    
