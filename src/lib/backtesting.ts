@@ -72,7 +72,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         const currentCandle = data[i];
         const atrValue = getValueAt(atrArr, i);
 
-        // --- EXIT LOGIC ---
         if (inTrade) {
             let exitPrice: number | null = null;
             let exitReason: TradeResult['exitReason'] | null = null;
@@ -95,7 +94,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 }
             }
 
-            // Check for exit on opposite signal
             const cache = {
                 emaFast: getValueAt(emaFastArr, i),
                 emaSlow: getValueAt(emaSlowArr, i),
@@ -133,8 +131,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
         }
         
-        // --- ENTRY LOGIC ---
-        if (!inTrade) {
+        if (!inTrade && atrValue !== null) {
             const cache = {
                 emaFast: getValueAt(emaFastArr, i),
                 emaSlow: getValueAt(emaSlowArr, i),
@@ -145,7 +142,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 macdHistogram: getValueAt(macd.histogram, i),
             };
     
-            if (Object.values(cache).some(v => v === null || Number.isNaN(v)) || atrValue === null) {
+            if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
                 continue;
             }
             
@@ -170,7 +167,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             const recentBuys = recentSignals.filter(s => s.type === 'BUY').length;
             const inUptrendCooldown = recentBuys > 1 && (cache.emaFast as number) > (cache.emaSlow as number);
 
-            if (isUptrend && !inDowntrendCooldown) {
+            if (isUptrend && isVolatileEnough && !inDowntrendCooldown) {
                 const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
                 if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && macdConfirmBuy) {
                     signalType = 'BUY';
@@ -183,7 +180,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 if (!signalType && volumeOk && psarOk && (cache.rsi as number) > params.RSI_BREAKOUT_THRESHOLD && macdConfirmBuy) {
                     signalType = 'BUY';
                 }
-            } else if (isDowntrend && !inUptrendCooldown) {
+            } else if (isDowntrend && isVolatileEnough && !inUptrendCooldown) {
                 const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
                 if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && macdConfirmSell) {
                     signalType = 'SELL';
@@ -198,9 +195,9 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 }
             }
             
-            if (signalType && isVolatileEnough) {
+            if (signalType) {
                 recentSignals.push({ type: signalType });
-                if (recentSignals.length > 5) recentSignals.shift(); // Keep last 5 signals
+                if (recentSignals.length > 5) recentSignals.shift();
 
                 const entryPrice = applySpread(currentCandle.close, signalType, params.SPREAD_PERCENT);
                 inTrade = {
@@ -321,19 +318,18 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
     console.log(`Generated ${combinations.length} parameter combinations to test.`);
 
     for (const currentParams of combinations) {
-        // Skip invalid parameter combinations
         if (currentParams.EMA_FAST_PERIOD >= currentParams.EMA_SLOW_PERIOD) continue;
         if (currentParams.RSI_OVERSOLD_THRESHOLD >= currentParams.RSI_OVERBOUGHT_THRESHOLD) continue;
         if (currentParams.RSI_BREAKDOWN_THRESHOLD >= currentParams.RSI_BREAKOUT_THRESHOLD) continue;
 
         const trades = runBacktest(data, currentParams, initialCapital);
-        if (trades.length < 5) continue; 
+        if (trades.length < 2) continue; 
 
         const performance = calculatePerformanceMetrics(trades, initialCapital);
         
         const score = (performance.sharpeRatio * 0.5) + (performance.profitFactor * 0.3) + (Math.log10(performance.numberOfTrades) * 0.2);
 
-        if (score > highestScore && performance.sharpeRatio > 0.1) {
+        if (score > highestScore) {
             highestScore = score;
             bestPerformance = performance;
             bestParams = currentParams;
