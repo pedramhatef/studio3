@@ -3,10 +3,10 @@
 'use server';
 
 import { NextResponse } from 'next/server';
-import { getChartData } from '@/app/actions';
-import { optimizeParameters } from '@/lib/backtesting';
-import type { ChartDataPoint } from '@/lib/types';
-import { db } from '@/lib/firebase';
+import { getChartData } from '../../../app/actions';
+import { optimizeParameters } from '../../../lib/backtesting';
+import type { ChartDataPoint } from '../../../lib/types';
+import { db } from '../../../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
 // Define the parameter ranges for optimization. These have been expanded to provide
