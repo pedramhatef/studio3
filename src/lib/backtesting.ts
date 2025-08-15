@@ -132,13 +132,20 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             const cache = {
                 emaFast: getValueAt(emaFastArr, i),
                 emaSlow: getValueAt(emaSlowArr, i),
-                emaLong: getValueAt(emaLongArr, i),
                 rsi: getValueAt(rsiArr, i),
                 avgVolume: getValueAt(avgVolumeArr, i),
                 macdHistogram: getValueAt(macd.histogram, i),
             };
     
             if (Object.values(cache).some(v => v === null || Number.isNaN(v)) || atrValue === null) {
+                continue;
+            }
+            
+            const recentAtrSlice = atrArr.slice(i-10, i).filter(v => v !== null) as number[];
+            const avgAtr = recentAtrSlice.length > 0 ? recentAtrSlice.reduce((s,v) => s + v, 0) / recentAtrSlice.length : 0;
+            const isVolatileEnough = atrValue > (avgAtr * params.ATR_VOLATILITY_THRESHOLD);
+
+            if (!isVolatileEnough) {
                 continue;
             }
             
@@ -153,23 +160,27 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
 
+            // BUY Logic (High confidence)
             if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy) {
                 signalType = 'BUY';
             }
             
+            // BUY Logic (Medium confidence)
             const isPullbackBuy = currentCandle.low <= (cache.emaSlow as number) && currentCandle.close > (cache.emaSlow as number);
             const rsiPullbackOkBuy = (cache.rsi as number) > 40 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
-            if (!signalType && isPullbackBuy && rsiPullbackOkBuy && (cache.emaFast as number) > (cache.emaLong as number)) {
+            if (!signalType && isPullbackBuy && rsiPullbackOkBuy) {
                 signalType = 'BUY';
             }
             
+            // SELL Logic (High confidence)
             if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && volumeOk && macdConfirmSell) {
                 signalType = 'SELL';
             }
 
+            // SELL Logic (Medium confidence)
             const isPullbackSell = currentCandle.high >= (cache.emaSlow as number) && currentCandle.close < (cache.emaSlow as number);
             const rsiPullbackOkSell = (cache.rsi as number) < 60 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
-            if (!signalType && isPullbackSell && rsiPullbackOkSell && (cache.emaFast as number) < (cache.emaLong as number)) {
+            if (!signalType && isPullbackSell && rsiPullbackOkSell) {
                 signalType = 'SELL';
             }
             
@@ -247,7 +258,12 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
     const returns = trades.map(t => t.profitPercentage / 100);
     const avgReturn = returns.reduce((sum, r) => sum + r, 0) / numberOfTrades;
     const stdDev = numberOfTrades > 1 ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (numberOfTrades - 1)) : 0;
-    const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(numberOfTrades) : 0; 
+    
+    const riskFreeRate = 0; // Assuming 0 for crypto short-term trading
+    const excessReturns = returns.map(r => r - riskFreeRate);
+    const avgExcessReturn = excessReturns.reduce((sum, r) => sum + r, 0) / numberOfTrades;
+    const sharpeRatio = stdDev > 0 ? (avgExcessReturn / stdDev) * Math.sqrt(numberOfTrades) : 0; 
+
 
     return {
         totalProfit,
@@ -303,7 +319,8 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
         const profitFactor = isFinite(performance.profitFactor) ? performance.profitFactor : 0;
         const winRate = isFinite(performance.winRate) ? performance.winRate : 0;
         
-        const score = (sharpe * 0.5) + (profitFactor * 0.2) + (winRate * 0.2) + (Math.log10(performance.numberOfTrades + 1) * 0.1);
+        // Give more weight to profit factor and sharpe ratio
+        const score = (sharpe * 0.4) + (profitFactor * 0.3) + (winRate * 0.2) + (Math.log10(performance.numberOfTrades + 1) * 0.1);
 
         if (score > highestScore) {
             highestScore = score;
@@ -322,3 +339,5 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     return { bestParams, bestPerformance, bestTrades };
 }
+
+    
