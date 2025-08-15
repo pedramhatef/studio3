@@ -34,11 +34,11 @@ const parameterRanges = {
   VOLUME_PERIOD: [20], // Standard period for volume averaging
   VOLUME_THRESHOLD_MULTIPLIER: [1.5, 2.0, 2.5], // How much larger the volume needs to be
   
-  // Backtesting Simulation - Wider risk/reward profiles
+  // Backtesting Simulation & Risk - Wider risk/reward profiles
   TAKE_PROFIT_ATR_MULTIPLIER: [1.5, 2.0, 2.5, 3.0], // Test different reward targets
   STOP_LOSS_ATR_MULTIPLIER: [1.0, 1.5, 2.0], // Test different risk tolerances
 
-  // Market Friction
+  // Market Friction - Simulate real-world trading costs
   SPREAD_PERCENT: [0.005, 0.01] // Represents a realistic trading spread
 };
 
