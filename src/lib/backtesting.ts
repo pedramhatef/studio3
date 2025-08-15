@@ -43,7 +43,7 @@ export type PerformanceMetrics = {
     profitFactor: number;
     sharpeRatio: number;
     maxDrawdown: number;
-    expectancy: number; 
+    expectancy: number;
 };
 
 
@@ -81,17 +81,16 @@ export async function runBacktest(dogeData: ChartDataPoint[], btcData: ChartData
 
     const emaFastArr = indicators.calculateEMA(dogeClose, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, params.EMA_SLOW_PERIOD);
-    const psarArr = indicators.calculateParabolicSAR(dogeData, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
     const rsiArr = indicators.calculateRSI(dogeClose, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeData, params.ATR_PERIOD);
-    const avgVolumeArr = indicators.calculateSMA(dogeVolume, params.VOLUME_PERIOD);
     const btcEmaLongArr = indicators.calculateEMA(btcClose, params.EMA_LONG_PERIOD);
     
-    const allIndicators = [emaFastArr, emaSlowArr, psarArr, rsiArr, atrArr, avgVolumeArr, btcEmaLongArr];
-    if (allIndicators.some(arr => arr.length === 0)) {
-        console.warn("Indicator calculation resulted in empty array, skipping backtest for this param set.");
-        return []; 
+    const allIndicatorArrays = [emaFastArr, emaSlowArr, rsiArr, atrArr, btcEmaLongArr];
+    if (allIndicatorArrays.some(arr => arr.length === 0)) {
+        console.warn("Indicator calculation resulted in an empty array. Skipping backtest for this parameter set due to insufficient data for the lookback period.");
+        return [];
     }
+
 
     for (let i = requiredPeriods; i < dogeData.length; i++) {
         const currentCandle = dogeData[i]; 
@@ -145,13 +144,12 @@ export async function runBacktest(dogeData: ChartDataPoint[], btcData: ChartData
         }
         
         if (!inTrade) {
-            const cache = {
+             const cache = {
                 emaFast: getValueAt(emaFastArr, i - 1),
                 emaSlow: getValueAt(emaSlowArr, i - 1),
-                pSar: getValueAt(psarArr, i - 1),
                 rsi: getValueAt(rsiArr, i - 1),
-                avgVolume: getValueAt(avgVolumeArr, i-1),
-                btcEmaLong: getValueAt(btcEmaLongArr, i - 1)
+                btcEmaLong: getValueAt(btcEmaLongArr, i - 1),
+                atr: getValueAt(atrArr, i - 1)
             };
     
             if (Object.values(cache).some(v => v === null)) {
@@ -163,29 +161,26 @@ export async function runBacktest(dogeData: ChartDataPoint[], btcData: ChartData
             const emaFastPrev = getPrevValueAt(emaFastArr, i - 1);
             const emaSlowPrev = getPrevValueAt(emaSlowArr, i - 1);
             
-            const volumeConfirmation = prevCandle.volume > (cache.avgVolume as number) * params.VOLUME_THRESHOLD_MULTIPLIER;
             const btcIsUptrend = btcData[i - 1].close > (cache.btcEmaLong as number);
             const btcIsDowntrend = btcData[i - 1].close < (cache.btcEmaLong as number);
 
-            const rsiInRangeBuy = (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
-            const rsiInRangeSell = (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
-            
+            // High-Confidence Crossover Logic
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-            const psarConfirmBuy = prevCandle.close > (cache.pSar as number);
+            const rsiInRangeBuy = (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
 
-            if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && btcIsUptrend && volumeConfirmation) {
+            if (emaCrossedUp && rsiInRangeBuy && btcIsUptrend) {
                 signalType = 'BUY';
             }
 
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-            const psarConfirmSell = prevCandle.close < (cache.pSar as number);
-
-            if (!signalType && emaCrossedDown && rsiInRangeSell && psarConfirmSell && btcIsDowntrend && volumeConfirmation) {
+            const rsiInRangeSell = (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
+            
+            if (!signalType && emaCrossedDown && rsiInRangeSell && btcIsDowntrend) {
                 signalType = 'SELL';
             }
-
+            
             if (signalType) {
-                const atrValue = getValueAt(atrArr, i);
+                const atrValue = cache.atr;
                 if (atrValue === null) continue;
 
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
@@ -293,7 +288,7 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
 
 const POPULATION_SIZE = 50;
 const GENERATIONS = 20;
-const MUTATION_RATE = 0.2; // Increased for more exploration
+const MUTATION_RATE = 0.2;
 const ELITISM_RATE = 0.1;
 
 function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] }): Omit<StrategyParams, 'SPREAD_PERCENT'> {
@@ -432,5 +427,3 @@ export async function optimizeParameters(
 
     return { bestParams, bestPerformance: bestPerformanceFromAllGens, bestTrades: bestTradesFromAllGens };
 }
-
-    

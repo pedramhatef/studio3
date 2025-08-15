@@ -100,16 +100,13 @@ export async function GET() {
 
     section('Find New Signal');
     const dogeClose = dogeChartData.map(d => d.close);
-    const dogeVolume = dogeChartData.map(d => d.volume);
     const btcClose = btcChartData.map(d => d.close);
 
     // DOGE indicators
     const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_SLOW_PERIOD);
-    const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
     const rsiArr = indicators.calculateRSI(dogeClose, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeChartData, strategyConfig.ATR_PERIOD);
-    const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
     
     // BTC indicators (for trend filter)
     const btcEmaLongArr = indicators.calculateEMA(btcClose, strategyConfig.EMA_LONG_PERIOD);
@@ -131,9 +128,7 @@ export async function GET() {
     const cache = {
       emaFast: getValueAt(emaFastArr, prev_i),
       emaSlow: getValueAt(emaSlowArr, prev_i),
-      pSar: getValueAt(psarArr, prev_i),
       rsi: getValueAt(rsiArr, prev_i),
-      avgVolume: getValueAt(avgVolumeArr, prev_i),
       btcEmaLong: getValueAt(btcEmaLongArr, prev_i)
     };
 
@@ -148,7 +143,6 @@ export async function GET() {
     const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
     
-    const volumeConfirmation = prevCandle.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
     const btcIsUptrend = btcChartData[prev_i].close > (cache.btcEmaLong as number);
     const btcIsDowntrend = btcChartData[prev_i].close < (cache.btcEmaLong as number);
 
@@ -157,18 +151,16 @@ export async function GET() {
     // BUY Logic (Crossover)
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-    const psarConfirmBuy = prevCandle.close > (cache.pSar as number);
-    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && btcIsUptrend && volumeConfirmation);
-    if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && btcIsUptrend && volumeConfirmation) {
+    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && btcIsUptrend);
+    if (emaCrossedUp && rsiInRangeBuy && btcIsUptrend) {
         signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
 
     // SELL Logic (Crossover)
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
     const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-    const psarConfirmSell = prevCandle.close < (cache.pSar as number);
-    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && btcIsDowntrend && volumeConfirmation);
-    if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && btcIsDowntrend && volumeConfirmation) {
+    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && btcIsDowntrend);
+    if (!signal && emaCrossedDown && rsiInRangeSell && btcIsDowntrend) {
         signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
     }
     
@@ -221,5 +213,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
