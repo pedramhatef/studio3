@@ -88,9 +88,10 @@ export async function GET() {
         const lastSignalTime = lastSignal.time;
         const latestCandleTime = dogeChartData[dogeChartData.length - 1].time;
         const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
+        const cooldownMinutes = lastSignal?.level === 'High' ? 3 : 5; // Dynamic Cooldown
 
-        if (timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < 5 * 60 * 1000) { // 5 minute cooldown
-            log(`Still in active trade based on signal from ${new Date(lastSignalTime).toISOString()}. No new signals will be generated.`);
+        if (timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < cooldownMinutes * 60 * 1000) {
+            log(`In active trade cooldown (${cooldownMinutes} mins). No new signals will be generated.`);
             return NextResponse.json({ message: 'In active trade cooldown. No new signal generated.' });
         }
     }
@@ -107,7 +108,6 @@ export async function GET() {
     const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
     const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
     
-    // We check for signals on the PREVIOUS candle (i-1) and execute on the CURRENT candle (i)
     const i = dogeChartData.length - 1; // Current, open candle
     const prev_i = i - 1; // Previous, closed candle
 
@@ -118,6 +118,15 @@ export async function GET() {
       time: new Date(prevCandle.time).toISOString(),
       close: Number(prevCandle.close).toFixed(6),
     });
+    
+    // --- Volatility Filter ---
+    const currentAtr = indicators.calculateSMA(atrArr.slice(-5), 5).pop(); // Smoothed ATR
+    const historicalAtr = indicators.calculateSMA(atrArr, 100).pop();
+    if(currentAtr && historicalAtr && (currentAtr / historicalAtr < 0.7)){
+        log(`Low volatility detected (ATR ratio: ${currentAtr/historicalAtr}). Skipping trade.`);
+        return NextResponse.json({ message: 'Low volatility, no signal generated.' });
+    }
+
 
     const getValueAt = (arr: (number | null)[], idx: number) => arr[idx] ?? null;
     
@@ -147,41 +156,21 @@ export async function GET() {
     // --- HIGH CONFIDENCE ---
     // BUY Logic (Crossover)
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-    const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
+    const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD;
     const psarConfirmBuy = (cache.psar as number) < prevCandle.close;
     logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed);
     if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed) {
-        signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
+        signal = { type: 'BUY', level: 'High', price: latest.open, time: latest.time };
     }
 
     // SELL Logic (Crossover)
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-    const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
+    const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD;
     const psarConfirmSell = (cache.psar as number) > prevCandle.close;
     logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed);
     if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed) {
-        signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
+        signal = { type: 'SELL', level: 'High', price: latest.open, time: latest.time };
     }
-    
-    // --- MEDIUM CONFIDENCE ---
-    if(!signal) {
-        // BUY Logic (Pullback)
-        const isPullbackBuy = prevCandle.low <= (cache.emaFast as number) && prevCandle.close > (cache.emaFast as number);
-        const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
-        logCond('Med-Conf BUY Pullback', isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed);
-        if (isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed) {
-            signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
-        }
-
-        // SELL Logic (Pullback)
-        const isPullbackSell = prevCandle.high >= (cache.emaFast as number) && prevCandle.close < (cache.emaFast as number);
-        const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
-        logCond('Med-Conf SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed);
-        if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed) {
-            signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
-        }
-    }
-
 
     if (!signal) {
         log('No signal generated based on entry conditions.');
@@ -190,12 +179,12 @@ export async function GET() {
 
     // Enhance and Save
     const atrValue = getValueAt(atrArr, i); // Use current ATR for buffer
-     if (atrValue) {
+    if (atrValue) {
         const capital = 1000; 
-        const riskPercent = 1;
+        const riskPercent = atrValue > 0.02 ? 0.5 : 1; // Dynamic risk based on volatility
         const dollarRisk = capital * (riskPercent / 100);
         const positionSize = dollarRisk / (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
-        const leverage = (positionSize * latest.close) / capital;
+        const leverage = (positionSize * latest.open) / capital;
 
         signal.suggestedLeverage = Math.max(1, Math.min(10, Math.round(leverage)));
         signal.stopBuffer = atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
@@ -212,3 +201,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    

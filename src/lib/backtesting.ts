@@ -58,8 +58,9 @@ const getPrevValueAt = (arr: (number | null)[], idx: number): number | null => {
 };
 
 const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number) => {
-    const spread = price * (spreadPercent / 100);
-    return type === 'BUY' ? price + spread : price - spread;
+    const slippage = 0.001 + Math.random() * 0.002; // Random slippage
+    const spreadMultiplier = type === 'BUY' ? (1 + spreadPercent / 100) * (1 + slippage) : (1 - spreadPercent / 100) * (1 - slippage);
+    return price * spreadMultiplier;
 };
 
 export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): Promise<TradeResult[]> {
@@ -95,6 +96,19 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
         if (inTrade) {
             let exitPrice: number | null = null;
             let exitReason: TradeResult['exitReason'] | null = null;
+            
+            // Trailing Stop Logic
+            const atrValue = getValueAt(atrArr, i-1);
+            if(atrValue){
+                if (inTrade.type === 'BUY') {
+                    const newStop = prevCandle.high - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER);
+                    inTrade.stopLossPrice = Math.max(inTrade.stopLossPrice, newStop);
+                } else {
+                    const newStop = prevCandle.low + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER);
+                    inTrade.stopLossPrice = Math.min(inTrade.stopLossPrice, newStop);
+                }
+            }
+
 
             if (inTrade.type === 'BUY') {
                 if (currentCandle.low <= inTrade.stopLossPrice) {
@@ -148,7 +162,6 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                 psar: getValueAt(psarArr, i - 1),
                 volume: getValueAt(dogeVolume, i - 1),
                 avgVolume: getValueAt(avgVolumeArr, i - 1),
-                atr: getValueAt(atrArr, i-1)
             };
     
             if (Object.values(cache).some(v => v === null)) {
@@ -162,40 +175,24 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             
             const volumeConfirmed = cache.volume! > cache.avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER;
             
-            // High-Confidence Crossover Logic
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && cache.emaFast! > cache.emaSlow!;
-            const rsiInRangeBuy = cache.rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
+            const rsiConfirmBuy = cache.rsi! > params.RSI_BREAKOUT_THRESHOLD && cache.rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
             const psarConfirmBuy = cache.psar! < prevCandle.close;
 
-            if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed) {
+            if (emaCrossedUp && rsiConfirmBuy && psarConfirmBuy && volumeConfirmed) {
                 signalType = 'BUY';
             }
 
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && cache.emaFast! < cache.emaSlow!;
-            const rsiInRangeSell = cache.rsi! > params.RSI_OVERSOLD_THRESHOLD;
+            const rsiConfirmSell = cache.rsi! < params.RSI_BREAKDOWN_THRESHOLD && cache.rsi! > params.RSI_OVERSOLD_THRESHOLD;
             const psarConfirmSell = cache.psar! > prevCandle.close;
             
-            if (!signalType && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed) {
+            if (!signalType && emaCrossedDown && rsiConfirmSell && psarConfirmSell && volumeConfirmed) {
                 signalType = 'SELL';
-            }
-
-            // Medium-Confidence Pullback Logic
-            if (!signalType) {
-                const isPullbackBuy = prevCandle.low <= cache.emaFast! && prevCandle.close > cache.emaFast!;
-                const rsiPullbackOkBuy = cache.rsi! > 40 && rsiInRangeBuy;
-                if (isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed) {
-                    signalType = 'BUY';
-                }
-
-                const isPullbackSell = prevCandle.high >= cache.emaFast! && prevCandle.close < cache.emaFast!;
-                const rsiPullbackOkSell = cache.rsi! < 60 && rsiInRangeSell;
-                if (!signalType && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed) {
-                    signalType = 'SELL';
-                }
             }
             
             if (signalType) {
-                const atrValue = getValueAt(atrArr, i); // Use current ATR
+                const atrValue = getValueAt(atrArr, i);
                 if (atrValue === null) continue;
 
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
@@ -303,7 +300,6 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
 
 const POPULATION_SIZE = 30;
 const GENERATIONS = 15;
-const MUTATION_RATE = 0.2;
 const ELITISM_RATE = 0.1;
 
 function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] }): Omit<StrategyParams, 'SPREAD_PERCENT'> {
@@ -320,17 +316,17 @@ function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPR
 }
 
 function calculateFitness(performance: PerformanceMetrics): number {
-    if (!performance) return -1e9; 
+    if (!performance || performance.numberOfTrades === 0) return -1e9; 
     
     // Heavily penalize strategies with very few trades
     const tradePenalty = Math.min(1, performance.numberOfTrades / 10);
+    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 10); // More aggressive penalty
 
-    const profitScore = performance.totalProfit;
-    const stabilityScore = performance.sharpeRatio > 0 ? performance.sharpeRatio : 0; 
-    const winRateScore = performance.winRate / 100;
-    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 20); // More sensitive drawdown penalty
-
-    let fitness = (profitScore * 0.4) + (stabilityScore * 0.3) + (winRateScore * 0.2) + (performance.expectancy * 0.1);
+    let fitness = (performance.totalProfit * 0.4) + 
+                  (performance.sharpeRatio * 0.3) + 
+                  (performance.winRate * 0.1) +
+                  (performance.expectancy * 0.2);
+                  
     fitness *= drawdownPenalty;
     fitness *= tradePenalty;
 
@@ -362,10 +358,12 @@ function crossover(parent1: any, parent2: any): any {
     return child;
 }
 
-function mutate(individual: any, paramRanges: any): any {
+function mutate(individual: any, paramRanges: any, generation: number): any {
     const mutatedIndividual = { ...individual };
+    // Adaptive mutation rate
+    const mutationRate = 0.3 - (generation / GENERATIONS) * 0.25; 
     for (const key in mutatedIndividual) {
-        if (Math.random() < MUTATION_RATE) {
+        if (Math.random() < mutationRate) {
             const range = paramRanges[key];
             mutatedIndividual[key] = range[Math.floor(Math.random() * range.length)];
         }
@@ -384,10 +382,13 @@ export async function optimizeParameters(
 ): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics | null; bestTrades: TradeResult[] }> {
     console.log('Starting genetic algorithm optimization...');
     const initialCapital = 10000;
+    
+    // In-sample/Out-of-sample split
+    const inSampleData = dogeData.slice(0, Math.floor(dogeData.length * 0.7));
+    const outOfSampleData = dogeData.slice(Math.floor(dogeData.length * 0.7));
 
     let population = Array.from({ length: POPULATION_SIZE }, () => createIndividual(paramRanges as any));
     let bestIndividualFromAllGens: any = null;
-    let bestFitnessFromAllGens = -Infinity;
     let bestPerformanceFromAllGens: PerformanceMetrics | null = null;
     let bestTradesFromAllGens: TradeResult[] = [];
     let generationsWithoutImprovement = 0;
@@ -396,7 +397,7 @@ export async function optimizeParameters(
         const results = await Promise.all(
             population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, SPREAD_PERCENT: 0.01 };
-                const trades = await runBacktest(dogeData, params, initialCapital);
+                const trades = await runBacktest(inSampleData, params, initialCapital);
                 const performance = await calculatePerformanceMetrics(trades, initialCapital);
                 const fitness = calculateFitness(performance);
                 return { individual, performance, fitness, trades };
@@ -404,18 +405,18 @@ export async function optimizeParameters(
         );
         
         results.sort((a, b) => b.fitness - a.fitness);
+        const bestOfGen = results[0];
 
-        if (results[0].fitness > bestFitnessFromAllGens) {
-            bestFitnessFromAllGens = results[0].fitness;
-            bestIndividualFromAllGens = results[0].individual;
-            bestPerformanceFromAllGens = results[0].performance;
-            bestTradesFromAllGens = results[0].trades;
-            generationsWithoutImprovement = 0;
+        if (bestOfGen.fitness > (bestPerformanceFromAllGens ? calculateFitness(bestPerformanceFromAllGens) : -Infinity)) {
+             bestIndividualFromAllGens = bestOfGen.individual;
+             bestPerformanceFromAllGens = bestOfGen.performance;
+             bestTradesFromAllGens = bestOfGen.trades;
+             generationsWithoutImprovement = 0;
         } else {
             generationsWithoutImprovement++;
         }
 
-        console.log(`Generation ${gen + 1}/${GENERATIONS} | Best Fitness: ${results[0].fitness.toPrecision(4)} | Trades: ${results[0].performance.numberOfTrades} | Profit: ${results[0].performance.totalProfit.toPrecision(4)}`);
+        console.log(`Generation ${gen + 1}/${GENERATIONS} | Best Fitness: ${bestOfGen.fitness.toPrecision(4)} | Trades: ${bestOfGen.performance.numberOfTrades} | Profit: ${bestOfGen.performance.totalProfit.toPrecision(4)}`);
 
         if (generationsWithoutImprovement >= 5) {
             console.log("Stopping early due to convergence.");
@@ -435,22 +436,34 @@ export async function optimizeParameters(
             const parent1 = select(population, fitnesses);
             const parent2 = select(population, fitnesses);
             let child = crossover(parent1, parent2);
-            child = mutate(child, paramRanges);
+            child = mutate(child, paramRanges, gen);
             newPopulation.push(child);
         }
         
         population = newPopulation;
     }
-
-    if (bestIndividualFromAllGens) {
-        console.log('Genetic algorithm optimization complete.');
-        console.log('Best Parameters:', bestIndividualFromAllGens);
-        console.log('Best Performance:', bestPerformanceFromAllGens);
-    } else {
-        console.warn("Genetic algorithm did not find a suitable strategy.");
-    }
     
-    const bestParams: StrategyParams | null = bestIndividualFromAllGens ? { ...bestIndividualFromAllGens, SPREAD_PERCENT: 0.01 } : null;
+    // --- Out-of-Sample Validation ---
+    if(bestIndividualFromAllGens){
+        console.log("--- Running Out-of-Sample Validation ---");
+        const bestParams = { ...bestIndividualFromAllGens, SPREAD_PERCENT: 0.01 };
+        const outOfSampleTrades = await runBacktest(outOfSampleData, bestParams, initialCapital);
+        const outOfSamplePerformance = await calculatePerformanceMetrics(outOfSampleTrades, initialCapital);
+        console.log("In-Sample Performance:", bestPerformanceFromAllGens);
+        console.log("Out-of-Sample Performance:", outOfSamplePerformance);
 
-    return { bestParams, bestPerformance: bestPerformanceFromAllGens, bestTrades: bestTradesFromAllGens };
+        // Only accept if the strategy is still profitable out-of-sample
+        if(outOfSamplePerformance.totalProfit > 0) {
+             return { bestParams, bestPerformance: outOfSamplePerformance, bestTrades: outOfSampleTrades };
+        } else {
+            console.warn("Strategy failed out-of-sample validation. Discarding results.");
+            return { bestParams: null, bestPerformance: null, bestTrades: [] };
+        }
+    }
+
+
+    console.warn("Genetic algorithm did not find a suitable strategy.");
+    return { bestParams: null, bestPerformance: null, bestTrades: [] };
 }
+
+    
