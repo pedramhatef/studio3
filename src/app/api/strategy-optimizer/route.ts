@@ -5,13 +5,11 @@
 import { NextResponse } from 'next/server';
 import { getChartData } from '../../../app/actions';
 import { optimizeParameters } from '../../../lib/backtesting';
-import type { ChartDataPoint } from '../../../lib/types';
+import type { ChartDataPoint, StrategyParams } from '../../../lib/types';
 import { db } from '../../../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
-// Define the parameter ranges for optimization. These have been drastically reduced
-// to prevent memory overload and focus the optimizer on the most impactful parameter sets.
-const parameterRanges = {
+const parameterRanges: { [key in keyof StrategyParams]?: number[] } = {
   // Core Trend-Following
   EMA_FAST_PERIOD: [5, 10, 15],
   EMA_SLOW_PERIOD: [20, 30, 40],
@@ -25,9 +23,6 @@ const parameterRanges = {
   ATR_PERIOD: [7, 10, 12],
   TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0],
   STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0],
-
-  // Market Friction
-  SPREAD_PERCENT: [0.01]
 };
 
 

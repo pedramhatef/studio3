@@ -12,7 +12,7 @@ import type { ChartDataPoint } from './types';
  * Calculates Simple Moving Average (SMA)
  */
 export function calculateSMA(data: number[], period: number): (number | null)[] {
-    if (period > data.length) return Array(data.length).fill(null);
+    if (period <= 0 || period > data.length) return Array(data.length).fill(null);
     
     const result: (number | null)[] = Array(period - 1).fill(null);
     let sum = 0;
@@ -32,7 +32,7 @@ export function calculateSMA(data: number[], period: number): (number | null)[] 
  * Calculates Exponential Moving Average (EMA)
  */
 export function calculateEMA(data: number[], period: number): (number | null)[] {
-    if (period > data.length) return Array(data.length).fill(null);
+    if (period <= 0 || period > data.length) return Array(data.length).fill(null);
 
     const result: (number | null)[] = Array(period - 1).fill(null);
     const k = 2 / (period + 1);
@@ -91,7 +91,7 @@ export function calculateVWAP(data: ChartDataPoint[]): (number | null)[] {
  * Calculates Relative Strength Index (RSI)
  */
 export function calculateRSI(data: number[], period: number = 14): (number | null)[] {
-    if (period >= data.length) return Array(data.length).fill(null);
+    if (period <= 0 || period >= data.length) return Array(data.length).fill(null);
 
     const result: (number | null)[] = Array(period).fill(null);
     let gains = 0;
@@ -143,7 +143,7 @@ export function calculateRSI(data: number[], period: number = 14): (number | nul
  * Calculates Bollinger Bands (BB)
  */
 export function calculateBollingerBands(data: number[], period: number = 20, stdDev: number = 2): { middle: (number|null)[], upper: (number|null)[], lower: (number|null)[] } {
-    if (period > data.length) {
+    if (period <= 0 || period > data.length) {
         return { 
             middle: Array(data.length).fill(null), 
             upper: Array(data.length).fill(null), 
@@ -177,6 +177,14 @@ export function calculateBollingerBands(data: number[], period: number = 20, std
  * Calculates Moving Average Convergence Divergence (MACD)
  */
 export function calculateMACD(data: number[], fastPeriod: number, slowPeriod: number, signalPeriod: number): { macd: (number|null)[], signal: (number|null)[], histogram: (number|null)[] } {
+    if (fastPeriod <= 0 || slowPeriod <= 0 || signalPeriod <= 0 || fastPeriod >= slowPeriod) {
+        return {
+            macd: Array(data.length).fill(null),
+            signal: Array(data.length).fill(null),
+            histogram: Array(data.length).fill(null),
+        };
+    }
+
     const emaFast = calculateEMA(data, fastPeriod);
     const emaSlow = calculateEMA(data, slowPeriod);
 
@@ -254,14 +262,14 @@ export function calculateParabolicSAR(data: ChartDataPoint[], step: number, max:
  * Calculates Average True Range (ATR)
  */
 export function calculateATR(chartData: ChartDataPoint[], period: number): (number | null)[] {
+    if (period <= 0 || chartData.length < period) {
+        return Array(chartData.length).fill(null);
+    }
+    
     const highs = chartData.map(d => d.high);
     const lows = chartData.map(d => d.low);
     const closes = chartData.map(d => d.close);
     
-    if (highs.length < period) {
-        return Array(highs.length).fill(null);
-    }
-
     const tr: number[] = [highs[0] - lows[0]]; // Initial TR for index 0, can't use prev close
     for (let i = 1; i < highs.length; i++) {
         const high = highs[i];
@@ -287,5 +295,3 @@ export function calculateATR(chartData: ChartDataPoint[], period: number): (numb
 
     return atr;
 }
-
-    
