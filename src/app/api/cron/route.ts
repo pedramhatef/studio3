@@ -154,7 +154,6 @@ export async function GET() {
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
 
-
     // BUY Logic
     logCond('BUY Crossover', emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy);
     if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy) {
@@ -184,6 +183,12 @@ export async function GET() {
     if (!signal) {
         log('No signal generated based on entry conditions.');
         return NextResponse.json({ message: 'No signal generated.' });
+    }
+    
+    // Prevent creating a new signal if the last one was of the same type and very recent
+    if (lastSignal && lastSignal.type === signal.type) {
+      log(`Duplicate signal type (${signal.type}) detected. No new signal will be saved.`);
+      return NextResponse.json({ message: 'Duplicate signal detected.' });
     }
 
     // Enhance and Save
