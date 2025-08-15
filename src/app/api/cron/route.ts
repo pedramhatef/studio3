@@ -79,7 +79,8 @@ export async function GET() {
       return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
     }
     
-    const lastSignal = (await getSignalHistoryFromFirestore())?.[0] ?? null;
+    const recentSignals = await getSignalHistoryFromFirestore();
+    const lastSignal = recentSignals?.[0] ?? null;
 
     if (lastSignal) {
         const lastSignalTime = lastSignal.time;
@@ -117,8 +118,6 @@ export async function GET() {
 
     section('Find New Signal');
     const closeSlice = chartData.map(d => d.close);
-    const highSlice = chartData.map(d => d.high);
-    const lowSlice = chartData.map(d => d.low);
     const volumeSlice = chartData.map(d => d.volume);
 
     const emaFastArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_FAST_PERIOD);
@@ -180,8 +179,15 @@ export async function GET() {
     const macdConfirmBuy = (cache.macdHistogram as number) > 0;
     const macdConfirmSell = (cache.macdHistogram as number) < 0;
 
+    // Downtrend Reversal Cooldown: Prevents buying false bottoms
+    const recentSells = recentSignals.filter(s => s.type === 'SELL').length;
+    const inDowntrendCooldown = recentSells > 1 && (cache.emaFast as number) < (cache.emaSlow as number);
+    if (inDowntrendCooldown) {
+      log('In downtrend cooldown. Ignoring BUY signals until trend confirms reversal (EMA Fast > EMA Slow).');
+    }
+
     // BUY Logic
-    if (isUptrend) {
+    if (isUptrend && !inDowntrendCooldown) {
         const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
         const rsiInRange = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
         logCond('BUY Crossover', emaCrossedUp && rsiInRange && macdConfirmBuy);
