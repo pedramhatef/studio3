@@ -112,7 +112,7 @@ export async function GET() {
     const emaLongArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_LONG_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(chartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
     const rsiArr = indicators.calculateRSI(closeSlice, strategyConfig.RSI_PERIOD);
-    const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, strategyConfig.ATR_PERIOD);
+    const atrArr = indicators.calculateATR(chartData, strategyConfig.ATR_PERIOD);
     const avgVolumeArr = indicators.calculateSMA(volumeSlice, strategyConfig.VOLUME_PERIOD);
 
 
@@ -282,5 +282,7 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
 
     

@@ -114,7 +114,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     const emaLongArr = indicators.calculateEMA(closeSlice, params.EMA_LONG_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(data, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
     const rsiArr = indicators.calculateRSI(closeSlice, params.RSI_PERIOD);
-    const atrArr = indicators.calculateATR(highSlice, lowSlice, closeSlice, params.ATR_PERIOD);
+    const atrArr = indicators.calculateATR(data, params.ATR_PERIOD);
     const avgVolumeArr = indicators.calculateSMA(volumeSlice, params.VOLUME_PERIOD);
 
     for (let i = requiredPeriods; i < data.length; i++) {

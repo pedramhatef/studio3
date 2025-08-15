@@ -253,38 +253,39 @@ export function calculateParabolicSAR(data: ChartDataPoint[], step: number, max:
 /**
  * Calculates Average True Range (ATR)
  */
-// Add this to '@/lib/indicators.ts' or equivalent
-export function calculateATR(highs: number[], lows: number[], closes: number[], period: number): (number | null)[] {
-    if (highs.length !== lows.length || highs.length !== closes.length || highs.length < period + 1) {
- return Array(highs.length).fill(null);
+export function calculateATR(chartData: ChartDataPoint[], period: number): (number | null)[] {
+    const highs = chartData.map(d => d.high);
+    const lows = chartData.map(d => d.low);
+    const closes = chartData.map(d => d.close);
+    
+    if (highs.length < period) {
+        return Array(highs.length).fill(null);
     }
 
-    const atr: (number | null)[] = Array(period).fill(null);
-    const tr: number[] = [];
-    // Calculate True Range for each period
+    const tr: number[] = [highs[0] - lows[0]]; // Initial TR for index 0, can't use prev close
     for (let i = 1; i < highs.length; i++) {
-      const trueRange = Math.max(
-        highs[i] - lows[i], // Current high to low
-        Math.abs(highs[i] - closes[i - 1]), // Current high to previous close
-        Math.abs(lows[i] - closes[i - 1]) // Current low to previous close
-      );
-      tr.push(trueRange);
+        const high = highs[i];
+        const low = lows[i];
+        const prevClose = closes[i - 1];
+        const trueRange = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+        tr.push(trueRange);
     }
 
-    // Initial ATR (Simple Moving Average of first 'period' TR values)
-    let sumTr = tr.slice(0, period).reduce((a, b) => a + b, 0);
- atr[period] = sumTr / period;
+    const atr: (number | null)[] = Array(period -1).fill(null);
 
-    // Subsequent ATR values (using Wilder's smoothing)
+    let sumTr = 0;
+    for(let i=0; i<period; i++) {
+        sumTr += tr[i];
+    }
+    let currentAtr = sumTr / period;
+    atr.push(currentAtr);
+    
     for (let i = period; i < tr.length; i++) {
-      // Note: ATR array is offset by 1 relative to tr because tr starts from i=1
-      const prevAtr = atr[i];
-      atr[i + 1] = (prevAtr! * (period - 1) + tr[i]) / period;
+        currentAtr = (currentAtr * (period - 1) + tr[i]) / period;
+        atr.push(currentAtr);
     }
-  
-    return atr;
-  }
 
-export function SMA(arg0: any[], arg1: number) {
-  throw new Error('Function not implemented.');
+    return atr;
 }
+
+    
