@@ -41,15 +41,12 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
 async function runAndSaveOptimization() {
   console.log("=== STRATEGY OPTIMIZATION (GENETIC ALGORITHM) STARTING ===");
 
-  // 1. Load data for both DOGE and BTC
-  const [dogeChartData, btcChartData] = await Promise.all([
-    getChartData('DOGEUSDT'),
-    getChartData('BTCUSDT')
-  ]);
+  // 1. Load data for DOGE
+  const dogeChartData = await getChartData('DOGEUSDT');
 
-  console.log(`Loaded ${dogeChartData.length} DOGE and ${btcChartData.length} BTC data points for backtesting.`);
+  console.log(`Loaded ${dogeChartData.length} DOGE data points for backtesting.`);
 
-  if (dogeChartData.length < 200 || btcChartData.length < 200) { // Need a reasonable amount of data
+  if (dogeChartData.length < 200) { // Need a reasonable amount of data
     console.error("Not enough historical data to run optimization.");
     return {
       success: false,
@@ -59,7 +56,7 @@ async function runAndSaveOptimization() {
 
   // 2. Run the optimization
   console.log("Running optimizeParameters (Genetic Algorithm) function...");
-  const { bestParams, bestPerformance, bestTrades } = await optimizeParameters(dogeChartData, btcChartData, parameterRanges);
+  const { bestParams, bestPerformance, bestTrades } = await optimizeParameters(dogeChartData, parameterRanges);
   
   if (!bestParams || !bestPerformance) {
     console.error("Optimization failed to find best parameters.");

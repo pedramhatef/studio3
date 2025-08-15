@@ -62,7 +62,7 @@ const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number)
     return type === 'BUY' ? price + spread : price - spread;
 };
 
-export async function runBacktest(dogeData: ChartDataPoint[], btcData: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): Promise<TradeResult[]> {
+export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): Promise<TradeResult[]> {
     const trades: TradeResult[] = [];
     let capital = initialCapital;
     let inTrade: InTradeState | null = null;
@@ -71,21 +71,17 @@ export async function runBacktest(dogeData: ChartDataPoint[], btcData: ChartData
         params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26
     ) + 1;
 
-    if (dogeData.length < requiredPeriods || btcData.length < requiredPeriods) {
+    if (dogeData.length < requiredPeriods) {
         return trades;
     }
 
     const dogeClose = dogeData.map(d => d.close);
-    const dogeVolume = dogeData.map(d => d.volume);
-    const btcClose = btcData.map(d => d.close);
-
     const emaFastArr = indicators.calculateEMA(dogeClose, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, params.EMA_SLOW_PERIOD);
     const rsiArr = indicators.calculateRSI(dogeClose, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeData, params.ATR_PERIOD);
-    const btcEmaLongArr = indicators.calculateEMA(btcClose, params.EMA_LONG_PERIOD);
     
-    const allIndicatorArrays = [emaFastArr, emaSlowArr, rsiArr, atrArr, btcEmaLongArr];
+    const allIndicatorArrays = [emaFastArr, emaSlowArr, rsiArr, atrArr];
     if (allIndicatorArrays.some(arr => arr.length === 0)) {
         console.warn("Indicator calculation resulted in an empty array. Skipping backtest for this parameter set due to insufficient data for the lookback period.");
         return [];
@@ -148,7 +144,6 @@ export async function runBacktest(dogeData: ChartDataPoint[], btcData: ChartData
                 emaFast: getValueAt(emaFastArr, i - 1),
                 emaSlow: getValueAt(emaSlowArr, i - 1),
                 rsi: getValueAt(rsiArr, i - 1),
-                btcEmaLong: getValueAt(btcEmaLongArr, i - 1),
                 atr: getValueAt(atrArr, i - 1)
             };
     
@@ -160,22 +155,19 @@ export async function runBacktest(dogeData: ChartDataPoint[], btcData: ChartData
 
             const emaFastPrev = getPrevValueAt(emaFastArr, i - 1);
             const emaSlowPrev = getPrevValueAt(emaSlowArr, i - 1);
-            
-            const btcIsUptrend = btcData[i - 1].close > (cache.btcEmaLong as number);
-            const btcIsDowntrend = btcData[i - 1].close < (cache.btcEmaLong as number);
 
             // High-Confidence Crossover Logic
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
             const rsiInRangeBuy = (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
 
-            if (emaCrossedUp && rsiInRangeBuy && btcIsUptrend) {
+            if (emaCrossedUp && rsiInRangeBuy) {
                 signalType = 'BUY';
             }
 
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
             const rsiInRangeSell = (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
             
-            if (!signalType && emaCrossedDown && rsiInRangeSell && btcIsDowntrend) {
+            if (!signalType && emaCrossedDown && rsiInRangeSell) {
                 signalType = 'SELL';
             }
             
@@ -361,7 +353,6 @@ function mutate(individual: any, paramRanges: any): any {
 
 export async function optimizeParameters(
     dogeData: ChartDataPoint[], 
-    btcData: ChartDataPoint[],
     paramRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]?: number[] }
 ): Promise<{ bestParams: StrategyParams | null; bestPerformance: PerformanceMetrics | null; bestTrades: TradeResult[] }> {
     console.log('Starting genetic algorithm optimization...');
@@ -377,7 +368,7 @@ export async function optimizeParameters(
         const results = await Promise.all(
             population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, SPREAD_PERCENT: 0.01 };
-                const trades = await runBacktest(dogeData, btcData, params, initialCapital);
+                const trades = await runBacktest(dogeData, params, initialCapital);
                 const performance = await calculatePerformanceMetrics(trades, initialCapital);
                 const fitness = calculateFitness(performance);
                 return { individual, performance, fitness, trades };
@@ -427,3 +418,5 @@ export async function optimizeParameters(
 
     return { bestParams, bestPerformance: bestPerformanceFromAllGens, bestTrades: bestTradesFromAllGens };
 }
+
+    

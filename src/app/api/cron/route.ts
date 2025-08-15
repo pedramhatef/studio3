@@ -70,17 +70,14 @@ export async function GET() {
   section(`CRON RUN @ ${ts}`);
 
   try {
-    const [dogeChartData, btcChartData] = await Promise.all([
-        getChartData('DOGEUSDT'),
-        getChartData('BTCUSDT')
-    ]);
-
+    const dogeChartData = await getChartData('DOGEUSDT');
+    
     const requiredPeriods = Math.max(
       strategyConfig.EMA_SLOW_PERIOD, strategyConfig.RSI_PERIOD, strategyConfig.ATR_PERIOD, strategyConfig.EMA_LONG_PERIOD, strategyConfig.VOLUME_PERIOD, 26
     );
 
-    if (!Array.isArray(dogeChartData) || dogeChartData.length < requiredPeriods + 1 || !Array.isArray(btcChartData) || btcChartData.length < requiredPeriods + 1) { 
-      log(`Not enough data. DOGE=${dogeChartData?.length ?? 0} BTC=${btcChartData?.length ?? 0} Need>=${requiredPeriods + 1}`);
+    if (!Array.isArray(dogeChartData) || dogeChartData.length < requiredPeriods + 1) { 
+      log(`Not enough data. DOGE=${dogeChartData?.length ?? 0} Need>=${requiredPeriods + 1}`);
       return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
     }
     
@@ -100,7 +97,6 @@ export async function GET() {
 
     section('Find New Signal');
     const dogeClose = dogeChartData.map(d => d.close);
-    const btcClose = btcChartData.map(d => d.close);
 
     // DOGE indicators
     const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
@@ -108,9 +104,6 @@ export async function GET() {
     const rsiArr = indicators.calculateRSI(dogeClose, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeChartData, strategyConfig.ATR_PERIOD);
     
-    // BTC indicators (for trend filter)
-    const btcEmaLongArr = indicators.calculateEMA(btcClose, strategyConfig.EMA_LONG_PERIOD);
-
     // We check for signals on the PREVIOUS candle (i-1) and execute on the CURRENT candle (i)
     const i = dogeChartData.length - 1; // Current, open candle
     const prev_i = i - 1; // Previous, closed candle
@@ -129,7 +122,6 @@ export async function GET() {
       emaFast: getValueAt(emaFastArr, prev_i),
       emaSlow: getValueAt(emaSlowArr, prev_i),
       rsi: getValueAt(rsiArr, prev_i),
-      btcEmaLong: getValueAt(btcEmaLongArr, prev_i)
     };
 
     if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
@@ -143,31 +135,27 @@ export async function GET() {
     const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
     
-    const btcIsUptrend = btcChartData[prev_i].close > (cache.btcEmaLong as number);
-    const btcIsDowntrend = btcChartData[prev_i].close < (cache.btcEmaLong as number);
-
-
     // --- HIGH CONFIDENCE ---
     // BUY Logic (Crossover)
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && btcIsUptrend);
-    if (emaCrossedUp && rsiInRangeBuy && btcIsUptrend) {
+    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy);
+    if (emaCrossedUp && rsiInRangeBuy) {
         signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
 
     // SELL Logic (Crossover)
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
     const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && btcIsDowntrend);
-    if (!signal && emaCrossedDown && rsiInRangeSell && btcIsDowntrend) {
+    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell);
+    if (!signal && emaCrossedDown && rsiInRangeSell) {
         signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
     }
     
     // --- MEDIUM CONFIDENCE ---
     if(!signal) {
         // BUY Logic (Pullback)
-        const isPullbackBuy = btcIsUptrend && prevCandle.low <= (cache.emaFast as number) && prevCandle.close > (cache.emaFast as number);
+        const isPullbackBuy = prevCandle.low <= (cache.emaFast as number) && prevCandle.close > (cache.emaFast as number);
         const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
         logCond('Med-Conf BUY Pullback', isPullbackBuy && rsiPullbackOkBuy);
         if (isPullbackBuy && rsiPullbackOkBuy) {
@@ -175,7 +163,7 @@ export async function GET() {
         }
 
         // SELL Logic (Pullback)
-        const isPullbackSell = btcIsDowntrend && prevCandle.high >= (cache.emaFast as number) && prevCandle.close < (cache.emaFast as number);
+        const isPullbackSell = prevCandle.high >= (cache.emaFast as number) && prevCandle.close < (cache.emaFast as number);
         const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
         logCond('Med-Conf SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell);
         if (!signal && isPullbackSell && rsiPullbackOkSell) {
@@ -213,3 +201,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
