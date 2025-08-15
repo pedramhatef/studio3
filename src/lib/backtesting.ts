@@ -60,6 +60,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
 
     const emaFastArr = indicators.calculateEMA(closeSlice, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(closeSlice, params.EMA_SLOW_PERIOD);
+    const emaLongArr = indicators.calculateEMA(closeSlice, params.EMA_LONG_PERIOD);
     const rsiArr = indicators.calculateRSI(closeSlice, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(data, params.ATR_PERIOD);
     const avgVolumeArr = indicators.calculateSMA(volumeSlice, params.VOLUME_PERIOD);
@@ -73,6 +74,9 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
         if (inTrade) {
             let exitPrice: number | null = null;
             let exitReason: TradeResult['exitReason'] | null = null;
+            
+            const emaFast = getValueAt(emaFastArr, i);
+            const emaSlow = getValueAt(emaSlowArr, i);
 
             if (inTrade.type === 'BUY') {
                 if (currentCandle.low <= inTrade.stopLossPrice) {
@@ -81,6 +85,9 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 } else if (currentCandle.high >= inTrade.takeProfitPrice) {
                     exitPrice = inTrade.takeProfitPrice;
                     exitReason = 'Take Profit';
+                } else if(emaFast !== null && emaSlow !== null && emaFast < emaSlow) {
+                    exitPrice = currentCandle.close;
+                    exitReason = 'Opposite Signal';
                 }
             } else { // SELL trade
                 if (currentCandle.high >= inTrade.stopLossPrice) {
@@ -89,15 +96,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
                 } else if (currentCandle.low <= inTrade.takeProfitPrice) {
                     exitPrice = inTrade.takeProfitPrice;
                     exitReason = 'Take Profit';
-                }
-            }
-
-            // Check for opposite signal exit
-            const emaFast = getValueAt(emaFastArr, i);
-            const emaSlow = getValueAt(emaSlowArr, i);
-            if (emaFast !== null && emaSlow !== null) {
-                const oppositeSignal = (inTrade.type === 'BUY' && emaFast < emaSlow) || (inTrade.type === 'SELL' && emaFast > emaSlow);
-                if (oppositeSignal) {
+                } else if(emaFast !== null && emaSlow !== null && emaFast > emaSlow) {
                     exitPrice = currentCandle.close;
                     exitReason = 'Opposite Signal';
                 }
@@ -133,6 +132,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             const cache = {
                 emaFast: getValueAt(emaFastArr, i),
                 emaSlow: getValueAt(emaSlowArr, i),
+                emaLong: getValueAt(emaLongArr, i),
                 rsi: getValueAt(rsiArr, i),
                 avgVolume: getValueAt(avgVolumeArr, i),
                 macdHistogram: getValueAt(macd.histogram, i),
@@ -159,7 +159,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             
             const isPullbackBuy = currentCandle.low <= (cache.emaSlow as number) && currentCandle.close > (cache.emaSlow as number);
             const rsiPullbackOkBuy = (cache.rsi as number) > 40 && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
-            if (!signalType && isPullbackBuy && rsiPullbackOkBuy) {
+            if (!signalType && isPullbackBuy && rsiPullbackOkBuy && (cache.emaFast as number) > (cache.emaLong as number)) {
                 signalType = 'BUY';
             }
             
@@ -169,7 +169,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
 
             const isPullbackSell = currentCandle.high >= (cache.emaSlow as number) && currentCandle.close < (cache.emaSlow as number);
             const rsiPullbackOkSell = (cache.rsi as number) < 60 && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
-            if (!signalType && isPullbackSell && rsiPullbackOkSell) {
+            if (!signalType && isPullbackSell && rsiPullbackOkSell && (cache.emaFast as number) < (cache.emaLong as number)) {
                 signalType = 'SELL';
             }
             
@@ -226,7 +226,7 @@ export type PerformanceMetrics = {
 
 export function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): PerformanceMetrics {
     const numberOfTrades = trades.length;
-    if (numberOfTrades < 2) { 
+    if (numberOfTrades === 0) { 
         return {
             totalProfit: 0, totalProfitPercentage: 0, numberOfTrades: 0, winningTrades: 0,
             losingTrades: 0, winRate: 0, lossRate: 0, averageWin: 0, averageLoss: 0,
@@ -246,7 +246,7 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
     
     const returns = trades.map(t => t.profitPercentage / 100);
     const avgReturn = returns.reduce((sum, r) => sum + r, 0) / numberOfTrades;
-    const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (numberOfTrades - 1));
+    const stdDev = numberOfTrades > 1 ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (numberOfTrades - 1)) : 0;
     const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(numberOfTrades) : 0; 
 
     return {
@@ -255,8 +255,8 @@ export function calculatePerformanceMetrics(trades: TradeResult[], initialCapita
         numberOfTrades,
         winningTrades: winningTrades.length,
         losingTrades: losingTrades.length,
-        winRate: (winningTrades.length / numberOfTrades) * 100,
-        lossRate: (losingTrades.length / numberOfTrades) * 100,
+        winRate: numberOfTrades > 0 ? (winningTrades.length / numberOfTrades) * 100 : 0,
+        lossRate: numberOfTrades > 0 ? (losingTrades.length / numberOfTrades) * 100 : 0,
         averageWin: winningTrades.length > 0 ? totalWinAmount / winningTrades.length : 0,
         averageLoss: losingTrades.length > 0 ? totalLossAmount / losingTrades.length : 0,
         profitFactor: totalLossAmount > 0 ? totalWinAmount / totalLossAmount : Infinity,
@@ -298,7 +298,12 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
         const performance = calculatePerformanceMetrics(trades, initialCapital);
         
-        const score = (performance.sharpeRatio * 0.5) + (performance.profitFactor * 0.3) + (Math.log10(performance.numberOfTrades) * 0.2);
+        // Robust scoring function
+        const sharpe = isFinite(performance.sharpeRatio) ? performance.sharpeRatio : 0;
+        const profitFactor = isFinite(performance.profitFactor) ? performance.profitFactor : 0;
+        const winRate = isFinite(performance.winRate) ? performance.winRate : 0;
+        
+        const score = (sharpe * 0.5) + (profitFactor * 0.2) + (winRate * 0.2) + (Math.log10(performance.numberOfTrades + 1) * 0.1);
 
         if (score > highestScore) {
             highestScore = score;
