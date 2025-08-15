@@ -13,29 +13,17 @@ import { setDoc, doc } from 'firebase/firestore';
 // to prevent memory overload and focus the optimizer on the most impactful parameter sets.
 const parameterRanges = {
   // Core Trend-Following
-  EMA_FAST_PERIOD: [10, 20],
-  EMA_SLOW_PERIOD: [30, 50],
-  EMA_LONG_PERIOD: [100],
-  PARABOLIC_SAR_STEP: [0.02],
-  PARABOLIC_SAR_MAX: [0.2],
-
+  EMA_FAST_PERIOD: [5, 10, 15],
+  EMA_SLOW_PERIOD: [20, 30, 40],
+  
   // Momentum
   RSI_PERIOD: [14],
   RSI_OVERSOLD_THRESHOLD: [30, 35],
   RSI_OVERBOUGHT_THRESHOLD: [65, 70],
-  RSI_BREAKOUT_THRESHOLD: [55],
-  RSI_BREAKDOWN_THRESHOLD: [45],
   
-  // Volatility Filter
-  ATR_PERIOD: [14],
-  ATR_VOLATILITY_THRESHOLD: [1.0, 1.5],
-
-  // Volume Filter
-  VOLUME_PERIOD: [20],
-  VOLUME_THRESHOLD_MULTIPLIER: [2.0],
-  
-  // Backtesting Simulation & Risk
-  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 3.0],
+  // Volatility Filter & Risk Management
+  ATR_PERIOD: [7, 10, 12],
+  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0],
   STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0],
 
   // Market Friction
