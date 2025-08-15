@@ -11,13 +11,13 @@ import { setDoc, doc } from 'firebase/firestore';
 
 const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } = {
   // Core Trend-Following
-  EMA_FAST_PERIOD: [5, 10, 15],
-  EMA_SLOW_PERIOD: [20, 30, 40],
+  EMA_FAST_PERIOD: [3, 5, 8, 10, 13, 15],
+  EMA_SLOW_PERIOD: [20, 25, 30, 35, 40],
   EMA_LONG_PERIOD: [50],
   
   // Confirmation
-  PARABOLIC_SAR_STEP: [0.02],
-  PARABOLIC_SAR_MAX: [0.2],
+  PARABOLIC_SAR_STEP: [0.01, 0.02],
+  PARABOLIC_SAR_MAX: [0.1, 0.2],
 
   // Momentum
   RSI_PERIOD: [14],
@@ -27,14 +27,14 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
   RSI_BREAKDOWN_THRESHOLD: [45], 
 
   // Volatility & Volume
-  ATR_VOLATILITY_THRESHOLD: [1.2],
+  ATR_VOLATILITY_THRESHOLD: [1.2, 1.5],
   VOLUME_PERIOD: [20],
-  VOLUME_THRESHOLD_MULTIPLIER: [1.5, 2.0],
+  VOLUME_THRESHOLD_MULTIPLIER: [1.5, 2.0, 2.5],
   
   // Risk Management
-  ATR_PERIOD: [7, 10, 12],
-  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0],
-  STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0],
+  ATR_PERIOD: [7, 10, 12, 14],
+  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0, 3.5],
+  STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0, 2.5],
 };
 
 
@@ -107,5 +107,3 @@ export async function GET() {
     );
   }
 }
-
-    

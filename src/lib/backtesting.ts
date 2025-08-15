@@ -76,22 +76,22 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
     }
 
     const dogeClose = dogeData.map(d => d.close);
+    const dogeVolume = dogeData.map(d => d.volume);
+
+    // Calculate all indicators once
     const emaFastArr = indicators.calculateEMA(dogeClose, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, params.EMA_SLOW_PERIOD);
     const rsiArr = indicators.calculateRSI(dogeClose, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeData, params.ATR_PERIOD);
-    
-    const allIndicatorArrays = [emaFastArr, emaSlowArr, rsiArr, atrArr];
-    if (allIndicatorArrays.some(arr => arr.length === 0)) {
-        console.warn("Indicator calculation resulted in an empty array. Skipping backtest for this parameter set due to insufficient data for the lookback period.");
-        return [];
-    }
+    const psarArr = indicators.calculateParabolicSAR(dogeData, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
+    const avgVolumeArr = indicators.calculateSMA(dogeVolume, params.VOLUME_PERIOD);
 
 
     for (let i = requiredPeriods; i < dogeData.length; i++) {
         const currentCandle = dogeData[i]; 
         const prevCandle = dogeData[i-1]; 
         
+        // --- EXIT LOGIC ---
         if (inTrade) {
             let exitPrice: number | null = null;
             let exitReason: TradeResult['exitReason'] | null = null;
@@ -104,7 +104,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                     exitPrice = inTrade.takeProfitPrice;
                     exitReason = 'Take Profit';
                 }
-            } else { 
+            } else { // SELL trade
                 if (currentCandle.high >= inTrade.stopLossPrice) {
                     exitPrice = inTrade.stopLossPrice;
                     exitReason = 'Stop Loss';
@@ -139,12 +139,16 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             }
         }
         
+        // --- ENTRY LOGIC ---
         if (!inTrade) {
              const cache = {
                 emaFast: getValueAt(emaFastArr, i - 1),
                 emaSlow: getValueAt(emaSlowArr, i - 1),
                 rsi: getValueAt(rsiArr, i - 1),
-                atr: getValueAt(atrArr, i - 1)
+                psar: getValueAt(psarArr, i - 1),
+                volume: getValueAt(dogeVolume, i - 1),
+                avgVolume: getValueAt(avgVolumeArr, i - 1),
+                atr: getValueAt(atrArr, i-1)
             };
     
             if (Object.values(cache).some(v => v === null)) {
@@ -155,24 +159,43 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
 
             const emaFastPrev = getPrevValueAt(emaFastArr, i - 1);
             const emaSlowPrev = getPrevValueAt(emaSlowArr, i - 1);
-
+            
+            const volumeConfirmed = cache.volume! > cache.avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER;
+            
             // High-Confidence Crossover Logic
-            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-            const rsiInRangeBuy = (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
+            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && cache.emaFast! > cache.emaSlow!;
+            const rsiInRangeBuy = cache.rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
+            const psarConfirmBuy = cache.psar! < prevCandle.close;
 
-            if (emaCrossedUp && rsiInRangeBuy) {
+            if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed) {
                 signalType = 'BUY';
             }
 
-            const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-            const rsiInRangeSell = (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
+            const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && cache.emaFast! < cache.emaSlow!;
+            const rsiInRangeSell = cache.rsi! > params.RSI_OVERSOLD_THRESHOLD;
+            const psarConfirmSell = cache.psar! > prevCandle.close;
             
-            if (!signalType && emaCrossedDown && rsiInRangeSell) {
+            if (!signalType && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed) {
                 signalType = 'SELL';
+            }
+
+            // Medium-Confidence Pullback Logic
+            if (!signalType) {
+                const isPullbackBuy = prevCandle.low <= cache.emaFast! && prevCandle.close > cache.emaFast!;
+                const rsiPullbackOkBuy = cache.rsi! > 40 && rsiInRangeBuy;
+                if (isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed) {
+                    signalType = 'BUY';
+                }
+
+                const isPullbackSell = prevCandle.high >= cache.emaFast! && prevCandle.close < cache.emaFast!;
+                const rsiPullbackOkSell = cache.rsi! < 60 && rsiInRangeSell;
+                if (!signalType && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed) {
+                    signalType = 'SELL';
+                }
             }
             
             if (signalType) {
-                const atrValue = cache.atr;
+                const atrValue = getValueAt(atrArr, i); // Use current ATR
                 if (atrValue === null) continue;
 
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
@@ -278,8 +301,8 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
 }
 
 
-const POPULATION_SIZE = 50;
-const GENERATIONS = 20;
+const POPULATION_SIZE = 30;
+const GENERATIONS = 15;
 const MUTATION_RATE = 0.2;
 const ELITISM_RATE = 0.1;
 
@@ -297,15 +320,19 @@ function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPR
 }
 
 function calculateFitness(performance: PerformanceMetrics): number {
-    if (!performance || performance.numberOfTrades < 5) return -1e9; 
+    if (!performance) return -1e9; 
     
+    // Heavily penalize strategies with very few trades
+    const tradePenalty = Math.min(1, performance.numberOfTrades / 10);
+
     const profitScore = performance.totalProfit;
     const stabilityScore = performance.sharpeRatio > 0 ? performance.sharpeRatio : 0; 
     const winRateScore = performance.winRate / 100;
-    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 10); 
+    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 20); // More sensitive drawdown penalty
 
-    let fitness = (profitScore * 0.4) + (stabilityScore * 0.3) + (winRateScore * 0.3);
+    let fitness = (profitScore * 0.4) + (stabilityScore * 0.3) + (winRateScore * 0.2) + (performance.expectancy * 0.1);
     fitness *= drawdownPenalty;
+    fitness *= tradePenalty;
 
     return isNaN(fitness) ? -1e9 : fitness;
 }
@@ -363,6 +390,7 @@ export async function optimizeParameters(
     let bestFitnessFromAllGens = -Infinity;
     let bestPerformanceFromAllGens: PerformanceMetrics | null = null;
     let bestTradesFromAllGens: TradeResult[] = [];
+    let generationsWithoutImprovement = 0;
 
     for (let gen = 0; gen < GENERATIONS; gen++) {
         const results = await Promise.all(
@@ -382,9 +410,17 @@ export async function optimizeParameters(
             bestIndividualFromAllGens = results[0].individual;
             bestPerformanceFromAllGens = results[0].performance;
             bestTradesFromAllGens = results[0].trades;
+            generationsWithoutImprovement = 0;
+        } else {
+            generationsWithoutImprovement++;
         }
 
         console.log(`Generation ${gen + 1}/${GENERATIONS} | Best Fitness: ${results[0].fitness.toPrecision(4)} | Trades: ${results[0].performance.numberOfTrades} | Profit: ${results[0].performance.totalProfit.toPrecision(4)}`);
+
+        if (generationsWithoutImprovement >= 5) {
+            console.log("Stopping early due to convergence.");
+            break;
+        }
 
         const newPopulation = [];
         const eliteCount = Math.floor(POPULATION_SIZE * ELITISM_RATE);
@@ -418,5 +454,3 @@ export async function optimizeParameters(
 
     return { bestParams, bestPerformance: bestPerformanceFromAllGens, bestTrades: bestTradesFromAllGens };
 }
-
-    

@@ -97,12 +97,15 @@ export async function GET() {
 
     section('Find New Signal');
     const dogeClose = dogeChartData.map(d => d.close);
+    const dogeVolume = dogeChartData.map(d => d.volume);
 
     // DOGE indicators
     const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_SLOW_PERIOD);
     const rsiArr = indicators.calculateRSI(dogeClose, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeChartData, strategyConfig.ATR_PERIOD);
+    const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
+    const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
     
     // We check for signals on the PREVIOUS candle (i-1) and execute on the CURRENT candle (i)
     const i = dogeChartData.length - 1; // Current, open candle
@@ -122,6 +125,9 @@ export async function GET() {
       emaFast: getValueAt(emaFastArr, prev_i),
       emaSlow: getValueAt(emaSlowArr, prev_i),
       rsi: getValueAt(rsiArr, prev_i),
+      psar: getValueAt(psarArr, prev_i),
+      volume: prevCandle.volume,
+      avgVolume: getValueAt(avgVolumeArr, prev_i),
     };
 
     if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
@@ -135,20 +141,25 @@ export async function GET() {
     const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
     
+    const volumeConfirmed = cache.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+    logCond('Volume Confirmation', volumeConfirmed, `Vol: ${cache.volume?.toFixed(0)} > AvgVol: ${cache.avgVolume?.toFixed(0)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
+
     // --- HIGH CONFIDENCE ---
     // BUY Logic (Crossover)
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy);
-    if (emaCrossedUp && rsiInRangeBuy) {
+    const psarConfirmBuy = (cache.psar as number) < prevCandle.close;
+    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed);
+    if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed) {
         signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
 
     // SELL Logic (Crossover)
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
     const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell);
-    if (!signal && emaCrossedDown && rsiInRangeSell) {
+    const psarConfirmSell = (cache.psar as number) > prevCandle.close;
+    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed);
+    if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed) {
         signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
     }
     
@@ -157,16 +168,16 @@ export async function GET() {
         // BUY Logic (Pullback)
         const isPullbackBuy = prevCandle.low <= (cache.emaFast as number) && prevCandle.close > (cache.emaFast as number);
         const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
-        logCond('Med-Conf BUY Pullback', isPullbackBuy && rsiPullbackOkBuy);
-        if (isPullbackBuy && rsiPullbackOkBuy) {
+        logCond('Med-Conf BUY Pullback', isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed);
+        if (isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed) {
             signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
         }
 
         // SELL Logic (Pullback)
         const isPullbackSell = prevCandle.high >= (cache.emaFast as number) && prevCandle.close < (cache.emaFast as number);
         const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
-        logCond('Med-Conf SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell);
-        if (!signal && isPullbackSell && rsiPullbackOkSell) {
+        logCond('Med-Conf SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed);
+        if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed) {
             signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
         }
     }
@@ -201,5 +212,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
