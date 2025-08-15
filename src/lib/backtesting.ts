@@ -5,7 +5,6 @@
 import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 
-
 export type TradeResult = {
     entryPrice: number;
     exitPrice: number;
@@ -34,13 +33,12 @@ type InTradeState = {
 const getValueAt = (arr: (number | null)[], idx: number): number | null => {
     if (idx < 0 || idx >= arr.length) return null;
     const value = arr[idx];
-    return value === null || typeof value === 'undefined' ? null : value;
+    return value === null || typeof value === 'undefined' || isNaN(value) ? null : value;
 };
 
 const getPrevValueAt = (arr: (number | null)[], idx: number): number | null => {
     return getValueAt(arr, idx - 1);
 };
-
 
 const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number) => {
     const spread = price * (spreadPercent / 100);
@@ -54,14 +52,13 @@ export async function runBacktest(data: ChartDataPoint[], params: StrategyParams
     
     const requiredPeriods = Math.max(
         params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26
-    ) + 1; // +1 to have a previous candle for signal generation
+    ) + 1;
 
     if (data.length < requiredPeriods) {
         return trades;
     }
 
     const closeSlice = data.map(d => d.close);
-    const volumeSlice = data.map(d => d.volume);
 
     const emaFastArr = indicators.calculateEMA(closeSlice, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(closeSlice, params.EMA_SLOW_PERIOD);
@@ -84,6 +81,7 @@ export async function runBacktest(data: ChartDataPoint[], params: StrategyParams
             let exitPrice: number | null = null;
             let exitReason: TradeResult['exitReason'] | null = null;
 
+            // Check for exit on the current candle's range
             if (inTrade.type === 'BUY') {
                 if (currentCandle.low <= inTrade.stopLossPrice) {
                     exitPrice = inTrade.stopLossPrice;
@@ -142,35 +140,57 @@ export async function runBacktest(data: ChartDataPoint[], params: StrategyParams
             }
             
             let signalType: Signal['type'] | null = null;
+            let signalLevel: Signal['level'] | null = null;
+
             const emaFastPrev = getPrevValueAt(emaFastArr, i - 1);
             const emaSlowPrev = getPrevValueAt(emaSlowArr, i - 1);
             
             const isUptrend = prevCandle.close > (cache.emaLong as number);
             const isDowntrend = prevCandle.close < (cache.emaLong as number);
 
-            // BUY Logic
-            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
             const rsiInRangeBuy = (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD;
+            const rsiInRangeSell = (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
+            
+            // High-Confidence Crossover
+            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
             const psarConfirmBuy = prevCandle.close > (cache.pSar as number);
 
             if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend) {
                 signalType = 'BUY';
+                signalLevel = 'High';
             }
 
-            // SELL Logic
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-            const rsiInRangeSell = (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD;
             const psarConfirmSell = prevCandle.close < (cache.pSar as number);
 
             if (!signalType && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend) {
                 signalType = 'SELL';
+                signalLevel = 'High';
             }
             
+            // Medium-Confidence Pullback
+            if(!signalType) {
+                const isPullbackBuy = isUptrend && prevCandle.low <= (cache.emaFast as number) && prevCandle.close > (cache.emaFast as number);
+                const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
+                if (isPullbackBuy && rsiPullbackOkBuy) {
+                    signalType = 'BUY';
+                    signalLevel = 'Medium';
+                }
+
+                const isPullbackSell = isDowntrend && prevCandle.high >= (cache.emaFast as number) && prevCandle.close < (cache.emaFast as number);
+                const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
+                if (!signalType && isPullbackSell && rsiPullbackOkSell) {
+                    signalType = 'SELL';
+                    signalLevel = 'Medium';
+                }
+            }
+
             if (signalType) {
+                const atrValue = getValueAt(atrArr, i - 1);
+                if (atrValue === null) continue;
+
                 // Enter on the open of the *current* candle
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
-                const atrValue = getValueAt(atrArr, i - 1); // Use ATR from the signal candle for setting SL/TP
-                if (atrValue === null) continue;
 
                 inTrade = {
                     entryPrice: entryPrice,
@@ -322,5 +342,3 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     return { bestParams, bestPerformance, bestTrades };
 }
-
-    

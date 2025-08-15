@@ -140,23 +140,44 @@ export async function GET() {
     const isUptrend = prevCandle.close > (cache.emaLong as number);
     const isDowntrend = prevCandle.close < (cache.emaLong as number);
 
-    // BUY Logic (based on prev candle's data)
+    // --- HIGH CONFIDENCE ---
+    // BUY Logic (Crossover)
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
     const psarConfirmBuy = prevCandle.close > (cache.pSar as number);
-    logCond('BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend);
+    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend);
     if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend) {
         signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
 
-    // SELL Logic (based on prev candle's data)
+    // SELL Logic (Crossover)
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
     const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
     const psarConfirmSell = prevCandle.close < (cache.pSar as number);
-    logCond('SELL Crossover', emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend);
+    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend);
     if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend) {
         signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
     }
+    
+    // --- MEDIUM CONFIDENCE ---
+    if(!signal) {
+        // BUY Logic (Pullback)
+        const isPullbackBuy = isUptrend && prevCandle.low <= (cache.emaFast as number) && prevCandle.close > (cache.emaFast as number);
+        const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
+        logCond('Med-Conf BUY Pullback', isPullbackBuy && rsiPullbackOkBuy);
+        if (isPullbackBuy && rsiPullbackOkBuy) {
+            signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
+        }
+
+        // SELL Logic (Pullback)
+        const isPullbackSell = isDowntrend && prevCandle.high >= (cache.emaFast as number) && prevCandle.close < (cache.emaFast as number);
+        const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
+        logCond('Med-Conf SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell);
+        if (!signal && isPullbackSell && rsiPullbackOkSell) {
+            signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
+        }
+    }
+
 
     if (!signal) {
         log('No signal generated based on entry conditions.');
@@ -181,5 +202,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
