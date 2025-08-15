@@ -106,9 +106,7 @@ export async function GET() {
                     break; 
                 }
             }
-            if (positionExited) {
-                 // Faking that we don't have a last signal allows us to look for a new trade
-            } else {
+            if (!positionExited) {
                  log(`Still in active trade based on signal from ${new Date(lastSignalTime).toISOString()}. No new signals will be generated.`);
                  return NextResponse.json({ message: 'In active trade. No new signal generated.' });
             }
@@ -157,10 +155,6 @@ export async function GET() {
     }
     kv(cache);
     
-    const isUptrend = latest.close > (cache.emaLong as number);
-    const isDowntrend = latest.close < (cache.emaLong as number);
-    log(`Overall Trend: ${isUptrend ? 'UPTREND' : isDowntrend ? 'DOWNTREND' : 'SIDEWAYS'}`);
-
     const recentAtrSlice = atrArr.slice(-10).filter(v => v !== null) as number[];
     const avgAtr = recentAtrSlice.length > 0 ? recentAtrSlice.reduce((s,v) => s + v, 0) / recentAtrSlice.length : 0;
     const isVolatileEnough = (cache.atr as number) > (avgAtr * strategyConfig.ATR_VOLATILITY_THRESHOLD);
@@ -175,7 +169,6 @@ export async function GET() {
 
     const emaFastPrev = getValueAt(emaFastArr, currentIndex - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, currentIndex - 1);
-    const volumeOk = latest.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
     const macdConfirmBuy = (cache.macdHistogram as number) > 0;
     const macdConfirmSell = (cache.macdHistogram as number) < 0;
 
@@ -190,52 +183,37 @@ export async function GET() {
     if (inUptrendCooldown) {
       log('In uptrend cooldown. Ignoring SELL signals until trend confirms reversal (EMA Fast < EMA Slow).');
     }
+    
+    const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+    const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
 
 
     // BUY Logic
-    if (isUptrend && !inDowntrendCooldown) {
-        const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-        const rsiInRange = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-        logCond('BUY Crossover', emaCrossedUp && rsiInRange && macdConfirmBuy);
-        if (emaCrossedUp && rsiInRange && macdConfirmBuy) {
+    if (!inDowntrendCooldown) {
+        logCond('BUY Crossover', emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && macdConfirmBuy);
+        if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && macdConfirmBuy) {
             signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
         }
 
-        const isPullback = latest.low <= (cache.emaFast as number) && latest.close > (cache.emaFast as number);
-        const rsiPullbackOk = (cache.rsi as number) > 40 && rsiInRange;
+        const isPullback = latest.low <= (cache.emaSlow as number) && latest.close > (cache.emaSlow as number);
+        const rsiPullbackOk = (cache.rsi as number) > 40 && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
         logCond('BUY Pullback', isPullback && rsiPullbackOk);
         if (!signal && isPullback && rsiPullbackOk) {
             signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
         }
-        
-        const psarOk = latest.close > (cache.pSar as number);
-        const rsiBreakoutOk = (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD;
-        logCond('BUY Breakout', volumeOk && psarOk && rsiBreakoutOk && macdConfirmBuy);
-        if (!signal && volumeOk && psarOk && rsiBreakoutOk && macdConfirmBuy) {
-            signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
-        }
     }
     // SELL Logic
-    else if (isDowntrend && !inUptrendCooldown) {
-        const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-        const rsiInRange = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-        logCond('SELL Crossover', emaCrossedDown && rsiInRange && macdConfirmSell);
-        if (emaCrossedDown && rsiInRange && macdConfirmSell) {
+    if (!inUptrendCooldown) {
+        logCond('SELL Crossover', emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && macdConfirmSell);
+        if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && macdConfirmSell) {
             signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
         }
 
-        const isPullback = latest.high >= (cache.emaFast as number) && latest.close < (cache.emaFast as number);
-        const rsiPullbackOk = (cache.rsi as number) < 60 && rsiInRange;
+        const isPullback = latest.high >= (cache.emaSlow as number) && latest.close < (cache.emaSlow as number);
+        const rsiPullbackOk = (cache.rsi as number) < 60 && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
         logCond('SELL Pullback', isPullback && rsiPullbackOk);
         if (!signal && isPullback && rsiPullbackOk) {
             signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
-        }
-
-        const psarOk = latest.close < (cache.pSar as number);
-        const rsiBreakdownOk = (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD;
-        logCond('SELL Breakdown', volumeOk && psarOk && rsiBreakdownOk && macdConfirmSell);
-        if (!signal && volumeOk && psarOk && rsiBreakdownOk && macdConfirmSell) {
-           signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
         }
     }
 
@@ -260,5 +238,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
