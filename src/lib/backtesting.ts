@@ -155,15 +155,12 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             
             const emaFastPrev = getPrevValueAt(emaFastArr, i);
             const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
-            const volumeOk = currentCandle.volume > (cache.avgVolume as number) * params.VOLUME_THRESHOLD_MULTIPLIER;
-            const macdConfirmBuy = (cache.macdHistogram as number) > 0;
-            const macdConfirmSell = (cache.macdHistogram as number) < 0;
             
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
 
             // BUY Logic (High confidence)
-            if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy) {
+            if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD) {
                 signalType = 'BUY';
             }
             
@@ -175,7 +172,7 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
             
             // SELL Logic (High confidence)
-            if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && volumeOk && macdConfirmSell) {
+            if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD) {
                 signalType = 'SELL';
             }
 
@@ -319,7 +316,12 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
         const sharpe = isFinite(performance.sharpeRatio) && !isNaN(performance.sharpeRatio) ? performance.sharpeRatio : 0;
         const profitFactor = isFinite(performance.profitFactor) && !isNaN(performance.profitFactor) ? performance.profitFactor : 0;
         
-        const score = (sharpe * 0.4) + (profitFactor * 0.3) + (performance.winRate * 0.2) + (Math.log10(performance.numberOfTrades + 1) * 0.1);
+        // Refined scoring model
+        const score = 
+            (sharpe * 0.4) + 
+            (Math.min(profitFactor, 5) * 0.3) + // Cap profit factor to prevent extreme outliers
+            ((performance.winRate / 100) * 0.2) + 
+            (Math.log10(performance.numberOfTrades + 1) * 0.1);
 
         if (score > highestScore) {
             highestScore = score;
@@ -338,7 +340,3 @@ export async function optimizeParameters(data: ChartDataPoint[], paramRanges: { 
 
     return { bestParams, bestPerformance, bestTrades };
 }
-
-    
-
-    

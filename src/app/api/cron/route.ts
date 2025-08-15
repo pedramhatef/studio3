@@ -147,16 +147,13 @@ export async function GET() {
 
     const emaFastPrev = getValueAt(emaFastArr, currentIndex - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, currentIndex - 1);
-    const volumeOk = latest.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
-    const macdConfirmBuy = (cache.macdHistogram as number) > 0;
-    const macdConfirmSell = (cache.macdHistogram as number) < 0;
     
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
 
     // BUY Logic
-    logCond('BUY Crossover', emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy);
-    if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy) {
+    logCond('BUY Crossover', emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD);
+    if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD) {
         signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
 
@@ -168,8 +165,8 @@ export async function GET() {
     }
     
     // SELL Logic
-    logCond('SELL Crossover', emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && volumeOk && macdConfirmSell);
-    if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && volumeOk && macdConfirmSell) {
+    logCond('SELL Crossover', emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD);
+    if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD) {
         signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
     }
 
