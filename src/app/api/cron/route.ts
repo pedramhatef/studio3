@@ -120,8 +120,9 @@ export async function GET() {
     });
     
     // --- Volatility Filter ---
-    const currentAtr = indicators.calculateSMA(atrArr.slice(-5), 5).pop(); // Smoothed ATR
-    const historicalAtr = indicators.calculateSMA(atrArr, 100).pop();
+    const validAtrValues = atrArr.filter((v): v is number => v !== null);
+    const currentAtr = indicators.calculateSMA(validAtrValues.slice(-5), 5).pop(); 
+    const historicalAtr = indicators.calculateSMA(validAtrValues, 100).pop();
     if(currentAtr && historicalAtr && (currentAtr / historicalAtr < 0.7)){
         log(`Low volatility detected (ATR ratio: ${currentAtr/historicalAtr}). Skipping trade.`);
         return NextResponse.json({ message: 'Low volatility, no signal generated.' });
@@ -201,5 +202,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
