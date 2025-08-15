@@ -46,7 +46,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
     const trades: TradeResult[] = [];
     let capital = initialCapital;
     let inTrade: InTradeState | null = null;
-    let recentSignals: { type: 'BUY' | 'SELL' }[] = [];
     
     const requiredPeriods = Math.max(
         params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26 // MACD slow period
@@ -161,18 +160,12 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             const macdConfirmBuy = (cache.macdHistogram as number) > 0;
             const macdConfirmSell = (cache.macdHistogram as number) < 0;
 
-            const recentSells = recentSignals.filter(s => s.type === 'SELL').length;
-            const inDowntrendCooldown = recentSells > 1 && (cache.emaFast as number) < (cache.emaSlow as number);
-            
-            const recentBuys = recentSignals.filter(s => s.type === 'BUY').length;
-            const inUptrendCooldown = recentBuys > 1 && (cache.emaFast as number) > (cache.emaSlow as number);
-
             const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
             const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
             
             // BUY Logic
-            if (isVolatileEnough && !inDowntrendCooldown) {
-                if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && macdConfirmBuy) {
+            if (isVolatileEnough) {
+                if (emaCrossedUp && (cache.rsi as number) < params.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy) {
                     signalType = 'BUY';
                 }
                 const isPullback = currentCandle.low <= (cache.emaSlow as number) && currentCandle.close > (cache.emaSlow as number);
@@ -182,8 +175,8 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
             
             // SELL Logic
-            if (isVolatileEnough && !inUptrendCooldown) {
-                if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && macdConfirmSell) {
+            if (isVolatileEnough) {
+                if (emaCrossedDown && (cache.rsi as number) > params.RSI_OVERSOLD_THRESHOLD && volumeOk && macdConfirmSell) {
                     signalType = 'SELL';
                 }
                 const isPullback = currentCandle.high >= (cache.emaSlow as number) && currentCandle.close < (cache.emaSlow as number);
@@ -193,9 +186,6 @@ export function runBacktest(data: ChartDataPoint[], params: StrategyParams, init
             }
             
             if (signalType) {
-                recentSignals.push({ type: signalType });
-                if (recentSignals.length > 5) recentSignals.shift();
-
                 const entryPrice = applySpread(currentCandle.close, signalType, params.SPREAD_PERCENT);
                 inTrade = {
                     entryPrice: entryPrice,

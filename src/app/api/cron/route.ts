@@ -169,52 +169,38 @@ export async function GET() {
 
     const emaFastPrev = getValueAt(emaFastArr, currentIndex - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, currentIndex - 1);
+    const volumeOk = latest.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
     const macdConfirmBuy = (cache.macdHistogram as number) > 0;
     const macdConfirmSell = (cache.macdHistogram as number) < 0;
-
-    const recentSells = recentSignals.filter(s => s.type === 'SELL').length;
-    const inDowntrendCooldown = recentSells > 1 && (cache.emaFast as number) < (cache.emaSlow as number);
-    if (inDowntrendCooldown) {
-      log('In downtrend cooldown. Ignoring BUY signals until trend confirms reversal (EMA Fast > EMA Slow).');
-    }
-
-    const recentBuys = recentSignals.filter(s => s.type === 'BUY').length;
-    const inUptrendCooldown = recentBuys > 1 && (cache.emaFast as number) > (cache.emaSlow as number);
-    if (inUptrendCooldown) {
-      log('In uptrend cooldown. Ignoring SELL signals until trend confirms reversal (EMA Fast < EMA Slow).');
-    }
     
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
 
 
     // BUY Logic
-    if (!inDowntrendCooldown) {
-        logCond('BUY Crossover', emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && macdConfirmBuy);
-        if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && macdConfirmBuy) {
-            signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
-        }
-
-        const isPullback = latest.low <= (cache.emaSlow as number) && latest.close > (cache.emaSlow as number);
-        const rsiPullbackOk = (cache.rsi as number) > 40 && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-        logCond('BUY Pullback', isPullback && rsiPullbackOk);
-        if (!signal && isPullback && rsiPullbackOk) {
-            signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
-        }
+    logCond('BUY Crossover', emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy);
+    if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && volumeOk && macdConfirmBuy) {
+        signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
-    // SELL Logic
-    if (!inUptrendCooldown) {
-        logCond('SELL Crossover', emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && macdConfirmSell);
-        if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && macdConfirmSell) {
-            signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
-        }
 
-        const isPullback = latest.high >= (cache.emaSlow as number) && latest.close < (cache.emaSlow as number);
-        const rsiPullbackOk = (cache.rsi as number) < 60 && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-        logCond('SELL Pullback', isPullback && rsiPullbackOk);
-        if (!signal && isPullback && rsiPullbackOk) {
-            signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
-        }
+    const isPullbackBuy = latest.low <= (cache.emaSlow as number) && latest.close > (cache.emaSlow as number);
+    const rsiPullbackOkBuy = (cache.rsi as number) > 40 && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
+    logCond('BUY Pullback', !signal && isPullbackBuy && rsiPullbackOkBuy);
+    if (!signal && isPullbackBuy && rsiPullbackOkBuy) {
+        signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
+    }
+    
+    // SELL Logic
+    logCond('SELL Crossover', emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && volumeOk && macdConfirmSell);
+    if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && volumeOk && macdConfirmSell) {
+        signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
+    }
+
+    const isPullbackSell = latest.high >= (cache.emaSlow as number) && latest.close < (cache.emaSlow as number);
+    const rsiPullbackOkSell = (cache.rsi as number) < 60 && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
+    logCond('SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell);
+    if (!signal && isPullbackSell && rsiPullbackOkSell) {
+        signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
     }
 
     if (!signal) {
