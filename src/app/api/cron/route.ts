@@ -118,6 +118,7 @@ export async function GET() {
     const cache = {
       emaFast: getValueAt(emaFastArr, currentIndex),
       emaSlow: getValueAt(emaSlowArr, currentIndex),
+      emaLong: getValueAt(emaLongArr, currentIndex),
       pSar: getValueAt(psarArr, currentIndex),
       rsi: getValueAt(rsiArr, currentIndex),
       atr: getValueAt(atrArr, currentIndex),
@@ -134,19 +135,22 @@ export async function GET() {
     const emaFastPrev = getValueAt(emaFastArr, currentIndex - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, currentIndex - 1);
 
+    const isUptrend = latest.close > (cache.emaLong as number);
+    const isDowntrend = latest.close < (cache.emaLong as number);
+
     // BUY Logic
     const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
     const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
     const psarConfirmBuy = latest.close > (cache.pSar as number);
-    logCond('BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy);
-    if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy) {
+    logCond('BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend);
+    if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && isUptrend) {
         signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
     }
 
     const isPullbackBuy = latest.low <= (cache.emaFast as number) && latest.close > (cache.emaFast as number);
     const rsiPullbackOkBuy = (cache.rsi as number) > 40 && rsiInRangeBuy;
-    logCond('BUY Pullback', isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy);
-    if (!signal && isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy) {
+    logCond('BUY Pullback', isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && isUptrend);
+    if (!signal && isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && isUptrend) {
         signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
     }
 
@@ -154,15 +158,15 @@ export async function GET() {
     const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
     const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
     const psarConfirmSell = latest.close < (cache.pSar as number);
-    logCond('SELL Crossover', emaCrossedDown && rsiInRangeSell && psarConfirmSell);
-    if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell) {
+    logCond('SELL Crossover', emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend);
+    if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && isDowntrend) {
         signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
     }
 
     const isPullbackSell = latest.high >= (cache.emaFast as number) && latest.close < (cache.emaFast as number);
     const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
-    logCond('SELL Pullback', isPullbackSell && rsiPullbackOkSell && psarConfirmSell);
-    if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell) {
+    logCond('SELL Pullback', isPullbackSell && rsiPullbackOkSell && psarConfirmSell && isDowntrend);
+    if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && isDowntrend) {
         signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
     }
 
