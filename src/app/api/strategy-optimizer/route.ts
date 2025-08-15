@@ -9,9 +9,22 @@ import type { ChartDataPoint, StrategyParams } from '../../../lib/types';
 import { db } from '../../../lib/firebase';
 import { setDoc, doc, getDoc, deleteDoc } from 'firebase/firestore';
 
+<<<<<<< HEAD
 const OPTIMIZATION_LOCK_KEY = 'optimizationLock';
+=======
+const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } = {
+  // Core Trend-Following
+  EMA_FAST_PERIOD: [3, 5, 8, 10, 13, 15],
+  EMA_SLOW_PERIOD: [20, 25, 30, 35, 40],
+  EMA_LONG_PERIOD: [50],
+  
+  // Confirmation
+  PARABOLIC_SAR_STEP: [0.01, 0.02],
+  PARABOLIC_SAR_MAX: [0.1, 0.2],
+>>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
 
 
+<<<<<<< HEAD
 const getDynamicParameterRanges = (volatility: number): { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } => {
     // If volatility is high, use tighter stops. If low, allow wider stops.
     const stopLossMultipliers = volatility > 0.05 ? [1.0, 1.2, 1.5] : [1.5, 2.0, 2.5];
@@ -45,6 +58,18 @@ const getDynamicParameterRanges = (volatility: number): { [key in keyof Omit<Str
       STOP_LOSS_ATR_MULTIPLIER: stopLossMultipliers,
     };
 }
+=======
+  // Volatility & Volume
+  ATR_VOLATILITY_THRESHOLD: [1.2, 1.5],
+  VOLUME_PERIOD: [20],
+  VOLUME_THRESHOLD_MULTIPLIER: [1.5, 2.0, 2.5],
+  
+  // Risk Management
+  ATR_PERIOD: [7, 10, 12, 14],
+  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0, 3.5],
+  STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0, 2.5],
+};
+>>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
 
 
 async function runAndSaveOptimization() {
@@ -134,5 +159,3 @@ export async function GET() {
   });
   return NextResponse.json({ message: "Strategy optimization process initiated." });
 }
-
-    

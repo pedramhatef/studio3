@@ -165,6 +165,10 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                 psar: getValueAt(psarArr, i - 1),
                 volume: getValueAt(dogeVolume, i - 1),
                 avgVolume: getValueAt(avgVolumeArr, i - 1),
+<<<<<<< HEAD
+=======
+                atr: getValueAt(atrArr, i-1)
+>>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
             };
     
             if (Object.values(cache).some(v => v === null)) {
@@ -173,6 +177,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             
             let signalType: Signal['type'] | null = null;
 
+<<<<<<< HEAD
             const volumeConfirmed = cache.volume! > cache.avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER;
             
             // BUY Logic: Price is in an uptrend and we see a confirmation.
@@ -188,11 +193,51 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             const rsiConfirmSell = cache.rsi! < params.RSI_BREAKDOWN_THRESHOLD && cache.rsi! > params.RSI_OVERSOLD_THRESHOLD;
             
             if (!signalType && isDownTrend && rsiConfirmSell && volumeConfirmed) {
+=======
+            const emaFastPrev = getPrevValueAt(emaFastArr, i - 1);
+            const emaSlowPrev = getPrevValueAt(emaSlowArr, i - 1);
+            
+            const volumeConfirmed = cache.volume! > cache.avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER;
+            
+            // High-Confidence Crossover Logic
+            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && cache.emaFast! > cache.emaSlow!;
+            const rsiInRangeBuy = cache.rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
+            const psarConfirmBuy = cache.psar! < prevCandle.close;
+
+            if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed) {
+                signalType = 'BUY';
+            }
+
+            const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && cache.emaFast! < cache.emaSlow!;
+            const rsiInRangeSell = cache.rsi! > params.RSI_OVERSOLD_THRESHOLD;
+            const psarConfirmSell = cache.psar! > prevCandle.close;
+            
+            if (!signalType && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed) {
+>>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
                 signalType = 'SELL';
+            }
+
+            // Medium-Confidence Pullback Logic
+            if (!signalType) {
+                const isPullbackBuy = prevCandle.low <= cache.emaFast! && prevCandle.close > cache.emaFast!;
+                const rsiPullbackOkBuy = cache.rsi! > 40 && rsiInRangeBuy;
+                if (isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed) {
+                    signalType = 'BUY';
+                }
+
+                const isPullbackSell = prevCandle.high >= cache.emaFast! && prevCandle.close < cache.emaFast!;
+                const rsiPullbackOkSell = cache.rsi! < 60 && rsiInRangeSell;
+                if (!signalType && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed) {
+                    signalType = 'SELL';
+                }
             }
             
             if (signalType) {
+<<<<<<< HEAD
                 const atrValue = getValueAt(atrArr, i);
+=======
+                const atrValue = getValueAt(atrArr, i); // Use current ATR
+>>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
                 if (atrValue === null) continue;
 
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
@@ -300,6 +345,10 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
 
 const POPULATION_SIZE = 30;
 const GENERATIONS = 15;
+<<<<<<< HEAD
+=======
+const MUTATION_RATE = 0.2;
+>>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
 const ELITISM_RATE = 0.1;
 
 function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] }): Omit<StrategyParams, 'SPREAD_PERCENT'> {
@@ -316,6 +365,7 @@ function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPR
 }
 
 function calculateFitness(performance: PerformanceMetrics): number {
+<<<<<<< HEAD
     if (!performance || performance.numberOfTrades < 5) return -1e9; // Penalize heavily for few trades
     
     // More robust fitness function to avoid overfitting
@@ -328,6 +378,21 @@ function calculateFitness(performance: PerformanceMetrics): number {
                   
     fitness *= drawdownPenalty;
     fitness *= tradeCountBonus;
+=======
+    if (!performance) return -1e9; 
+    
+    // Heavily penalize strategies with very few trades
+    const tradePenalty = Math.min(1, performance.numberOfTrades / 10);
+
+    const profitScore = performance.totalProfit;
+    const stabilityScore = performance.sharpeRatio > 0 ? performance.sharpeRatio : 0; 
+    const winRateScore = performance.winRate / 100;
+    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 20); // More sensitive drawdown penalty
+
+    let fitness = (profitScore * 0.4) + (stabilityScore * 0.3) + (winRateScore * 0.2) + (performance.expectancy * 0.1);
+    fitness *= drawdownPenalty;
+    fitness *= tradePenalty;
+>>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
 
     return isNaN(fitness) ? -1e9 : fitness;
 }
@@ -406,16 +471,30 @@ export async function optimizeParameters(
         results.sort((a, b) => b.fitness - a.fitness);
         const bestOfGen = results[0];
 
+<<<<<<< HEAD
         if (bestOfGen.fitness > (bestPerformanceFromAllGens ? calculateFitness(bestPerformanceFromAllGens) : -Infinity)) {
              bestIndividualFromAllGens = bestOfGen.individual;
              bestPerformanceFromAllGens = bestOfGen.performance;
              bestTradesFromAllGens = bestOfGen.trades;
              generationsWithoutImprovement = 0;
+=======
+        if (results[0].fitness > bestFitnessFromAllGens) {
+            bestFitnessFromAllGens = results[0].fitness;
+            bestIndividualFromAllGens = results[0].individual;
+            bestPerformanceFromAllGens = results[0].performance;
+            bestTradesFromAllGens = results[0].trades;
+            generationsWithoutImprovement = 0;
+>>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
         } else {
             generationsWithoutImprovement++;
         }
 
         console.log(`Generation ${gen + 1}/${GENERATIONS} | Best Fitness: ${bestOfGen.fitness.toPrecision(4)} | Trades: ${bestOfGen.performance.numberOfTrades} | Profit: ${bestOfGen.performance.totalProfit.toPrecision(4)}`);
+
+        if (generationsWithoutImprovement >= 5) {
+            console.log("Stopping early due to convergence.");
+            break;
+        }
 
         if (generationsWithoutImprovement >= 5) {
             console.log("Stopping early due to convergence.");
