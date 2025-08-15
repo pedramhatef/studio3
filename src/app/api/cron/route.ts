@@ -79,21 +79,46 @@ export async function GET() {
       return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
     }
     
-    const recentSignals = await getSignalHistoryFromFirestore();
-    const lastSignal = recentSignals?.[0] ?? null;
+    const lastSignal = (await getSignalHistoryFromFirestore())?.[0] ?? null;
 
     if (lastSignal) {
-        const timeSinceLastSignal = chartData[chartData.length - 1].time - lastSignal.time;
-        // If last signal was less than 2 minutes ago, don't generate a new one to prevent conflicts.
-        if (timeSinceLastSignal < 2 * 60 * 1000) { 
-            log(`Still in active trade based on signal from ${new Date(lastSignal.time).toISOString()}. No new signals will be generated.`);
-            return NextResponse.json({ message: 'In active trade. No new signal generated.' });
+        const lastSignalTime = lastSignal.time;
+        const latestCandleTime = chartData[chartData.length - 1].time;
+        const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
+
+        if (timeSinceLastSignalMs > 0) {
+            const candlesSinceLastSignal = chartData.filter(d => d.time > lastSignalTime && d.time <= latestCandleTime);
+            let positionExited = false;
+            for (const candle of candlesSinceLastSignal) {
+                const atrValue = indicators.calculateATR(chartData.slice(0, chartData.indexOf(candle) + 1), strategyConfig.ATR_PERIOD).pop() ?? 0;
+                const stopLossPrice = lastSignal.type === 'BUY'
+                    ? lastSignal.price - (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER)
+                    : lastSignal.price + (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
+                const takeProfitPrice = lastSignal.type === 'BUY'
+                    ? lastSignal.price + (atrValue * strategyConfig.TAKE_PROFIT_ATR_MULTIPLIER)
+                    : lastSignal.price - (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
+
+                if ((lastSignal.type === 'BUY' && (candle.low <= stopLossPrice || candle.high >= takeProfitPrice)) ||
+                    (lastSignal.type === 'SELL' && (candle.high >= stopLossPrice || candle.low <= takeProfitPrice))) {
+                    log(`Position from signal at ${new Date(lastSignalTime).toISOString()} would have exited. Clearing last signal.`);
+                    positionExited = true;
+                    break; 
+                }
+            }
+            if (positionExited) {
+                 // Faking that we don't have a last signal allows us to look for a new trade
+            } else {
+                 log(`Still in active trade based on signal from ${new Date(lastSignalTime).toISOString()}. No new signals will be generated.`);
+                 return NextResponse.json({ message: 'In active trade. No new signal generated.' });
+            }
         }
     }
 
 
     section('Find New Signal');
     const closeSlice = chartData.map(d => d.close);
+    const highSlice = chartData.map(d => d.high);
+    const lowSlice = chartData.map(d => d.low);
     const volumeSlice = chartData.map(d => d.volume);
 
     const emaFastArr = indicators.calculateEMA(closeSlice, strategyConfig.EMA_FAST_PERIOD);
@@ -133,6 +158,10 @@ export async function GET() {
     }
     kv(cache);
     
+    const isUptrend = latest.close > (cache.emaLong as number);
+    const isDowntrend = latest.close < (cache.emaLong as number);
+    log(`Overall Trend: ${isUptrend ? 'UPTREND' : isDowntrend ? 'DOWNTREND' : 'SIDEWAYS'}`);
+
     const recentAtrSlice = atrArr.slice(-10).filter(v => v !== null) as number[];
     const avgAtr = recentAtrSlice.length > 0 ? recentAtrSlice.reduce((s,v) => s + v, 0) / recentAtrSlice.length : 0;
     const isVolatileEnough = (cache.atr as number) > (avgAtr * strategyConfig.ATR_VOLATILITY_THRESHOLD);
@@ -147,45 +176,60 @@ export async function GET() {
 
     const emaFastPrev = getValueAt(emaFastArr, currentIndex - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, currentIndex - 1);
-    
-    const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-    const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+    const volumeOk = latest.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+    const macdConfirmBuy = (cache.macdHistogram as number) > 0;
+    const macdConfirmSell = (cache.macdHistogram as number) < 0;
 
     // BUY Logic
-    logCond('BUY Crossover', emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD);
-    if (emaCrossedUp && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD) {
-        signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
-    }
+    if (isUptrend) {
+        const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
+        const rsiInRange = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
+        logCond('BUY Crossover', emaCrossedUp && rsiInRange && macdConfirmBuy);
+        if (emaCrossedUp && rsiInRange && macdConfirmBuy) {
+            signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
+        }
 
-    const isPullbackBuy = latest.low <= (cache.emaSlow as number) && latest.close > (cache.emaSlow as number);
-    const rsiPullbackOkBuy = (cache.rsi as number) > 40 && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-    logCond('BUY Pullback', !signal && isPullbackBuy && rsiPullbackOkBuy);
-    if (!signal && isPullbackBuy && rsiPullbackOkBuy) {
-        signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
+        const isPullback = latest.low <= (cache.emaFast as number) && latest.close > (cache.emaFast as number);
+        const rsiPullbackOk = (cache.rsi as number) > 40 && rsiInRange;
+        logCond('BUY Pullback', isPullback && rsiPullbackOk);
+        if (!signal && isPullback && rsiPullbackOk) {
+            signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
+        }
+        
+        const psarOk = latest.close > (cache.pSar as number);
+        const rsiBreakoutOk = (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD;
+        logCond('BUY Breakout', volumeOk && psarOk && rsiBreakoutOk && macdConfirmBuy);
+        if (!signal && volumeOk && psarOk && rsiBreakoutOk && macdConfirmBuy) {
+            signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
+        }
     }
-    
     // SELL Logic
-    logCond('SELL Crossover', emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD);
-    if (emaCrossedDown && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD) {
-        signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
-    }
+    else if (isDowntrend) {
+        const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
+        const rsiInRange = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
+        logCond('SELL Crossover', emaCrossedDown && rsiInRange && macdConfirmSell);
+        if (emaCrossedDown && rsiInRange && macdConfirmSell) {
+            signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
+        }
 
-    const isPullbackSell = latest.high >= (cache.emaSlow as number) && latest.close < (cache.emaSlow as number);
-    const rsiPullbackOkSell = (cache.rsi as number) < 60 && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-    logCond('SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell);
-    if (!signal && isPullbackSell && rsiPullbackOkSell) {
-        signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
+        const isPullback = latest.high >= (cache.emaFast as number) && latest.close < (cache.emaFast as number);
+        const rsiPullbackOk = (cache.rsi as number) < 60 && rsiInRange;
+        logCond('SELL Pullback', isPullback && rsiPullbackOk);
+        if (!signal && isPullback && rsiPullbackOk) {
+            signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
+        }
+
+        const psarOk = latest.close < (cache.pSar as number);
+        const rsiBreakdownOk = (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD;
+        logCond('SELL Breakdown', volumeOk && psarOk && rsiBreakdownOk && macdConfirmSell);
+        if (!signal && volumeOk && psarOk && rsiBreakdownOk && macdConfirmSell) {
+           signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
+        }
     }
 
     if (!signal) {
         log('No signal generated based on entry conditions.');
         return NextResponse.json({ message: 'No signal generated.' });
-    }
-    
-    // Prevent creating a new signal if the last one was of the same type and very recent
-    if (lastSignal && lastSignal.type === signal.type) {
-      log(`Duplicate signal type (${signal.type}) detected. No new signal will be saved.`);
-      return NextResponse.json({ message: 'Duplicate signal detected.' });
     }
 
     // Enhance and Save
