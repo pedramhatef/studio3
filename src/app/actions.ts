@@ -1,3 +1,4 @@
+
 'use server';
 
 import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
@@ -16,13 +17,13 @@ interface BybitKlineResponse {
   time: number;
 }
 
-export async function getChartData(): Promise<ChartDataPoint[]> {
+export async function getChartData(symbol: 'DOGEUSDT' | 'BTCUSDT' = 'DOGEUSDT'): Promise<ChartDataPoint[]> {
   try {
     const host = 'https://api-demo.bybit.com';
     const path = '/v5/market/kline';
     const params = new URLSearchParams({
       category: 'linear',
-      symbol: 'DOGEUSDT',
+      symbol: symbol,
       interval: '1', // 1 minute
       limit: '200', // max limit
     });
@@ -34,14 +35,14 @@ export async function getChartData(): Promise<ChartDataPoint[]> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Bybit Chart API Error:', errorText);
-      throw new Error(`Failed to fetch chart data: ${response.statusText}`);
+      console.error(`Bybit Chart API Error (${symbol}):`, errorText);
+      throw new Error(`Failed to fetch chart data for ${symbol}: ${response.statusText}`);
     }
 
     const data: BybitKlineResponse = await response.json();
 
     if (data.retCode !== 0) {
-      throw new Error(`Bybit API returned an error: ${data.retMsg}`);
+      throw new Error(`Bybit API returned an error for ${symbol}: ${data.retMsg}`);
     }
 
     const formattedData = data.result.list.map(d => ({
@@ -55,10 +56,11 @@ export async function getChartData(): Promise<ChartDataPoint[]> {
 
     return formattedData;
   } catch (error) {
-    console.error('Error in getChartData:', error);
+    console.error(`Error in getChartData for ${symbol}:`, error);
     return []; // Return empty array on error
   }
 }
+
 
 export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>) {
   try {
@@ -122,3 +124,5 @@ export async function getLatestOptimizationParams(): Promise<Partial<StrategyPar
         return null;
       }
 }
+
+    
