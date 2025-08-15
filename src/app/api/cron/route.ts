@@ -103,6 +103,7 @@ export async function GET() {
     // DOGE indicators
     const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_SLOW_PERIOD);
+    const emaLongArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_LONG_PERIOD);
     const rsiArr = indicators.calculateRSI(dogeClose, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeChartData, strategyConfig.ATR_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
@@ -134,6 +135,7 @@ export async function GET() {
     const cache = {
       emaFast: getValueAt(emaFastArr, prev_i),
       emaSlow: getValueAt(emaSlowArr, prev_i),
+      emaLong: getValueAt(emaLongArr, prev_i),
       rsi: getValueAt(rsiArr, prev_i),
       psar: getValueAt(psarArr, prev_i),
       volume: prevCandle.volume,
@@ -148,28 +150,24 @@ export async function GET() {
     
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     
-    const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
-    const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
-    
     const volumeConfirmed = cache.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
     logCond('Volume Confirmation', volumeConfirmed, `Vol: ${cache.volume?.toFixed(0)} > AvgVol: ${cache.avgVolume?.toFixed(0)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
 
-    // --- HIGH CONFIDENCE ---
-    // BUY Logic (Crossover)
-    const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-    const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD;
-    const psarConfirmBuy = (cache.psar as number) < prevCandle.close;
-    logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed);
-    if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed) {
+    // --- STRATEGY LOGIC ---
+
+    // BUY Logic: Price is in an uptrend, and we see a confirmation.
+    const isUpTrend = (cache.emaFast as number) > (cache.emaSlow as number) && prevCandle.close > (cache.emaLong as number);
+    const rsiConfirmBuy = (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
+    logCond('BUY Signal', isUpTrend && rsiConfirmBuy && volumeConfirmed);
+    if (isUpTrend && rsiConfirmBuy && volumeConfirmed) {
         signal = { type: 'BUY', level: 'High', price: latest.open, time: latest.time };
     }
 
-    // SELL Logic (Crossover)
-    const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-    const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD && (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD;
-    const psarConfirmSell = (cache.psar as number) > prevCandle.close;
-    logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed);
-    if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed) {
+    // SELL Logic: Price is in a downtrend, and we see a confirmation.
+    const isDownTrend = (cache.emaFast as number) < (cache.emaSlow as number) && prevCandle.close < (cache.emaLong as number);
+    const rsiConfirmSell = (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
+    logCond('SELL Signal', !signal && isDownTrend && rsiConfirmSell && volumeConfirmed);
+    if (!signal && isDownTrend && rsiConfirmSell && volumeConfirmed) {
         signal = { type: 'SELL', level: 'High', price: latest.open, time: latest.time };
     }
 

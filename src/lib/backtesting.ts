@@ -1,5 +1,6 @@
 
 
+
 'use server';
 
 import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
@@ -82,6 +83,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
     // Calculate all indicators once
     const emaFastArr = indicators.calculateEMA(dogeClose, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, params.EMA_SLOW_PERIOD);
+    const emaLongArr = indicators.calculateEMA(dogeClose, params.EMA_LONG_PERIOD);
     const rsiArr = indicators.calculateRSI(dogeClose, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeData, params.ATR_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(dogeData, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
@@ -158,6 +160,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
              const cache = {
                 emaFast: getValueAt(emaFastArr, i - 1),
                 emaSlow: getValueAt(emaSlowArr, i - 1),
+                emaLong: getValueAt(emaLongArr, i - 1),
                 rsi: getValueAt(rsiArr, i - 1),
                 psar: getValueAt(psarArr, i - 1),
                 volume: getValueAt(dogeVolume, i - 1),
@@ -170,24 +173,21 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             
             let signalType: Signal['type'] | null = null;
 
-            const emaFastPrev = getPrevValueAt(emaFastArr, i - 1);
-            const emaSlowPrev = getPrevValueAt(emaSlowArr, i - 1);
-            
             const volumeConfirmed = cache.volume! > cache.avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER;
             
-            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && cache.emaFast! > cache.emaSlow!;
+            // BUY Logic: Price is in an uptrend and we see a confirmation.
+            const isUpTrend = cache.emaFast! > cache.emaSlow! && prevCandle.close > cache.emaLong!;
             const rsiConfirmBuy = cache.rsi! > params.RSI_BREAKOUT_THRESHOLD && cache.rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
-            const psarConfirmBuy = cache.psar! < prevCandle.close;
 
-            if (emaCrossedUp && rsiConfirmBuy && psarConfirmBuy && volumeConfirmed) {
+            if (isUpTrend && rsiConfirmBuy && volumeConfirmed) {
                 signalType = 'BUY';
             }
 
-            const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && cache.emaFast! < cache.emaSlow!;
+            // SELL Logic: Price is in a downtrend and we see a confirmation.
+            const isDownTrend = cache.emaFast! < cache.emaSlow! && prevCandle.close < cache.emaLong!;
             const rsiConfirmSell = cache.rsi! < params.RSI_BREAKDOWN_THRESHOLD && cache.rsi! > params.RSI_OVERSOLD_THRESHOLD;
-            const psarConfirmSell = cache.psar! > prevCandle.close;
             
-            if (!signalType && emaCrossedDown && rsiConfirmSell && psarConfirmSell && volumeConfirmed) {
+            if (!signalType && isDownTrend && rsiConfirmSell && volumeConfirmed) {
                 signalType = 'SELL';
             }
             
@@ -316,19 +316,18 @@ function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPR
 }
 
 function calculateFitness(performance: PerformanceMetrics): number {
-    if (!performance || performance.numberOfTrades === 0) return -1e9; 
+    if (!performance || performance.numberOfTrades < 5) return -1e9; // Penalize heavily for few trades
     
-    // Heavily penalize strategies with very few trades
-    const tradePenalty = Math.min(1, performance.numberOfTrades / 10);
-    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 10); // More aggressive penalty
+    // More robust fitness function to avoid overfitting
+    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 15); // Less aggressive penalty
+    const tradeCountBonus = Math.log10(performance.numberOfTrades);
 
-    let fitness = (performance.totalProfit * 0.4) + 
-                  (performance.sharpeRatio * 0.3) + 
-                  (performance.winRate * 0.1) +
-                  (performance.expectancy * 0.2);
+    let fitness = (performance.expectancy * 0.5) +
+                  (performance.sharpeRatio * 0.3) +
+                  (performance.profitFactor * 0.2);
                   
     fitness *= drawdownPenalty;
-    fitness *= tradePenalty;
+    fitness *= tradeCountBonus;
 
     return isNaN(fitness) ? -1e9 : fitness;
 }
@@ -452,8 +451,8 @@ export async function optimizeParameters(
         console.log("In-Sample Performance:", bestPerformanceFromAllGens);
         console.log("Out-of-Sample Performance:", outOfSamplePerformance);
 
-        // Only accept if the strategy is still profitable out-of-sample
-        if(outOfSamplePerformance.totalProfit > 0) {
+        // Only accept if the strategy is still profitable out-of-sample and has trades
+        if(outOfSamplePerformance.totalProfit > 0 && outOfSamplePerformance.numberOfTrades > 0) {
              return { bestParams, bestPerformance: outOfSamplePerformance, bestTrades: outOfSampleTrades };
         } else {
             console.warn("Strategy failed out-of-sample validation. Discarding results.");
@@ -465,5 +464,3 @@ export async function optimizeParameters(
     console.warn("Genetic algorithm did not find a suitable strategy.");
     return { bestParams: null, bestPerformance: null, bestTrades: [] };
 }
-
-    
