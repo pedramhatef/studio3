@@ -88,10 +88,9 @@ export async function GET() {
         const lastSignalTime = lastSignal.time;
         const latestCandleTime = dogeChartData[dogeChartData.length - 1].time;
         const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
-        const cooldownMinutes = lastSignal?.level === 'High' ? 3 : 5; // Dynamic Cooldown
 
-        if (timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < cooldownMinutes * 60 * 1000) {
-            log(`In active trade cooldown (${cooldownMinutes} mins). No new signals will be generated.`);
+        if (timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < 5 * 60 * 1000) { // 5 minute cooldown
+            log(`Still in active trade based on signal from ${new Date(lastSignalTime).toISOString()}. No new signals will be generated.`);
             return NextResponse.json({ message: 'In active trade cooldown. No new signal generated.' });
         }
     }
@@ -103,12 +102,12 @@ export async function GET() {
     // DOGE indicators
     const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_SLOW_PERIOD);
-    const emaLongArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_LONG_PERIOD);
     const rsiArr = indicators.calculateRSI(dogeClose, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeChartData, strategyConfig.ATR_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
     const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
     
+    // We check for signals on the PREVIOUS candle (i-1) and execute on the CURRENT candle (i)
     const i = dogeChartData.length - 1; // Current, open candle
     const prev_i = i - 1; // Previous, closed candle
 
@@ -119,23 +118,12 @@ export async function GET() {
       time: new Date(prevCandle.time).toISOString(),
       close: Number(prevCandle.close).toFixed(6),
     });
-    
-    // --- Volatility Filter ---
-    const validAtrValues = atrArr.filter((v): v is number => v !== null);
-    const currentAtr = indicators.calculateSMA(validAtrValues.slice(-5), 5).pop(); 
-    const historicalAtr = indicators.calculateSMA(validAtrValues, 100).pop();
-    if(currentAtr && historicalAtr && (currentAtr / historicalAtr < 0.7)){
-        log(`Low volatility detected (ATR ratio: ${currentAtr/historicalAtr}). Skipping trade.`);
-        return NextResponse.json({ message: 'Low volatility, no signal generated.' });
-    }
-
 
     const getValueAt = (arr: (number | null)[], idx: number) => arr[idx] ?? null;
     
     const cache = {
       emaFast: getValueAt(emaFastArr, prev_i),
       emaSlow: getValueAt(emaSlowArr, prev_i),
-      emaLong: getValueAt(emaLongArr, prev_i),
       rsi: getValueAt(rsiArr, prev_i),
       psar: getValueAt(psarArr, prev_i),
       volume: prevCandle.volume,
@@ -150,28 +138,6 @@ export async function GET() {
     
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     
-<<<<<<< HEAD
-    const volumeConfirmed = cache.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
-    logCond('Volume Confirmation', volumeConfirmed, `Vol: ${cache.volume?.toFixed(0)} > AvgVol: ${cache.avgVolume?.toFixed(0)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
-
-    // --- STRATEGY LOGIC ---
-
-    // BUY Logic: Price is in an uptrend, and we see a confirmation.
-    const isUpTrend = (cache.emaFast as number) > (cache.emaSlow as number) && prevCandle.close > (cache.emaLong as number);
-    const rsiConfirmBuy = (cache.rsi as number) > strategyConfig.RSI_BREAKOUT_THRESHOLD && (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-    logCond('BUY Signal', isUpTrend && rsiConfirmBuy && volumeConfirmed);
-    if (isUpTrend && rsiConfirmBuy && volumeConfirmed) {
-        signal = { type: 'BUY', level: 'High', price: latest.open, time: latest.time };
-    }
-
-    // SELL Logic: Price is in a downtrend, and we see a confirmation.
-    const isDownTrend = (cache.emaFast as number) < (cache.emaSlow as number) && prevCandle.close < (cache.emaLong as number);
-    const rsiConfirmSell = (cache.rsi as number) < strategyConfig.RSI_BREAKDOWN_THRESHOLD && (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-    logCond('SELL Signal', !signal && isDownTrend && rsiConfirmSell && volumeConfirmed);
-    if (!signal && isDownTrend && rsiConfirmSell && volumeConfirmed) {
-        signal = { type: 'SELL', level: 'High', price: latest.open, time: latest.time };
-    }
-=======
     const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
     
@@ -216,7 +182,6 @@ export async function GET() {
         }
     }
 
->>>>>>> 054a47cf (Incorporate More Indicators for Robustness: Your strategy relies heavily)
 
     if (!signal) {
         log('No signal generated based on entry conditions.');
@@ -225,12 +190,12 @@ export async function GET() {
 
     // Enhance and Save
     const atrValue = getValueAt(atrArr, i); // Use current ATR for buffer
-    if (atrValue) {
+     if (atrValue) {
         const capital = 1000; 
-        const riskPercent = atrValue > 0.02 ? 0.5 : 1; // Dynamic risk based on volatility
+        const riskPercent = 1;
         const dollarRisk = capital * (riskPercent / 100);
         const positionSize = dollarRisk / (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
-        const leverage = (positionSize * latest.open) / capital;
+        const leverage = (positionSize * latest.close) / capital;
 
         signal.suggestedLeverage = Math.max(1, Math.min(10, Math.round(leverage)));
         signal.stopBuffer = atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
