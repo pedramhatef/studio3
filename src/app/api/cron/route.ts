@@ -142,7 +142,7 @@ export async function GET() {
     const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
     
-    const volumeConfirmed = (getValueAt(dogeVolume, prev_i) as number ) > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+    const volumeConfirmed = (getValueAt(dogeVolume, prev_i) as number ) > (getValueAt(avgVolumeArr, prev_i - 1) as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
     logCond('Volume Confirmation', volumeConfirmed, `Vol: ${getValueAt(dogeVolume, prev_i)?.toFixed(6)} > PrevVolume: ${getValueAt(dogeVolume, prev_i - 1)?.toFixed(6)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
 
     const atrConfirmed = (getValueAt(atrArr, prev_i) as number) > (getValueAt(atrArr, prev_i - 1) as number) * strategyConfig.ATR_VOLATILITY_THRESHOLD; // Compare current ATR to previous ATR scaled
