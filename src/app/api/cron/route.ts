@@ -2,9 +2,8 @@
 
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
-import type { Signal } from '@/lib/types';
+import type { Signal, StrategyParams } from '@/lib/types';
 import * as indicators from '@/lib/indicators'; 
-import { Volume } from 'lucide-react';
 
 interface EnhancedSignal extends Signal {
   suggestedLeverage?: number;
@@ -12,25 +11,6 @@ interface EnhancedSignal extends Signal {
 }
 
 const DEBUG = true;
-
-let strategyConfig = {
-  EMA_FAST_PERIOD: 5,
-  EMA_SLOW_PERIOD: 10,
-  EMA_LONG_PERIOD: 50,
-  PARABOLIC_SAR_STEP: 0.02,
-  PARABOLIC_SAR_MAX: 0.2,
-  RSI_PERIOD: 14,
-  RSI_OVERSOLD_THRESHOLD: 35,
-  RSI_OVERBOUGHT_THRESHOLD: 65,
-  RSI_BREAKOUT_THRESHOLD: 55,
-  RSI_BREAKDOWN_THRESHOLD: 45,
-  ATR_PERIOD: 14,
-  ATR_VOLATILITY_THRESHOLD: 1.2,
-  VOLUME_PERIOD: 20,
-  VOLUME_THRESHOLD_MULTIPLIER: 1.5, 
-  TAKE_PROFIT_ATR_MULTIPLIER: 2.0,
-  STOP_LOSS_ATR_MULTIPLIER: 1.5,
-};
 
 export const revalidate = 0;
 
@@ -52,20 +32,24 @@ function logCond(name: string, passed: boolean, details?: string) {
 
 export async function GET() {
   const ts = new Date().toISOString();
-  
+  let strategyConfig: StrategyParams;
+
   section('Fetch Optimal Parameters');
   try {
     const latestParams = await getLatestOptimizationParams();
     if (latestParams) {
-        strategyConfig = { ...strategyConfig, ...latestParams };
+        // We need to provide a default for SPREAD_PERCENT as it's not in the optimized params
+        strategyConfig = { ...latestParams, SPREAD_PERCENT: 0.01 } as StrategyParams;
         log('Applied optimal parameters from Firestore.');
         kv(strategyConfig);
     } else {
-        log('No optimization results found in Firestore. Using default parameters.');
+        log('No optimization results found in Firestore. Cannot proceed without a strategy.');
+        return NextResponse.json({ message: 'No strategy parameters available from optimization.' }, { status: 500 });
     }
   } catch (error) {
     console.error(`Error fetching optimization results:`, error);
-    log('Using default parameters due to fetch error.');
+    log('Cannot proceed without a strategy due to fetch error.');
+    return NextResponse.json({ message: 'Failed to fetch strategy parameters.' }, { status: 500 });
   }
 
   section(`CRON RUN @ ${ts}`);
@@ -89,9 +73,10 @@ export async function GET() {
         const lastSignalTime = lastSignal.time;
         const latestCandleTime = dogeChartData[dogeChartData.length - 1].time;
         const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
-
-        if (timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < 5 * 60 * 1000) { // 5 minute cooldown
-            log(`Still in active trade based on signal from ${new Date(lastSignalTime).toISOString()}. No new signals will be generated.`);
+        
+        const cooldownMinutes = lastSignal.level === 'High' ? 3 : 5;
+        if (timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < cooldownMinutes * 60 * 1000) { 
+            log(`In active trade cooldown (${cooldownMinutes} mins). No new signals will be generated.`);
             return NextResponse.json({ message: 'In active trade cooldown. No new signal generated.' });
         }
     }
@@ -103,14 +88,18 @@ export async function GET() {
     // DOGE indicators
     const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_SLOW_PERIOD);
+    const emaLongArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_LONG_PERIOD);
     const rsiArr = indicators.calculateRSI(dogeClose, strategyConfig.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeChartData, strategyConfig.ATR_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
-    const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
     
-    // We check for signals on the PREVIOUS candle (i-1) and execute on the CURRENT candle (i)
-    const i = dogeChartData.length - 1; // Current, open candle
-    const prev_i = i - 1; // Previous, closed candle
+    const volumeSma = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
+    const volumeStdDev = indicators.calculateStdDev(dogeVolume, strategyConfig.VOLUME_PERIOD);
+
+    const prevAtrArr = indicators.calculateSMA(atrArr.filter((v): v is number => v !== null), 10);
+    
+    const i = dogeChartData.length - 1; 
+    const prev_i = i - 1; 
 
     const latest = dogeChartData[i];
     const prevCandle = dogeChartData[prev_i];
@@ -120,18 +109,20 @@ export async function GET() {
       close: Number(prevCandle.close).toFixed(6),
     });
 
-    const getValueAt = (arr: (number | null)[], idx: number) => arr[idx] ?? null;
-    
     const cache = {
-      emaFast: getValueAt(emaFastArr, prev_i),
-      emaSlow: getValueAt(emaSlowArr, prev_i),
-      rsi: getValueAt(rsiArr, prev_i),
-      psar: getValueAt(psarArr, prev_i),
-      volume: prevCandle.volume,
-      avgVolume: getValueAt(avgVolumeArr, prev_i),
+      emaFast: indicators.getValueAt(emaFastArr, prev_i),
+      emaSlow: indicators.getValueAt(emaSlowArr, prev_i),
+      emaLong: indicators.getValueAt(emaLongArr, prev_i),
+      rsi: indicators.getValueAt(rsiArr, prev_i),
+      psar: indicators.getValueAt(psarArr, prev_i),
+      volume: indicators.getValueAt(dogeVolume, prev_i),
+      avgVolume: indicators.getValueAt(volumeSma, prev_i),
+      volumeStdDev: indicators.getValueAt(volumeStdDev, prev_i),
+      atr: indicators.getValueAt(atrArr, prev_i),
+      prevAtr: indicators.getValueAt(prevAtrArr, prev_i),
     };
 
-    if (Object.values(cache).some(v => v === null || Number.isNaN(v))) {
+    if (Object.values(cache).some(v => v === null)) {
       log('Indicator calculation incomplete on previous candle:', cache);
       return NextResponse.json({ message: 'Indicator calculation incomplete.' });
     }
@@ -139,97 +130,55 @@ export async function GET() {
     
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     
-    const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
-    const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
-    
-    const volumeConfirmed = (getValueAt(dogeVolume, prev_i) as number) >
-    (getValueAt(avgVolumeArr, prev_i) as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.9; // slight relaxation
+    const isUptrend = cache.emaFast! > cache.emaSlow! && prevCandle.close > cache.emaLong!;
+    const isDowntrend = cache.emaFast! < cache.emaSlow! && prevCandle.close < cache.emaLong!;
 
-logCond(
-    'Volume Confirmation',
-    volumeConfirmed,
-    `Vol: ${getValueAt(dogeVolume, prev_i)?.toFixed(6)} > AvgVolume: ${getValueAt(avgVolumeArr, prev_i)?.toFixed(6)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.9}`
-);
+    const volumeConfirmed = cache.volume! > cache.avgVolume! + (cache.volumeStdDev! * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER);
+    const atrConfirmed = cache.atr! > cache.prevAtr!;
 
-// ATR confirmation: allow sideways/slightly lower ATR (>= not just >)
-const atrConfirmed = (getValueAt(atrArr, prev_i) as number) >=
-    (getValueAt(atrArr, prev_i - 1) as number) * (strategyConfig.ATR_VOLATILITY_THRESHOLD * 0.95);
+    logCond('Volume Confirmation', volumeConfirmed, `Vol: ${cache.volume?.toFixed(2)} > AvgVol: ${cache.avgVolume?.toFixed(2)} + (StdDev: ${cache.volumeStdDev?.toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER})`);
+    logCond('ATR Confirmation (Volatility)', atrConfirmed, `ATR: ${cache.atr?.toFixed(6)} > PrevATR: ${cache.prevAtr?.toFixed(6)}`);
 
-logCond(
-    'ATR Confirmation (Volatility)',
-    atrConfirmed,
-    `ATR: ${getValueAt(atrArr, prev_i)?.toFixed(6)} >= PrevATR: ${getValueAt(atrArr, prev_i - 1)?.toFixed(6)} * ${strategyConfig.ATR_VOLATILITY_THRESHOLD * 0.95}`
-);
-
-
-// --- HIGH CONFIDENCE ---
-// BUY Logic (Crossover)
-const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null &&
-    emaFastPrev <= emaSlowPrev && (cache.emaFast as number) > (cache.emaSlow as number);
-
-// RSI: only filter out extreme overbought
-const rsiInRangeBuy = (cache.rsi as number) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD + 5;
-
-// PSAR still confirming
-const psarConfirmBuy = (cache.psar as number) < prevCandle.close;
-
-logCond('High-Conf BUY Crossover', emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed);
-if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed && atrConfirmed) {  // removed atrConfirmed
-    signal = { type: 'BUY', level: 'High', price: latest.close, time: latest.time };
-}
-
-// SELL Logic (Crossover)
-const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null &&
-    emaFastPrev >= emaSlowPrev && (cache.emaFast as number) < (cache.emaSlow as number);
-
-const rsiInRangeSell = (cache.rsi as number) > strategyConfig.RSI_OVERSOLD_THRESHOLD - 5;
-
-const psarConfirmSell = (cache.psar as number) > prevCandle.close;
-
-logCond('High-Conf SELL Crossover', !signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed);
-if (!signal && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed && atrConfirmed) {
-    signal = { type: 'SELL', level: 'High', price: latest.close, time: latest.time };
-}
-
-// --- MEDIUM CONFIDENCE ---
-if (!signal) {
-    // BUY Logic (Pullback)
-    const isPullbackBuy = prevCandle.low <= (cache.emaFast as number) && prevCandle.close > (cache.emaFast as number);
-
-    // RSI relaxed: just above 35, not double-filtered
-    const rsiPullbackOkBuy = (cache.rsi as number) > 35;
-
-    logCond('Med-Conf BUY Pullback', isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed);
-    if (isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed && atrConfirmed) {  // dropped atrConfirmed
-        signal = { type: 'BUY', level: 'Medium', price: latest.close, time: latest.time };
+    if (volumeConfirmed && atrConfirmed) {
+        // High-Confidence Trend Continuation
+        if (isUptrend && cache.rsi! > 55 && prevCandle.close > cache.psar!) {
+            logCond('High-Conf BUY', true);
+            signal = { type: 'BUY', level: 'High', price: latest.open, time: latest.time };
+        }
+        if (!signal && isDowntrend && cache.rsi! < 45 && prevCandle.close < cache.psar!) {
+             logCond('High-Conf SELL', true);
+            signal = { type: 'SELL', level: 'High', price: latest.open, time: latest.time };
+        }
+        
+        // Medium-Confidence Pullback
+        if (!signal) {
+             const isPullbackBuy = isUptrend && prevCandle.low <= cache.emaSlow! && prevCandle.close > cache.emaSlow!;
+             if (isPullbackBuy && cache.rsi! > 50 && prevCandle.close > cache.psar!) {
+                 logCond('Med-Conf BUY Pullback', true);
+                 signal = { type: 'BUY', level: 'Medium', price: latest.open, time: latest.time };
+             }
+             const isPullbackSell = isDowntrend && prevCandle.high >= cache.emaSlow! && prevCandle.close < cache.emaSlow!;
+             if (!signal && isPullbackSell && cache.rsi! < 50 && prevCandle.close < cache.psar!) {
+                 logCond('Med-Conf SELL Pullback', true);
+                 signal = { type: 'SELL', level: 'Medium', price: latest.open, time: latest.time };
+             }
+        }
+    } else {
+        log('Primary confirmations (Volume, ATR) not met. No signal.');
     }
-
-    // SELL Logic (Pullback)
-    const isPullbackSell = prevCandle.high >= (cache.emaFast as number) && prevCandle.close < (cache.emaFast as number);
-
-    const rsiPullbackOkSell = (cache.rsi as number) < 65;
-
-    logCond('Med-Conf SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed);
-    if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed && atrConfirmed) {
-        signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
-    }
-}
-
-
 
     if (!signal) {
         log('No signal generated based on entry conditions.');
         return NextResponse.json({ message: 'No signal generated.' });
     }
 
-    // Enhance and Save
-    const atrValue = getValueAt(atrArr, i); // Use current ATR for buffer
+    const atrValue = indicators.getValueAt(atrArr, i);
      if (atrValue) {
         const capital = 1000; 
-        const riskPercent = 1;
+        const riskPercent = atrValue > 0.0005 ? 0.75 : 1.25; 
         const dollarRisk = capital * (riskPercent / 100);
         const positionSize = dollarRisk / (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
-        const leverage = (positionSize * latest.close) / capital;
+        const leverage = (positionSize * latest.open) / capital;
 
         signal.suggestedLeverage = Math.max(1, Math.min(10, Math.round(leverage)));
         signal.stopBuffer = atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
