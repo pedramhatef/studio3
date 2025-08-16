@@ -10,6 +10,17 @@ import type { ChartDataPoint } from './types';
 // =================================================================================
 
 /**
+ * Safely gets a value from a numeric array at a specific index.
+ * Returns null if the index is out of bounds or the value is invalid.
+ */
+export const getValueAt = (arr: (number | null)[], idx: number): number | null => {
+    if (idx < 0 || idx >= arr.length) return null;
+    const value = arr[idx];
+    return value === null || typeof value === 'undefined' || isNaN(value) ? null : value;
+};
+
+
+/**
  * Calculates Simple Moving Average (SMA)
  */
 export function calculateSMA(data: number[], period: number): (number | null)[] {
@@ -28,6 +39,24 @@ export function calculateSMA(data: number[], period: number): (number | null)[] 
     }
     return result;
 }
+
+/**
+ * Calculates Standard Deviation.
+ */
+export function calculateStdDev(data: number[], period: number): (number | null)[] {
+    if (period <= 0 || period > data.length) return [];
+
+    const results: (number | null)[] = Array(period - 1).fill(null);
+
+    for (let i = period - 1; i < data.length; i++) {
+        const slice = data.slice(i - period + 1, i + 1);
+        const mean = slice.reduce((acc, val) => acc + val, 0) / period;
+        const variance = slice.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / period;
+        results.push(Math.sqrt(variance));
+    }
+    return results;
+}
+
 
 /**
  * Calculates Exponential Moving Average (EMA)
