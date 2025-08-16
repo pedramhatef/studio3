@@ -30,6 +30,11 @@ function logCond(name: string, passed: boolean, details?: string) {
   log(`${passed ? '✔' : '✘'} ${name}${details ? ` → ${details}` : ''}`);
 }
 
+// Type guard to ensure all cache properties are numbers
+function allIndicatorsValid(cache: Record<string, number | null>): cache is Record<string, number> {
+    return !Object.values(cache).some(v => v === null);
+}
+
 export async function GET() {
   const ts = new Date().toISOString();
   let strategyConfig: StrategyParams;
@@ -123,30 +128,28 @@ export async function GET() {
 
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     
-    if (Object.values(cache).some(v => v === null)) {
-      log('Indicator calculation incomplete on previous candle:', cache);
-    } else {
+    if (allIndicatorsValid(cache)) {
         kv(cache);
         const isUptrend = cache.emaFast > cache.emaSlow && prevCandle.close > cache.emaLong;
         const isDowntrend = cache.emaFast < cache.emaSlow && prevCandle.close < cache.emaLong;
-        logCond('Is Uptrend?', isUptrend, `Fast EMA (${cache.emaFast?.toFixed(5)}) > Slow EMA (${cache.emaSlow?.toFixed(5)}) AND Close (${prevCandle.close}) > Long EMA (${cache.emaLong?.toFixed(5)})`);
-        logCond('Is Downtrend?', isDowntrend, `Fast EMA (${cache.emaFast?.toFixed(5)}) < Slow EMA (${cache.emaSlow?.toFixed(5)}) AND Close (${prevCandle.close}) < Long EMA (${cache.emaLong?.toFixed(5)})`);
+        logCond('Is Uptrend?', isUptrend, `Fast EMA (${cache.emaFast.toFixed(5)}) > Slow EMA (${cache.emaSlow.toFixed(5)}) AND Close (${prevCandle.close}) > Long EMA (${cache.emaLong.toFixed(5)})`);
+        logCond('Is Downtrend?', isDowntrend, `Fast EMA (${cache.emaFast.toFixed(5)}) < Slow EMA (${cache.emaSlow.toFixed(5)}) AND Close (${prevCandle.close}) < Long EMA (${cache.emaLong.toFixed(5)})`);
 
         const volumeConfirmed = cache.volume > cache.avgVolume + (cache.volumeStdDev * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER);
         const atrConfirmed = cache.atr > cache.prevAtr;
 
-        logCond('Volume Confirmation', volumeConfirmed, `Vol (${cache.volume?.toFixed(2)}) > AvgVol (${cache.avgVolume?.toFixed(2)}) + (StdDev (${cache.volumeStdDev?.toFixed(2)}) * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER})`);
-        logCond('ATR Confirmation (Volatility)', atrConfirmed, `ATR (${cache.atr?.toFixed(6)}) > PrevATR (${cache.prevAtr?.toFixed(6)})`);
+        logCond('Volume Confirmation', volumeConfirmed, `Vol (${cache.volume.toFixed(2)}) > AvgVol (${cache.avgVolume.toFixed(2)}) + (StdDev (${cache.volumeStdDev.toFixed(2)}) * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER})`);
+        logCond('ATR Confirmation (Volatility)', atrConfirmed, `ATR (${cache.atr.toFixed(6)}) > PrevATR (${cache.prevAtr.toFixed(6)})`);
 
         if (volumeConfirmed && atrConfirmed) {
             const highConfBuy = isUptrend && cache.rsi > 55 && prevCandle.close > cache.psar;
-            logCond('High-Conf BUY Conditions', highConfBuy, `isUptrend AND RSI (${cache.rsi?.toFixed(2)}) > 55 AND Close (${prevCandle.close}) > PSAR (${cache.psar?.toFixed(5)})`);
+            logCond('High-Conf BUY Conditions', highConfBuy, `isUptrend AND RSI (${cache.rsi.toFixed(2)}) > 55 AND Close (${prevCandle.close}) > PSAR (${cache.psar.toFixed(5)})`);
             if (highConfBuy) {
                 signal = { type: 'BUY', level: 'High', price: latest.open, time: latest.time };
             }
 
             const highConfSell = !signal && isDowntrend && cache.rsi < 45 && prevCandle.close < cache.psar;
-            logCond('High-Conf SELL Conditions', highConfSell, `isDowntrend AND RSI (${cache.rsi?.toFixed(2)}) < 45 AND Close (${prevCandle.close}) < PSAR (${cache.psar?.toFixed(5)})`);
+            logCond('High-Conf SELL Conditions', highConfSell, `isDowntrend AND RSI (${cache.rsi.toFixed(2)}) < 45 AND Close (${prevCandle.close}) < PSAR (${cache.psar.toFixed(5)})`);
             if (highConfSell) {
                 signal = { type: 'SELL', level: 'High', price: latest.open, time: latest.time };
             }
@@ -154,14 +157,14 @@ export async function GET() {
             if (!signal) {
                  const isPullbackBuy = isUptrend && prevCandle.low <= cache.emaSlow && prevCandle.close > cache.emaSlow;
                  const medConfBuy = isPullbackBuy && cache.rsi > 50 && prevCandle.close > cache.psar;
-                 logCond('Med-Conf BUY Pullback', medConfBuy, `isPullbackBuy AND RSI (${cache.rsi?.toFixed(2)}) > 50 AND Close (${prevCandle.close}) > PSAR (${cache.psar?.toFixed(5)})`);
+                 logCond('Med-Conf BUY Pullback', medConfBuy, `isPullbackBuy AND RSI (${cache.rsi.toFixed(2)}) > 50 AND Close (${prevCandle.close}) > PSAR (${cache.psar.toFixed(5)})`);
                  if (medConfBuy) {
                      signal = { type: 'BUY', level: 'Medium', price: latest.open, time: latest.time };
                  }
 
                  const isPullbackSell = isDowntrend && prevCandle.high >= cache.emaSlow && prevCandle.close < cache.emaSlow;
                  const medConfSell = !signal && isPullbackSell && cache.rsi < 50 && prevCandle.close < cache.psar;
-                 logCond('Med-Conf SELL Pullback', medConfSell, `isPullbackSell AND RSI (${cache.rsi?.toFixed(2)}) < 50 AND Close (${prevCandle.close}) < PSAR (${cache.psar?.toFixed(5)})`);
+                 logCond('Med-Conf SELL Pullback', medConfSell, `isPullbackSell AND RSI (${cache.rsi.toFixed(2)}) < 50 AND Close (${prevCandle.close}) < PSAR (${cache.psar.toFixed(5)})`);
                  if (medConfSell) {
                      signal = { type: 'SELL', level: 'Medium', price: latest.open, time: latest.time };
                  }
@@ -169,6 +172,8 @@ export async function GET() {
         } else {
             log('Primary confirmations (Volume, ATR) not met. No signal.');
         }
+    } else {
+      log('Indicator calculation incomplete on previous candle:', cache);
     }
 
 
@@ -200,3 +205,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
