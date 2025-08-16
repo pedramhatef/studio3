@@ -27,9 +27,9 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
   RSI_BREAKDOWN_THRESHOLD: [45], 
 
   // Volatility & Volume
-  ATR_VOLATILITY_THRESHOLD: [0.8, 1.2, 1.4, 1.6],
+  ATR_VOLATILITY_THRESHOLD: [0.6 ,0.8, 1.2, 1.4, 1.6],
   VOLUME_PERIOD: [20],
-  VOLUME_THRESHOLD_MULTIPLIER: [0.5, 1, 1.5, 2.0, 2.5],
+  VOLUME_THRESHOLD_MULTIPLIER: [0.6, 0.8, 1.2, 2.0, 2.5],
   
   // Risk Management
   ATR_PERIOD: [7, 8, 9, 10, 11, 12],
