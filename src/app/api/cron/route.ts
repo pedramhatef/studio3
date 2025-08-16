@@ -33,8 +33,8 @@ function logCond(name: string, passed: boolean, details?: string) {
 type CacheType = Record<string, number | null>;
 
 // Type guard to ensure all cache properties are valid numbers
-function allIndicatorsValid(cache: CacheType): cache is Record<string, number> {
-  return !Object.values(cache).some(v => v === null || isNaN(v));
+function allIndicatorsValid(cache: CacheType): cache is Record<keyof CacheType, number> {
+    return !Object.values(cache).some(v => v === null || isNaN(v));
 }
 
 export async function GET() {
@@ -61,14 +61,22 @@ export async function GET() {
   section(`CRON RUN @ ${ts}`);
 
   try {
-    const dogeChartData = await getChartData('DOGEUSDT');
     
+    // Ensure we fetch enough data for all indicators, especially the nested ones.
+    // The ATR needs its period, and the SMA on top of it needs another 10 periods.
+    const atrLookback = strategyConfig.ATR_PERIOD + 10;
     const requiredPeriods = Math.max(
-      strategyConfig.EMA_SLOW_PERIOD, strategyConfig.RSI_PERIOD, strategyConfig.ATR_PERIOD, strategyConfig.EMA_LONG_PERIOD, strategyConfig.VOLUME_PERIOD, 26
-    ) + 10; 
+      strategyConfig.EMA_SLOW_PERIOD, 
+      strategyConfig.RSI_PERIOD, 
+      strategyConfig.EMA_LONG_PERIOD, 
+      strategyConfig.VOLUME_PERIOD, 
+      atrLookback // Use the combined lookback for ATR
+    ) + 2; // Add a small buffer
 
-    if (!Array.isArray(dogeChartData) || dogeChartData.length < requiredPeriods + 1) { 
-      log(`Not enough data. DOGE=${dogeChartData?.length ?? 0} Need>=${requiredPeriods + 1}`);
+    const dogeChartData = await getChartData('DOGEUSDT');
+
+    if (!Array.isArray(dogeChartData) || dogeChartData.length < requiredPeriods) { 
+      log(`Not enough data. DOGE=${dogeChartData?.length ?? 0} Need>=${requiredPeriods}`);
       return NextResponse.json({ message: 'Not enough data to calculate indicators.' });
     }
     
@@ -102,7 +110,11 @@ export async function GET() {
     const volumeSma = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
     const volumeStdDev = indicators.calculateStdDev(dogeVolume, strategyConfig.VOLUME_PERIOD);
 
-    const prevAtrArr = indicators.calculateSMA(atrArr.filter((v): v is number => v !== null), 10);
+    // Calculate the SMA of the ATR. We must filter out initial nulls from atrArr before calculating.
+    const validAtrValues = atrArr.filter((v): v is number => v !== null);
+    const prevAtrArrRaw = indicators.calculateSMA(validAtrValues, 10);
+    // Pad the beginning of the array with nulls to align it with the original chart data
+    const prevAtrArr = Array(dogeChartData.length - prevAtrArrRaw.length).fill(null).concat(prevAtrArrRaw);
     
     const i = dogeChartData.length - 1; 
     const prev_i = i - 1; 
@@ -171,8 +183,6 @@ export async function GET() {
                      signal = { type: 'SELL', level: 'Medium', price: latest.open, time: latest.time };
                  }
             }
-        } else {
-            log('Primary confirmations (Volume, ATR) not met. No signal.');
         }
     } else {
       log('Indicator calculation incomplete on previous candle:', cache);
@@ -207,5 +217,3 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
-
-    
