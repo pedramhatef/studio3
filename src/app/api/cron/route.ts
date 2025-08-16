@@ -33,7 +33,9 @@ function logCond(name: string, passed: boolean, details?: string) {
 type CacheType = Record<string, number | null>;
 
 // Type guard to ensure all cache properties are valid numbers
-function allIndicatorsValid(cache: CacheType): cache is Record<keyof CacheType, number> {
+function allIndicatorsValid(
+    cache: CacheType
+  ): cache is Record<keyof CacheType, number> {
     return !Object.values(cache).some(v => v === null || isNaN(v));
 }
 
@@ -217,3 +219,4 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
