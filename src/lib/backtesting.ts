@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
@@ -68,7 +66,10 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
     let inTrade: InTradeState | null = null;
     
     const requiredPeriods = Math.max(
-        params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.EMA_LONG_PERIOD, params.VOLUME_PERIOD, 26
+        params.EMA_SLOW_PERIOD, 
+        params.RSI_PERIOD, 
+        params.ATR_PERIOD, 
+        params.VOLUME_PERIOD
     ) + 1;
 
     if (dogeData.length < requiredPeriods) {
@@ -85,7 +86,6 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
     const atrArr = indicators.calculateATR(dogeData, params.ATR_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(dogeData, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
     const avgVolumeArr = indicators.calculateSMA(dogeVolume, params.VOLUME_PERIOD);
-
 
     for (let i = requiredPeriods; i < dogeData.length; i++) {
         const currentCandle = dogeData[i]; 
@@ -141,39 +141,34 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
         
         // --- ENTRY LOGIC ---
         if (!inTrade) {
-             const cache = {
-                emaFast: getValueAt(emaFastArr, i - 1),
-                emaSlow: getValueAt(emaSlowArr, i - 1),
-                rsi: getValueAt(rsiArr, i - 1),
-                psar: getValueAt(psarArr, i - 1),
-                volume: getValueAt(dogeVolume, i - 1),
-                avgVolume: getValueAt(avgVolumeArr, i - 1),
-                atr: getValueAt(atrArr, i-1)
-            };
-    
-            if (Object.values(cache).some(v => v === null)) {
+            const emaFastPrev = getPrevValueAt(emaFastArr, i);
+            const emaSlowPrev = getPrevValueAt(emaSlowArr, i);
+            const emaFastCurr = getValueAt(emaFastArr, i);
+            const emaSlowCurr = getValueAt(emaSlowArr, i);
+            const rsiCurr = getValueAt(rsiArr, i);
+            const psarCurr = getValueAt(psarArr, i);
+            const volumeCurr = getValueAt(dogeVolume, i);
+            const avgVolumeCurr = getValueAt(avgVolumeArr, i);
+            
+            if ([emaFastPrev, emaSlowPrev, emaFastCurr, emaSlowCurr, rsiCurr, psarCurr, volumeCurr, avgVolumeCurr].some(v => v === null)) {
                 continue;
             }
             
             let signalType: Signal['type'] | null = null;
+            const volumeConfirmed = volumeCurr! > avgVolumeCurr! * params.VOLUME_THRESHOLD_MULTIPLIER;
 
-            const emaFastPrev = getPrevValueAt(emaFastArr, i - 1);
-            const emaSlowPrev = getPrevValueAt(emaSlowArr, i - 1);
-            
-            const volumeConfirmed = cache.volume! > cache.avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER;
-            
             // High-Confidence Crossover Logic
-            const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && cache.emaFast! > cache.emaSlow!;
-            const rsiInRangeBuy = cache.rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
-            const psarConfirmBuy = cache.psar! < prevCandle.close;
+            const emaCrossedUp = emaFastPrev! <= emaSlowPrev! && emaFastCurr! > emaSlowCurr!;
+            const rsiInRangeBuy = rsiCurr! < params.RSI_OVERBOUGHT_THRESHOLD;
+            const psarConfirmBuy = psarCurr! < prevCandle.close;
 
             if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy && volumeConfirmed) {
                 signalType = 'BUY';
             }
 
-            const emaCrossedDown = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev >= emaSlowPrev && cache.emaFast! < cache.emaSlow!;
-            const rsiInRangeSell = cache.rsi! > params.RSI_OVERSOLD_THRESHOLD;
-            const psarConfirmSell = cache.psar! > prevCandle.close;
+            const emaCrossedDown = emaFastPrev! >= emaSlowPrev! && emaFastCurr! < emaSlowCurr!;
+            const rsiInRangeSell = rsiCurr! > params.RSI_OVERSOLD_THRESHOLD;
+            const psarConfirmSell = psarCurr! > prevCandle.close;
             
             if (!signalType && emaCrossedDown && rsiInRangeSell && psarConfirmSell && volumeConfirmed) {
                 signalType = 'SELL';
@@ -181,21 +176,21 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
 
             // Medium-Confidence Pullback Logic
             if (!signalType) {
-                const isPullbackBuy = prevCandle.low <= cache.emaFast! && prevCandle.close > cache.emaFast!;
-                const rsiPullbackOkBuy = cache.rsi! > 40 && rsiInRangeBuy;
+                const isPullbackBuy = prevCandle.low <= emaFastCurr! && prevCandle.close > emaFastCurr!;
+                const rsiPullbackOkBuy = rsiCurr! > 40 && rsiInRangeBuy;
                 if (isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy && volumeConfirmed) {
                     signalType = 'BUY';
                 }
 
-                const isPullbackSell = prevCandle.high >= cache.emaFast! && prevCandle.close < cache.emaFast!;
-                const rsiPullbackOkSell = cache.rsi! < 60 && rsiInRangeSell;
+                const isPullbackSell = prevCandle.high >= emaFastCurr! && prevCandle.close < emaFastCurr!;
+                const rsiPullbackOkSell = rsiCurr! < 60 && rsiInRangeSell;
                 if (!signalType && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed) {
                     signalType = 'SELL';
                 }
             }
             
             if (signalType) {
-                const atrValue = getValueAt(atrArr, i); // Use current ATR
+                const atrValue = getValueAt(atrArr, i);
                 if (atrValue === null) continue;
 
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
@@ -206,8 +201,12 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                     type: signalType,
                     entryCandleIndex: i,
                     initialCapital: capital,
-                    stopLossPrice: signalType === 'BUY' ? entryPrice - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) : entryPrice + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
-                    takeProfitPrice: signalType === 'BUY' ? entryPrice + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) : entryPrice - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
+                    stopLossPrice: signalType === 'BUY' 
+                        ? entryPrice - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) 
+                        : entryPrice + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
+                    takeProfitPrice: signalType === 'BUY' 
+                        ? entryPrice + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) 
+                        : entryPrice - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
                 };
             }
         }
@@ -274,15 +273,6 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
     const lossExpectancy = averageLoss / initialCapital;
     const expectancy = (winRate / 100) * winExpectancy - (lossRate / 100) * lossExpectancy;
 
-
-    if (numberOfTrades < 2) { 
-        return {
-            totalProfit, totalProfitPercentage, numberOfTrades, winningTrades: winningTrades.length,
-            losingTrades: losingTrades.length, winRate, lossRate, averageWin, averageLoss,
-            profitFactor, sharpeRatio: 0, maxDrawdown, expectancy: 0
-        };
-    }
-
     return {
         totalProfit,
         totalProfitPercentage,
@@ -293,7 +283,7 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
         lossRate,
         averageWin,
         averageLoss,
-        profitFactor: isNaN(profitFactor) || !isFinite(profitFactor) ? 0 : profitFactor,
+        profitFactor: isFinite(profitFactor) ? profitFactor : 0,
         sharpeRatio: isNaN(sharpeRatio) ? 0 : sharpeRatio,
         maxDrawdown: maxDrawdown * 100, 
         expectancy: expectancy * 100, 
@@ -314,27 +304,27 @@ function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPR
     }
     if (individual.EMA_FAST_PERIOD >= individual.EMA_SLOW_PERIOD) {
         const fastPeriods = paramRanges.EMA_FAST_PERIOD!.filter(p => p < individual.EMA_SLOW_PERIOD);
-        individual.EMA_FAST_PERIOD = fastPeriods.length > 0 ? fastPeriods[Math.floor(Math.random() * fastPeriods.length)] : paramRanges.EMA_FAST_PERIOD![0];
+        individual.EMA_FAST_PERIOD = fastPeriods.length > 0 
+            ? fastPeriods[Math.floor(Math.random() * fastPeriods.length)] 
+            : paramRanges.EMA_FAST_PERIOD![0];
     }
     return individual;
 }
 
 function calculateFitness(performance: PerformanceMetrics): number {
-    if (!performance) return -1e9; 
+    if (!performance || performance.numberOfTrades === 0) return -1e9; 
     
-    // Heavily penalize strategies with very few trades
     const tradePenalty = Math.min(1, performance.numberOfTrades / 10);
-
     const profitScore = performance.totalProfit;
     const stabilityScore = performance.sharpeRatio > 0 ? performance.sharpeRatio : 0; 
     const winRateScore = performance.winRate / 100;
-    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 20); // More sensitive drawdown penalty
+    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 20);
 
     let fitness = (profitScore * 0.4) + (stabilityScore * 0.3) + (winRateScore * 0.2) + (performance.expectancy * 0.1);
     fitness *= drawdownPenalty;
     fitness *= tradePenalty;
 
-    return isNaN(fitness) ? -1e9 : fitness;
+    return isFinite(fitness) ? fitness : -1e9;
 }
 
 function select(population: any[], fitnesses: number[]): any {
@@ -372,7 +362,9 @@ function mutate(individual: any, paramRanges: any): any {
     }
     if (mutatedIndividual.EMA_FAST_PERIOD >= mutatedIndividual.EMA_SLOW_PERIOD) {
         const fastPeriods = paramRanges.EMA_FAST_PERIOD!.filter((p: number) => p < mutatedIndividual.EMA_SLOW_PERIOD);
-        mutatedIndividual.EMA_FAST_PERIOD = fastPeriods.length > 0 ? fastPeriods[Math.floor(Math.random() * fastPeriods.length)] : paramRanges.EMA_FAST_PERIOD![0];
+        mutatedIndividual.EMA_FAST_PERIOD = fastPeriods.length > 0 
+            ? fastPeriods[Math.floor(Math.random() * fastPeriods.length)] 
+            : paramRanges.EMA_FAST_PERIOD![0];
     }
     return mutatedIndividual;
 }
@@ -404,18 +396,19 @@ export async function optimizeParameters(
         );
         
         results.sort((a, b) => b.fitness - a.fitness);
+        const bestResult = results[0];
 
-        if (results[0].fitness > bestFitnessFromAllGens) {
-            bestFitnessFromAllGens = results[0].fitness;
-            bestIndividualFromAllGens = results[0].individual;
-            bestPerformanceFromAllGens = results[0].performance;
-            bestTradesFromAllGens = results[0].trades;
+        if (bestResult.fitness > bestFitnessFromAllGens) {
+            bestFitnessFromAllGens = bestResult.fitness;
+            bestIndividualFromAllGens = bestResult.individual;
+            bestPerformanceFromAllGens = bestResult.performance;
+            bestTradesFromAllGens = bestResult.trades;
             generationsWithoutImprovement = 0;
         } else {
             generationsWithoutImprovement++;
         }
 
-        console.log(`Generation ${gen + 1}/${GENERATIONS} | Best Fitness: ${results[0].fitness.toPrecision(4)} | Trades: ${results[0].performance.numberOfTrades} | Profit: ${results[0].performance.totalProfit.toPrecision(4)}`);
+        console.log(`Generation ${gen + 1}/${GENERATIONS} | Best Fitness: ${bestResult.fitness.toPrecision(4)} | Trades: ${bestResult.performance.numberOfTrades} | Profit: ${bestResult.performance.totalProfit.toPrecision(4)}`);
 
         if (generationsWithoutImprovement >= 5) {
             console.log("Stopping early due to convergence.");
@@ -444,13 +437,10 @@ export async function optimizeParameters(
 
     if (bestIndividualFromAllGens) {
         console.log('Genetic algorithm optimization complete.');
-        console.log('Best Parameters:', bestIndividualFromAllGens);
-        console.log('Best Performance:', bestPerformanceFromAllGens);
+        const bestParams: StrategyParams = { ...bestIndividualFromAllGens, SPREAD_PERCENT: 0.01 };
+        return { bestParams, bestPerformance: bestPerformanceFromAllGens, bestTrades: bestTradesFromAllGens };
     } else {
         console.warn("Genetic algorithm did not find a suitable strategy.");
+        return { bestParams: null, bestPerformance: null, bestTrades: [] };
     }
-    
-    const bestParams: StrategyParams | null = bestIndividualFromAllGens ? { ...bestIndividualFromAllGens, SPREAD_PERCENT: 0.01 } : null;
-
-    return { bestParams, bestPerformance: bestPerformanceFromAllGens, bestTrades: bestTradesFromAllGens };
 }

@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import { NextResponse } from 'next/server';
@@ -13,7 +11,6 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
   // Core Trend-Following
   EMA_FAST_PERIOD: [3, 5, 8, 10, 13, 15],
   EMA_SLOW_PERIOD: [20, 25, 30, 35, 40],
-  EMA_LONG_PERIOD: [50, 100],
   
   // Confirmation
   PARABOLIC_SAR_STEP: [0.01, 0.02],
@@ -23,11 +20,8 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
   RSI_PERIOD: [7, 10, 14, 21],
   RSI_OVERSOLD_THRESHOLD: [30, 35],
   RSI_OVERBOUGHT_THRESHOLD: [65, 70],
-  RSI_BREAKOUT_THRESHOLD: [55], 
-  RSI_BREAKDOWN_THRESHOLD: [45], 
 
   // Volatility & Volume
-  ATR_VOLATILITY_THRESHOLD: [0.6 ,0.8, 1.2, 1.4, 1.6],
   VOLUME_PERIOD: [20],
   VOLUME_THRESHOLD_MULTIPLIER: [0.6, 0.8, 1.2, 2.0, 2.5],
   
@@ -46,7 +40,7 @@ async function runAndSaveOptimization() {
 
   console.log(`Loaded ${dogeChartData.length} DOGE data points for backtesting.`);
 
-  if (dogeChartData.length < 200) { // Need a reasonable amount of data
+  if (dogeChartData.length < 200) {
     console.error("Not enough historical data to run optimization.");
     return {
       success: false,
@@ -73,7 +67,7 @@ async function runAndSaveOptimization() {
     await setDoc(optimizationResultDoc, {
       bestParams,
       bestPerformance,
-      bestTrades, // Save the simulated trades as well
+      bestTrades,
       timestamp: new Date(),
     });
     console.log("Successfully saved optimization results to Firestore.");
@@ -94,7 +88,6 @@ async function runAndSaveOptimization() {
 
 export async function GET() {
   try {
-    // Non-blocking execution
     runAndSaveOptimization().catch(err => {
         console.error("Error in background optimization task:", err);
     });

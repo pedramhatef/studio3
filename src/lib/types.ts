@@ -22,7 +22,6 @@ export type StrategyParams = {
     // Core Trend-Following
     EMA_FAST_PERIOD: number;
     EMA_SLOW_PERIOD: number;
-    EMA_LONG_PERIOD: number;
     PARABOLIC_SAR_STEP: number;
     PARABOLIC_SAR_MAX: number;
   
@@ -30,12 +29,10 @@ export type StrategyParams = {
     RSI_PERIOD: number;
     RSI_OVERSOLD_THRESHOLD: number;
     RSI_OVERBOUGHT_THRESHOLD: number;
-    RSI_BREAKOUT_THRESHOLD: number;
-    RSI_BREAKDOWN_THRESHOLD: number;
+
 
     // Volatility Filter
     ATR_PERIOD: number;
-    ATR_VOLATILITY_THRESHOLD: number;
 
     // Volume Filter
     VOLUME_PERIOD: number;
