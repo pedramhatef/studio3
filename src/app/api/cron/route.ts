@@ -180,7 +180,7 @@ export async function GET() {
         const isPullbackSell = prevCandle.high >= (cache.emaFast as number) && prevCandle.close < (cache.emaFast as number);
         const rsiPullbackOkSell = (cache.rsi as number) < 60 && rsiInRangeSell;
         logCond('Med-Conf SELL Pullback', !signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed && atrConfirmed);
-        if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed) {
+        if (!signal && isPullbackSell && rsiPullbackOkSell && psarConfirmSell && volumeConfirmed && atrConfirmed) {
             signal = { type: 'SELL', level: 'Medium', price: latest.close, time: latest.time };
         }
     }
