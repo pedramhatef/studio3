@@ -30,9 +30,11 @@ function logCond(name: string, passed: boolean, details?: string) {
   log(`${passed ? '✔' : '✘'} ${name}${details ? ` → ${details}` : ''}`);
 }
 
-// Type guard to ensure all cache properties are numbers
-function allIndicatorsValid(cache: Record<string, number | null>): cache is Record<string, number> {
-    return !Object.values(cache).some(v => v === null);
+type CacheType = Record<string, number | null>;
+
+// Type guard to ensure all cache properties are valid numbers
+function allIndicatorsValid(cache: CacheType): cache is Record<string, number> {
+  return !Object.values(cache).some(v => v === null || isNaN(v));
 }
 
 export async function GET() {
@@ -113,7 +115,7 @@ export async function GET() {
       close: Number(prevCandle.close).toFixed(6),
     });
 
-    const cache = {
+    const cache: CacheType = {
       emaFast: indicators.getValueAt(emaFastArr, prev_i),
       emaSlow: indicators.getValueAt(emaSlowArr, prev_i),
       emaLong: indicators.getValueAt(emaLongArr, prev_i),
