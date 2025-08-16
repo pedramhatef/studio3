@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
 import type { Signal } from '@/lib/types';
 import * as indicators from '@/lib/indicators'; 
+import { Volume } from 'lucide-react';
 
 interface EnhancedSignal extends Signal {
   suggestedLeverage?: number;
@@ -141,8 +142,8 @@ export async function GET() {
     const emaFastPrev = getValueAt(emaFastArr, prev_i - 1);
     const emaSlowPrev = getValueAt(emaSlowArr, prev_i - 1);
     
-    const volumeConfirmed = cache.volume > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
-    logCond('Volume Confirmation', volumeConfirmed, `Vol: ${cache.volume?.toFixed(0)} > AvgVol: ${cache.avgVolume?.toFixed(0)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
+    const volumeConfirmed = (getValueAt(dogeVolume, prev_i) as number ) > (cache.avgVolume as number) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+    logCond('Volume Confirmation', volumeConfirmed, `Vol: ${getValueAt(dogeVolume, prev_i)?.toFixed(6)} > PrevVolume: ${getValueAt(dogeVolume, prev_i - 1)?.toFixed(6)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
 
     const atrConfirmed = (getValueAt(atrArr, prev_i) as number) > (getValueAt(atrArr, prev_i - 1) as number) * strategyConfig.ATR_VOLATILITY_THRESHOLD; // Compare current ATR to previous ATR scaled
     logCond('ATR Confirmation (Volatility)', atrConfirmed, `ATR: ${getValueAt(atrArr, prev_i)?.toFixed(6)} > PrevATR: ${getValueAt(atrArr, prev_i - 1)?.toFixed(6)} * ${strategyConfig.ATR_VOLATILITY_THRESHOLD}`);
