@@ -124,7 +124,7 @@ export async function GET() {
       return NextResponse.json({ message: 'Incomplete indicator data.' });
     }
 
-    const volumeConfirmed = volumeCurr! > avgVolumeCurr! * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+    const volumeConfirmed = volumeCurr! > avgVolumeCurr! * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER1;
     logCond('Volume Confirmation', volumeConfirmed, `Vol ${volumeCurr!.toFixed(2)} > AvgVol ${avgVolumeCurr!.toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
 
     const volumeRatio = volumeCurr! / avgVolumeCurr!;
@@ -200,6 +200,11 @@ export async function GET() {
           log(`Medium confidence signal rejected: Volume ratio ${volumeRatio.toFixed(2)} < 1.8`);
           signalType = null;
           confidence = null;
+ } else if (signalType && confidence) {
+ log('Volume Confirmation passed:', {
+ volumeRatio: volumeRatio.toFixed(2),
+ threshold: strategyConfig.VOLUME_THRESHOLD_MULTIPLIER,
+ });
       }
       
 
@@ -212,6 +217,10 @@ export async function GET() {
               signalType = null;
               confidence = null;
           } else {
+              log('ATR filter evaluation:', {
+                currentATR: atrCurr.toFixed(6),
+                requiredMinMovement: (atrCurr * 0.7).toFixed(6),
+              });
               const minPriceMovement = atrCurr * 0.7; // Require min 70% of ATR
               const priceChange = Math.abs(latest.open - prevCandle.close);
 
@@ -220,6 +229,10 @@ export async function GET() {
                 signalType = null;
                 confidence = null;
             }
+            else {
+ log('ATR filter passed:', { priceChange: priceChange.toFixed(6) });
+            }
+
         }
         // --- END OF NEW FILTER ---
 

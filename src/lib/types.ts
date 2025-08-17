@@ -37,6 +37,7 @@ export type StrategyParams = {
     // Volume Filter
     VOLUME_PERIOD: number;
     VOLUME_THRESHOLD_MULTIPLIER: number;
+    VOLUME_THRESHOLD_MULTIPLIER1: number;
     
     NOISE_FILTER_RATIO: number;
     
