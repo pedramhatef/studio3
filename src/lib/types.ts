@@ -16,6 +16,8 @@ export interface Signal {
   time: number;
   displayTime?: string;
   serverTime?: any;
+  suggestedLeverage?: number;
+  stopBuffer?: number;
 }
 
 export type StrategyParams = {
@@ -29,7 +31,6 @@ export type StrategyParams = {
     RSI_PERIOD: number;
     RSI_OVERSOLD_THRESHOLD: number;
     RSI_OVERBOUGHT_THRESHOLD: number;
-
 
     // Volatility Filter
     ATR_PERIOD: number;

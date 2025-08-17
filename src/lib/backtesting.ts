@@ -1,3 +1,4 @@
+
 'use server';
 
 import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
@@ -49,10 +50,6 @@ const getValueAt = (arr: (number | null)[], idx: number): number | null => {
     if (idx < 0 || idx >= arr.length) return null;
     const value = arr[idx];
     return value === null || typeof value === 'undefined' || isNaN(value) ? null : value;
-};
-
-const getPrevValueAt = (arr: (number | null)[], idx: number): number | null => {
-    return getValueAt(arr, idx - 1);
 };
 
 const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number) => {
@@ -141,79 +138,67 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
         
         // --- ENTRY LOGIC ---
         if (!inTrade) {
-            const emaFastPrev = getPrevValueAt(emaFastArr, i-1);
-            const emaSlowPrev = getPrevValueAt(emaSlowArr, i-1);
-            const emaFastCurr = getValueAt(emaFastArr, i-1);
-            const emaSlowCurr = getValueAt(emaSlowArr, i-1);
-            const rsiCurr = getValueAt(rsiArr, i-1);
-            const psarCurr = getValueAt(psarArr, i-1);
-            const volumeCurr = getValueAt(dogeVolume, i-1);
-            const avgVolumeCurr = getValueAt(avgVolumeArr, i-1);
+            const emaFast = getValueAt(emaFastArr, i - 1);
+            const emaSlow = getValueAt(emaSlowArr, i - 1);
+            const rsi = getValueAt(rsiArr, i - 1);
+            const psar = getValueAt(psarArr, i - 1);
+            const volume = getValueAt(dogeVolume, i - 1);
+            const avgVolume = getValueAt(avgVolumeArr, i - 1);
+            const atr = getValueAt(atrArr, i-1);
+            const emaFastPrev = getValueAt(emaFastArr, i - 2);
+            const emaSlowPrev = getValueAt(emaSlowArr, i - 2);
             
-            if ([emaFastPrev, emaSlowPrev, emaFastCurr, emaSlowCurr, rsiCurr, psarCurr, volumeCurr, avgVolumeCurr].some(v => v === null)) {
+            if ([emaFast, emaSlow, rsi, psar, volume, avgVolume, atr, emaFastPrev, emaSlowPrev].some(v => v === null)) {
                 continue;
             }
             
             let signalType: Signal['type'] | null = null;
             let confidence: Signal['level'] | null = null;
             
-            const emaCrossedUp = emaFastPrev! <= emaSlowPrev! && emaFastCurr! > emaSlowCurr!;
-            const emaCrossedDown = emaFastPrev! >= emaSlowPrev! && emaFastCurr! < emaSlowCurr!;
+            const emaCrossedUp = emaFastPrev! <= emaSlowPrev! && emaFast! > emaSlow!;
+            const emaCrossedDown = emaFastPrev! >= emaSlowPrev! && emaFast! < emaSlow!;
+            const volumeBaseCondition = volume! > (avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER * 0.85);
 
             // High-Confidence Crossover Logic
-            if (emaCrossedUp && rsiCurr! < params.RSI_OVERBOUGHT_THRESHOLD && psarCurr! < dogeData[i-2].close) {
+            if (emaCrossedUp && rsi! < params.RSI_OVERBOUGHT_THRESHOLD && psar! < prevCandle.close) {
                 signalType = 'BUY';
-                confidence = 'High';
-            } else if (emaCrossedDown && rsiCurr! > params.RSI_OVERSOLD_THRESHOLD && psarCurr! > dogeData[i-2].close) {
+                confidence = volumeBaseCondition ? 'High' : 'Medium';
+            } else if (emaCrossedDown && rsi! > params.RSI_OVERSOLD_THRESHOLD && psar! > prevCandle.close) {
                 signalType = 'SELL';
-                confidence = 'High';
+                confidence = volumeBaseCondition ? 'High' : 'Medium';
             }
-
             // Medium-Confidence Pullback Logic
-            if (!signalType) {
-                const isPullbackBuy = prevCandle.low <= emaSlowCurr! && prevCandle.close > emaSlowCurr!;
-                const rsiPullbackOkBuy = rsiCurr! > 40 && rsiCurr! < params.RSI_OVERBOUGHT_THRESHOLD;
-                if (isPullbackBuy && rsiPullbackOkBuy && psarCurr! < prevCandle.close) {
+            else {
+                const isPullbackBuy = prevCandle.low <= emaSlow! && prevCandle.close > emaSlow!;
+                const rsiPullbackOkBuy = rsi! > 40 && rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
+                if (isPullbackBuy && rsiPullbackOkBuy && psar! < prevCandle.close) {
                     signalType = 'BUY';
                     confidence = 'Medium';
-                } else {
-                    const isPullbackSell = prevCandle.high >= emaSlowCurr! && prevCandle.close < emaSlowCurr!;
-                    const rsiPullbackOkSell = rsiCurr! < 60 && rsiCurr! > params.RSI_OVERSOLD_THRESHOLD;
-                    if (isPullbackSell && rsiPullbackOkSell && psarCurr! > prevCandle.close) {
-                        signalType = 'SELL';
-                        confidence = 'Medium';
-                    }
+                }
+                
+                const isPullbackSell = prevCandle.high >= emaSlow! && prevCandle.close < emaSlow!;
+                const rsiPullbackOkSell = rsi! < 60 && rsi! > params.RSI_OVERSOLD_THRESHOLD;
+                if (isPullbackSell && rsiPullbackOkSell && psar! > prevCandle.close) {
+                    signalType = 'SELL';
+                    confidence = 'Medium';
                 }
             }
 
-            if (signalType && confidence) {
-                const volumeBaseCondition = volumeCurr! > (avgVolumeCurr! * params.VOLUME_THRESHOLD_MULTIPLIER * 0.85);
-                const volumeMediumCondition = (volumeCurr! / avgVolumeCurr!) > params.VOLUME_THRESHOLD_MULTIPLIERConfirmation;
+            // Final confirmation filters
+            if (signalType) {
+                const atrValue = getValueAt(atrArr, i);
+                if (atrValue === null) continue;
 
-                if (confidence === 'High' && !volumeBaseCondition) {
-                    confidence = 'Medium';
-                }
-                if (confidence === 'Medium' && !volumeMediumCondition) {
+                const minPriceMovement = atrValue * params.NOISE_FILTER_RATIO;
+                const priceChange = Math.abs(currentCandle.open - prevCandle.close);
+                if (priceChange < minPriceMovement) {
                     signalType = null;
-                }
+                } else {
+                    const isBullishConfirmation = currentCandle.close > currentCandle.open && currentCandle.close > prevCandle.high;
+                    const isBearishConfirmation = currentCandle.close < currentCandle.open && currentCandle.close < prevCandle.low;
 
-                if (signalType) {
-                    const atrValue = getValueAt(atrArr, i);
-                    if (atrValue === null) continue;
-
-                    const minPriceMovement = atrValue * params.NOISE_FILTER_RATIO;
-                    const priceChange = Math.abs(currentCandle.open - prevCandle.close);
-                    if (priceChange < minPriceMovement) {
+                    if ((signalType === 'BUY' && !isBullishConfirmation) || (signalType === 'SELL' && !isBearishConfirmation)) {
                         signalType = null;
-                    } else {
-                        const isBullishConfirmation = currentCandle.close > currentCandle.open && currentCandle.close > prevCandle.high;
-                        const isBearishConfirmation = currentCandle.close < currentCandle.open && currentCandle.close < prevCandle.low;
-
-                        if (signalType === 'BUY' && !isBullishConfirmation) {
-                            signalType = null;
-                        } else if (signalType === 'SELL' && !isBearishConfirmation) {
-                            signalType = null;
-                        }
                     }
                 }
             }
@@ -341,7 +326,7 @@ function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPR
 }
 
 function calculateFitness(performance: PerformanceMetrics): number {
-    if (!performance || performance.numberOfTrades === 0) return -1e9; 
+    if (!performance || performance.numberOfTrades < 5) return -1e9; 
     
     const tradePenalty = Math.min(1, performance.numberOfTrades / 10);
     const profitScore = performance.totalProfit;

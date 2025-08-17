@@ -1,3 +1,4 @@
+
 'use server';
 
 import { NextResponse } from 'next/server';
@@ -9,27 +10,27 @@ import { setDoc, doc } from 'firebase/firestore';
 
 const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } = {
   // Core Trend-Following
-  EMA_FAST_PERIOD: [3, 5, 8, 10, 13, 15],
-  EMA_SLOW_PERIOD: [20, 25, 30, 35, 40],
+  EMA_FAST_PERIOD: [3, 5, 8, 10, 13],
+  EMA_SLOW_PERIOD: [20, 25, 30, 35, 40, 50],
   
   // Confirmation
-  PARABOLIC_SAR_STEP: [0.01, 0.02],
-  PARABOLIC_SAR_MAX: [0.1, 0.2],
+  PARABOLIC_SAR_STEP: [0.01, 0.02, 0.03],
+  PARABOLIC_SAR_MAX: [0.1, 0.2, 0.3],
 
   // Momentum
   RSI_PERIOD: [7, 10, 14, 21],
-  RSI_OVERSOLD_THRESHOLD: [30, 35],
-  RSI_OVERBOUGHT_THRESHOLD: [65, 70],
+  RSI_OVERSOLD_THRESHOLD: [25, 30, 35],
+  RSI_OVERBOUGHT_THRESHOLD: [65, 70, 75],
 
   // Volatility & Volume
-  VOLUME_PERIOD: [20,50],
-  VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.4, 1.6],
-  VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.6, 0.8, 1, 1.2, 1.4],
+  VOLUME_PERIOD: [20, 30, 50],
+  VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.4, 1.6, 1.8],
+  VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.6, 0.8, 1.0, 1.2],
   
   // Risk Management
-  ATR_PERIOD: [7, 8, 9, 10, 11, 12],
-  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0, 3.5],
-  STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0, 2.5],
+  ATR_PERIOD: [8, 10, 12, 14],
+  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0, 3.5, 4.0],
+  STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0, 2.5, 3.0],
 
   NOISE_FILTER_RATIO: [0.5, 0.6, 0.7, 0.8],
 
@@ -92,6 +93,7 @@ async function runAndSaveOptimization() {
 
 export async function GET() {
   try {
+    // Non-blocking execution
     runAndSaveOptimization().catch(err => {
         console.error("Error in background optimization task:", err);
     });
