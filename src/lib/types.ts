@@ -33,10 +33,12 @@ export type StrategyParams = {
 
     // Volatility Filter
     ATR_PERIOD: number;
+    NOISE_FILTER_RATIO: number;
 
     // Volume Filter
     VOLUME_PERIOD: number;
     VOLUME_THRESHOLD_MULTIPLIER: number;
+    VOLUME_THRESHOLD_MULTIPLIERConfirmation: number;
     
     // Backtesting Simulation & Risk
     TAKE_PROFIT_ATR_MULTIPLIER: number;
