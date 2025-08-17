@@ -57,7 +57,7 @@ const EMA_ROUNDING_DECIMALS = 7;
  * @param atrArr Pre-calculated ATR values.
  * @returns A signal object or null if no signal is generated.
  */
-export function generateSignal(
+export async function generateSignal(
     i: number,
     chartData: ChartDataPoint[],
     params: StrategyParams,
@@ -67,7 +67,7 @@ export function generateSignal(
     psarArr: (number | null)[],
     avgVolumeArr: (number | null)[],
     atrArr: (number | null)[]
-): Omit<Signal, 'displayTime' | 'serverTime'> | null {
+): Promise<Omit<Signal, 'displayTime' | 'serverTime'> | null> {
 
     // Ensure we have enough data to look back on
     if (i < 2) return null;
@@ -115,7 +115,7 @@ export function generateSignal(
 
     const psarBuyConfirm = psar < signalCandle.close;
     logCond('PSAR Buy Confirmation', psarBuyConfirm, `PSAR: ${psar.toFixed(5)} < Close: ${signalCandle.close.toFixed(5)}`);
-
+    
     const psarSellConfirm = psar > signalCandle.close;
     logCond('PSAR Sell Confirmation', psarSellConfirm, `PSAR: ${psar.toFixed(5)} > Close: ${signalCandle.close.toFixed(5)}`);
     
