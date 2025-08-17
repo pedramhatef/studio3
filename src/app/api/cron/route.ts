@@ -184,7 +184,7 @@ export async function GET() {
             logCond('RSI Sell Range', (cache.rsi ?? 0) > strategyConfig.RSI_OVERSOLD_THRESHOLD, `RSI: ${(cache.rsi ?? 0).toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
             logCond('PSAR Buy Confirmation', (cache.psar ?? 0) < prevCandle.close, `PSAR: ${(cache.psar ?? 0).toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
             logCond('PSAR Sell Confirmation', (cache.psar ?? 0) > prevCandle.close, `PSAR: ${(cache.psar ?? 0).toFixed(5)} > Close: ${prevCandle.close.toFixed(5)}`);
-            logCond('Volume Confirmation (High)', volumeConditionHigh, `Vol ${(cache.volume ?? 0).toFixed(2)} > AvgVol*Multiplier (${((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER).toFixed(2)})`);
+            logCond('Volume Confirmation (High)', volumeConditionHigh, `Vol ${(cache.volume ?? 0).toFixed(2)} > (AvgVol ${(cache.avgVolume ?? 0).toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}) = ${((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER).toFixed(2)}`);
 
             if (emaCrossedUp && (cache.rsi ?? 0) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && (cache.psar ?? 0) < prevCandle.close && volumeConditionHigh) {
                 confidence = 'High';
@@ -208,7 +208,7 @@ export async function GET() {
                 logCond('Pullback to Slow EMA (Buy)', prevPrevCandle.low <= (cache.emaSlow ?? 0) && prevCandle.close > (cache.emaSlow ?? 0), `PrevPrevLow (${prevPrevCandle.low.toFixed(5)}) <= SlowEMA (${(cache.emaSlow ?? 0).toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) > SlowEMA`);
                 logCond('Healthy RSI for Buy Pullback', rsiOkForBuyPullback, `40 < RSI (${(cache.rsi ?? 0).toFixed(2)}) < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
                 logCond('PSAR Confirms Uptrend (Buy)', (cache.psar ?? 0) < prevCandle.close, `PSAR: ${(cache.psar ?? 0).toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
-                logCond('Volume Confirmation (Medium)', volumeConditionMedium, `Vol ${(cache.volume ?? 0).toFixed(2)} > AvgVol*Multiplier (${((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation).toFixed(2)})`);
+                logCond('Volume Confirmation (Medium)', volumeConditionMedium, `Vol ${(cache.volume ?? 0).toFixed(2)} > (AvgVol ${(cache.avgVolume ?? 0).toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation}) = ${((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation).toFixed(2)}`);
 
                 if (isPullbackBuy && rsiOkForBuyPullback && (cache.psar ?? 0) < prevCandle.close && volumeConditionMedium) {
                     confidence = 'Medium';
