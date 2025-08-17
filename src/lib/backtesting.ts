@@ -194,9 +194,15 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                 if (atrValue === null) continue;
 
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
+                const applyNoiseFilter = (price: number, atr: number) => {
+                    const noiseThreshold = atr * 0.15;
+                    return Math.round(price / noiseThreshold) * noiseThreshold;
+                };
+                
 
                 inTrade = {
-                    entryPrice: entryPrice,
+                    entryPrice: applyNoiseFilter(entryPrice, atrValue),
+
                     entryTime: currentCandle.time,
                     type: signalType,
                     entryCandleIndex: i,

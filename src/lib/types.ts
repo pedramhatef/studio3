@@ -38,6 +38,8 @@ export type StrategyParams = {
     VOLUME_PERIOD: number;
     VOLUME_THRESHOLD_MULTIPLIER: number;
     
+    NOISE_FILTER_RATIO: number;
+    
     // Backtesting Simulation & Risk
     TAKE_PROFIT_ATR_MULTIPLIER: number;
     STOP_LOSS_ATR_MULTIPLIER: number;

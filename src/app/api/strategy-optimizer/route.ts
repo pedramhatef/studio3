@@ -23,12 +23,15 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
 
   // Volatility & Volume
   VOLUME_PERIOD: [20],
-  VOLUME_THRESHOLD_MULTIPLIER: [0.6, 0.8, 1.2, 2.0, 2.5],
+  VOLUME_THRESHOLD_MULTIPLIER: [1.8, 2.0, 2.2, 2.5],
   
   // Risk Management
   ATR_PERIOD: [7, 8, 9, 10, 11, 12],
   TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0, 3.5],
   STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0, 2.5],
+
+  NOISE_FILTER_RATIO: [0.5, 0.6, 0.7, 0.8],
+
 };
 
 

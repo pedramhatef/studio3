@@ -127,9 +127,14 @@ export async function GET() {
     const volumeConfirmed = volumeCurr! > avgVolumeCurr! * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
     logCond('Volume Confirmation', volumeConfirmed, `Vol ${volumeCurr!.toFixed(2)} > AvgVol ${avgVolumeCurr!.toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
 
+    const volumeRatio = volumeCurr! / avgVolumeCurr!;
+    const volumeConfirmation = volumeRatio > strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+ 
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     let signalType: Signal['type'] | null = null;
     let confidence: Signal['level'] | null = null;
+
+    
     
     // High-confidence Crossover Logic
     const emaCrossedUp = emaFastPrev! <= emaSlowPrev! && emaFastCurr! > emaSlowCurr!;
@@ -146,6 +151,9 @@ export async function GET() {
     logCond('PSAR Buy Confirmation', psarConfirmBuy, `PSAR: ${psarCurr!.toFixed(5)} < Close: ${prevCandle.close}`);
     logCond('PSAR Sell Confirmation', psarConfirmSell, `PSAR: ${psarCurr!.toFixed(5)} > Close: ${prevCandle.close}`);
 
+    
+    
+    
     if (volumeConfirmed) {
         // High-confidence signals
         if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy) {
@@ -155,6 +163,8 @@ export async function GET() {
             signalType = 'SELL';
             confidence = 'High';
         }
+
+
 
         // Medium-confidence Pullback signals
         if (!signalType) {
@@ -179,6 +189,62 @@ export async function GET() {
             }
         }
 
+
+        if (!volumeConfirmation) {
+          log(`Signal rejected: Volume ratio ${volumeRatio.toFixed(2)} < threshold ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
+          signalType = null;
+          confidence = null;
+      } 
+      // Additional medium confidence filter
+      else if (confidence === 'Medium' && volumeRatio < 1.8) {
+          log(`Medium confidence signal rejected: Volume ratio ${volumeRatio.toFixed(2)} < 1.8`);
+          signalType = null;
+          confidence = null;
+      }
+      
+
+        if (signalType && confidence) {
+          // --- START OF NEW FILTER ---
+          // Get current ATR value
+          const atrCurr = indicators.getValueAt(atrArr, i);
+          if (atrCurr === null) {
+              log('ATR value not available for current candle');
+              signalType = null;
+              confidence = null;
+          } else {
+              const minPriceMovement = atrCurr * 0.7; // Require min 70% of ATR
+              const priceChange = Math.abs(latest.open - prevCandle.close);
+
+              if (priceChange < minPriceMovement) {
+                log(`Signal rejected: Price change ${priceChange.toFixed(6)} < min required ${minPriceMovement.toFixed(6)} (ATR: ${atrCurr.toFixed(6)})`);
+                signalType = null;
+                confidence = null;
+            }
+        }
+        // --- END OF NEW FILTER ---
+
+
+        const isBullishConfirmation = (
+          latest.close > latest.open && 
+          latest.close > prevCandle.high
+      );
+      
+      const isBearishConfirmation = (
+          latest.close < latest.open && 
+          latest.close < prevCandle.low
+      );
+      
+      if (signalType === 'BUY' && !isBullishConfirmation) {
+          log("Buy signal rejected: Missing bullish confirmation");
+          signalType = null;
+      } else if (signalType === 'SELL' && !isBearishConfirmation) {
+          log("Sell signal rejected: Missing bearish confirmation");
+          signalType = null;
+      }
+    }
+
+    
+
         if (signalType && confidence) {
             signal = { 
                 type: signalType, 
@@ -192,6 +258,7 @@ export async function GET() {
             const dollarRisk = capital * (atrCurr! > 0.0005 ? 0.0075 : 0.0125);
             const positionSize = dollarRisk / (atrCurr! * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
             const leverage = Math.min(10, Math.max(1, Math.round((positionSize * latest.open) / capital)));
+            
             
             signal.suggestedLeverage = leverage;
             signal.stopBuffer = atrCurr! * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
