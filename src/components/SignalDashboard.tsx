@@ -111,7 +111,6 @@ export function SignalDashboard() {
                     
                     if (newSignal.price && typeof newSignal.price === 'number') {
                       toast({
-                        id: `signal-${newSignal.time}`,
                         title: toastTitles[newSignal.level],
                         description: `Generated at $${newSignal.price.toFixed(5)}`,
                       });
