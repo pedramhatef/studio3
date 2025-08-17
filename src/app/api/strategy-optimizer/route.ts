@@ -42,11 +42,15 @@ async function runAndSaveOptimization() {
     }
 
     // 2. Run the optimization
+    console.log("Parameters ranges for optimization:", parameterRanges);
     console.log("Running optimizeParameters (Genetic Algorithm) function...");
     const { bestParams, bestPerformance, bestTrades } = await optimizeParameters(dogeChartData, parameterRanges);
-    
+
+ console.log("optimizeParameters result:", { bestParams, bestPerformance });
     if (!bestParams || !bestPerformance) {
         console.error("Optimization failed to find best parameters.");
+ console.log("Optimization failed to find best parameters. Returning without saving.");
+
         return {
             success: false,
             message: "Optimization did not yield a result.",
@@ -56,6 +60,7 @@ async function runAndSaveOptimization() {
     // 3. Save the results to Firestore
     try {
         console.log("Saving best parameters to Firestore...");
+ console.log("Data being saved to Firestore:", { bestParams, bestPerformance, bestTrades, timestamp: new Date() });
         const optimizationResultDoc = doc(db, 'optimizationResults', 'latest');
         await setDoc(optimizationResultDoc, {
             bestParams,
