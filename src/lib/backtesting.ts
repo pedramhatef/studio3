@@ -59,7 +59,10 @@ const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number)
 
 const isCandleBullish = (candle: ChartDataPoint) => candle.close > candle.open;
 const isCandleBearish = (candle: ChartDataPoint) => candle.close < candle.open;
-const candleStrength = (candle: ChartDataPoint) => Math.abs(candle.close - candle.open) / (candle.high - candle.low);
+const candleStrength = (candle: ChartDataPoint) => {
+    const range = candle.high - candle.low;
+    return range > 0 ? Math.abs(candle.close - candle.open) / range : 0;
+};
 
 export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): Promise<TradeResult[]> {
     const trades: TradeResult[] = [];
@@ -87,9 +90,13 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
     const atrArr = indicators.calculateATR(dogeData, params.ATR_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(dogeData, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
     const avgVolumeArr = indicators.calculateSMA(dogeVolume, params.VOLUME_PERIOD);
-    const volumeMultiplier = indicators.calculateSMA(dogeVolume.map((v, i) => 
-        v / (getValueAt(avgVolumeArr, i) || 1
-    ), 5);
+    
+    // Fixed volume multiplier calculation
+    const volumeRatioArr = dogeVolume.map((v, i) => {
+        const avgVol = getValueAt(avgVolumeArr, i);
+        return avgVol ? v / avgVol : 1;
+    });
+    const volumeMultiplier = indicators.calculateSMA(volumeRatioArr, 5);
 
     for (let i = requiredPeriods; i < dogeData.length; i++) {
         const currentCandle = dogeData[i]; 
@@ -224,7 +231,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             if (signalType) {
                 if (atr === null) continue;
 
-                const minPriceMovement = atr * params.NOISE_FILTER_RATIO;
+                const minPriceMovement = atr! * params.NOISE_FILTER_RATIO;
                 const priceChange = Math.abs(currentCandle.open - prevCandle.close);
                 
                 if (priceChange < minPriceMovement) {
@@ -257,11 +264,11 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                     entryCandleIndex: i,
                     initialCapital: capital,
                     stopLossPrice: signalType === 'BUY' 
-                        ? entryPrice - (atr * params.STOP_LOSS_ATR_MULTIPLIER) 
-                        : entryPrice + (atr * params.STOP_LOSS_ATR_MULTIPLIER),
+                        ? entryPrice - (atr! * params.STOP_LOSS_ATR_MULTIPLIER) 
+                        : entryPrice + (atr! * params.STOP_LOSS_ATR_MULTIPLIER),
                     takeProfitPrice: signalType === 'BUY' 
-                        ? entryPrice + (atr * params.TAKE_PROFIT_ATR_MULTIPLIER) 
-                        : entryPrice - (atr * params.TAKE_PROFIT_ATR_MULTIPLIER),
+                        ? entryPrice + (atr! * params.TAKE_PROFIT_ATR_MULTIPLIER) 
+                        : entryPrice - (atr! * params.TAKE_PROFIT_ATR_MULTIPLIER),
                 };
             }
         }
@@ -288,6 +295,8 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
 
     return trades;
 }
+
+// ... rest of backtesting.ts remains unchanged ...
 
 export async function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): Promise<PerformanceMetrics> {
     const numberOfTrades = trades.length;
