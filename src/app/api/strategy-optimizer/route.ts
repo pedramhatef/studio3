@@ -22,7 +22,7 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
   RSI_OVERBOUGHT_THRESHOLD: [65, 70],
 
   // Volatility & Volume
-  VOLUME_PERIOD: [20],
+  VOLUME_PERIOD: [20,50],
   VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.4, 1.6],
   VOLUME_THRESHOLD_MULTIPLIER1: [0.6, 0.8, 1, 1.2, 1.4],
   
