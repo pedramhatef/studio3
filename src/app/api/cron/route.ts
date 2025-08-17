@@ -156,7 +156,7 @@ export async function GET() {
         logCond('PSAR Sell Confirmation', (cache.psar ?? 0) > prevCandle.close, `PSAR: ${(cache.psar ?? 0).toFixed(5)} > Close: ${prevCandle.close.toFixed(5)}`);
         
         const volumeBaseCondition = (cache.volume ?? 0) > ((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85);
-        logCond('Volume Confirmation Base', volumeBaseCondition, `Vol ${(cache.volume ?? 0).toFixed(2)} > AvgVol*Multiplier*0.85 (${((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85).toFixed(2)})`);
+        logCond('Volume Confirmation Base', volumeBaseCondition, `Vol ${(cache.volume ?? 0).toFixed(2)} > AvgVol* ${((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85).toFixed(2)})`);
         
         const emaCrossedUp = emaFastPrev !== null && emaSlowPrev !== null && emaFastPrev <= emaSlowPrev && (cache.emaFast ?? 0) > (cache.emaSlow ?? 0);
         logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${emaFastPrev?.toFixed(5)} <= Prev Slow: ${emaSlowPrev?.toFixed(5)} AND Curr Fast: ${(cache.emaFast ?? 0).toFixed(5)} > Curr Slow: ${(cache.emaSlow ?? 0).toFixed(5)}`);
@@ -181,11 +181,11 @@ export async function GET() {
             const isPullbackSell = prevCandle.high >= (cache.emaSlow ?? 0) && prevCandle.close < (cache.emaSlow ?? 0);
             logCond('Pullback Sell Condition', isPullbackSell, `Prev High ${prevCandle.high.toFixed(5)} >= EMA Slow ${(cache.emaSlow ?? 0).toFixed(5)} AND Prev Close ${prevCandle.close.toFixed(5)} < EMA Slow ${(cache.emaSlow ?? 0).toFixed(5)}`);
             
-            const rsiOkForBuyPullback = (cache.rsi ?? 0) > 40 && (cache.rsi ?? 0) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-            logCond('RSI OK for Buy Pullback', rsiOkForBuyPullback, `40 < RSI ${(cache.rsi ?? 0).toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
+            const rsiOkForBuyPullback = (cache.rsi ?? 0) > 30 && (cache.rsi ?? 0) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
+            logCond('RSI OK for Buy Pullback', rsiOkForBuyPullback, `30 < RSI ${(cache.rsi ?? 0).toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
             
-            const rsiOkForSellPullback = (cache.rsi ?? 0) < 60 && (cache.rsi ?? 0) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-            logCond('RSI OK for Sell Pullback', rsiOkForSellPullback, `60 > RSI ${(cache.rsi ?? 0).toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
+            const rsiOkForSellPullback = (cache.rsi ?? 0) < 70 && (cache.rsi ?? 0) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
+            logCond('RSI OK for Sell Pullback', rsiOkForSellPullback, `70 > RSI ${(cache.rsi ?? 0).toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
 
             if (isPullbackBuy && rsiOkForBuyPullback && (cache.psar ?? 0) < prevCandle.close) {
                 confidence = 'Medium';
