@@ -113,6 +113,7 @@ export async function generateSignal(
     const rsiSellRange = rsi > params.RSI_OVERSOLD_THRESHOLD;
     logCond('RSI Sell Range', rsiSellRange, `RSI: ${rsi.toFixed(2)} > ${params.RSI_OVERSOLD_THRESHOLD}`);
 
+    // PSAR is now a confirmation, not a hard requirement for high-confidence.
     const psarBuyConfirm = psar < signalCandle.close;
     logCond('PSAR Buy Confirmation', psarBuyConfirm, `PSAR: ${psar.toFixed(5)} < Close: ${signalCandle.close.toFixed(5)}`);
     
@@ -123,15 +124,16 @@ export async function generateSignal(
     const volumeConditionHigh = volume > highVolTarget;
     logCond(`Volume Confirmation (High)`, volumeConditionHigh, `Vol ${volume.toFixed(2)} > (AvgVol ${avgVolume.toFixed(2)} * ${params.VOLUME_THRESHOLD_MULTIPLIER}) = ${highVolTarget.toFixed(2)}`);
 
-    if (emaCrossedUp && rsiBuyRange && psarBuyConfirm && volumeConditionHigh) {
+    if (emaCrossedUp && rsiBuyRange && volumeConditionHigh) {
         signalType = 'BUY';
-        confidence = 'High';
-        log('Signal Decision: High-Confidence BUY by Crossover.');
+        // If PSAR also confirms, it's a high-confidence signal. Otherwise, medium.
+        confidence = psarBuyConfirm ? 'High' : 'Medium';
+        log(`Signal Decision: ${confidence}-Confidence BUY by Crossover.`);
     } 
-    else if (emaCrossedDown && rsiSellRange && psarSellConfirm && volumeConditionHigh) {
+    else if (emaCrossedDown && rsiSellRange && volumeConditionHigh) {
         signalType = 'SELL';
-        confidence = 'High';
-        log('Signal Decision: High-Confidence SELL by Crossover.');
+        confidence = psarSellConfirm ? 'High' : 'Medium';
+        log(`Signal Decision: ${confidence}-Confidence SELL by Crossover.`);
     }
 
     // --- Medium-Confidence Pullback Logic ---
@@ -146,9 +148,9 @@ export async function generateSignal(
         const isDowntrend = emaFast < emaSlow;
         logCond('Established Downtrend', isDowntrend, `Fast: ${emaFast.toFixed(5)} < Slow: ${emaSlow.toFixed(5)}`);
         
-        // This pattern checks for a "dip and close" on the signal candle itself.
-        const isPullbackBuy = isUptrend && signalCandle.low <= emaSlow && signalCandle.close > emaSlow;
-        logCond('Pullback to Slow EMA (Buy)', isPullbackBuy, `SignalLow (${signalCandle.low.toFixed(5)}) <= SlowEMA (${emaSlow.toFixed(5)}) AND SignalClose (${signalCandle.close.toFixed(5)}) > SlowEMA`);
+        const rejectionBuffer = atr * 0.1;
+        const isPullbackBuy = isUptrend && signalCandle.low <= emaSlow && (signalCandle.close > emaSlow + rejectionBuffer);
+        logCond('Pullback to Slow EMA (Buy)', isPullbackBuy, `SignalLow (${signalCandle.low.toFixed(5)}) <= SlowEMA (${emaSlow.toFixed(5)}) AND SignalClose (${signalCandle.close.toFixed(5)}) > SlowEMA + RejectionBuffer (${(emaSlow + rejectionBuffer).toFixed(5)})`);
 
         const rsiOkForBuyPullback = rsi > 40 && rsi < params.RSI_OVERBOUGHT_THRESHOLD;
         logCond('Healthy RSI for Buy Pullback', rsiOkForBuyPullback, `40 < RSI (${rsi.toFixed(2)}) < ${params.RSI_OVERBOUGHT_THRESHOLD}`);
@@ -157,25 +159,24 @@ export async function generateSignal(
 
         logCond(`Volume Confirmation (Medium)`, volumeConditionMedium, `Vol ${volume.toFixed(2)} > (AvgVol ${avgVolume.toFixed(2)} * ${params.VOLUME_THRESHOLD_MULTIPLIERConfirmation}) = ${medVolTarget.toFixed(2)}`);
 
-        if (isPullbackBuy && rsiOkForBuyPullback && psarBuyConfirm && volumeConditionMedium) {
+        if (isPullbackBuy && rsiOkForBuyPullback && volumeConditionMedium) {
             signalType = 'BUY';
-            confidence = 'Medium';
-            log('Signal Decision: Medium-Confidence BUY by Pullback.');
+            confidence = psarBuyConfirm ? 'High' : 'Medium';
+            log(`Signal Decision: ${confidence}-Confidence BUY by Pullback.`);
         }
 
-        // This pattern checks for a "spike and close" on the signal candle.
-        const isPullbackSell = isDowntrend && signalCandle.high >= emaSlow && signalCandle.close < emaSlow;
-        logCond('Pullback to Slow EMA (Sell)', isPullbackSell, `SignalHigh (${signalCandle.high.toFixed(5)}) >= SlowEMA (${emaSlow.toFixed(5)}) AND SignalClose (${signalCandle.close.toFixed(5)}) < SlowEMA`);
+        const isPullbackSell = isDowntrend && signalCandle.high >= emaSlow && (signalCandle.close < emaSlow - rejectionBuffer);
+        logCond('Pullback to Slow EMA (Sell)', isPullbackSell, `SignalHigh (${signalCandle.high.toFixed(5)}) >= SlowEMA (${emaSlow.toFixed(5)}) AND SignalClose (${signalCandle.close.toFixed(5)}) < SlowEMA - RejectionBuffer (${(emaSlow - rejectionBuffer).toFixed(5)})`);
         
         const rsiOkForSellPullback = rsi > params.RSI_OVERSOLD_THRESHOLD && rsi < 60;
         logCond('Healthy RSI for Sell Pullback', rsiOkForSellPullback, `${params.RSI_OVERSOLD_THRESHOLD} < RSI (${rsi.toFixed(2)}) < 60`);
-
+        
         logCond('PSAR Confirms Downtrend (Sell)', psarSellConfirm, `PSAR: ${psar.toFixed(5)} > Close: ${signalCandle.close.toFixed(5)}`);
         
-        if (!signalType && isPullbackSell && rsiOkForSellPullback && psarSellConfirm && volumeConditionMedium) {
+        if (!signalType && isPullbackSell && rsiOkForSellPullback && volumeConditionMedium) {
              signalType = 'SELL';
-             confidence = 'Medium';
-             log('Signal Decision: Medium-Confidence SELL by Pullback.');
+             confidence = psarSellConfirm ? 'High' : 'Medium';
+             log(`Signal Decision: ${confidence}-Confidence SELL by Pullback.`);
         }
     }
 
