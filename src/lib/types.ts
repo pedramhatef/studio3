@@ -16,8 +16,6 @@ export interface Signal {
   time: number;
   displayTime?: string;
   serverTime?: any;
-  suggestedLeverage?: number;
-  stopBuffer?: number;
 }
 
 export type StrategyParams = {
@@ -32,15 +30,13 @@ export type StrategyParams = {
     RSI_OVERSOLD_THRESHOLD: number;
     RSI_OVERBOUGHT_THRESHOLD: number;
 
+
     // Volatility Filter
     ATR_PERIOD: number;
 
     // Volume Filter
     VOLUME_PERIOD: number;
     VOLUME_THRESHOLD_MULTIPLIER: number;
-    VOLUME_THRESHOLD_MULTIPLIERConfirmation: number;
-    
-    NOISE_FILTER_RATIO: number;
     
     // Backtesting Simulation & Risk
     TAKE_PROFIT_ATR_MULTIPLIER: number;
