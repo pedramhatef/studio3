@@ -88,41 +88,45 @@ export function SignalDashboard() {
           return; // No new signals yet
         }
         
+        const newSignalsFromSnapshot: Signal[] = [];
         snapshot.docChanges().forEach((change) => {
-          if (change.type === "added") {
-            const newSignalData = change.doc.data();
-            const newSignal = {
-                type: newSignalData.type,
-                level: newSignalData.level,
-                price: newSignalData.price,
-                time: newSignalData.time,
-            } as Signal;
+            if (change.type === "added") {
+                const newSignalData = change.doc.data();
+                const newSignal = {
+                    type: newSignalData.type,
+                    level: newSignalData.level,
+                    price: newSignalData.price,
+                    time: newSignalData.time,
+                } as Signal;
 
-            // Only process if it's a truly new signal
-            if (lastSignalRef.current?.time !== newSignal.time) {
-                lastSignalRef.current = newSignal;
+                // Simple check to avoid processing duplicates from the listener
+                if (lastSignalRef.current?.time !== newSignal.time) {
+                    lastSignalRef.current = newSignal;
+                    newSignalsFromSnapshot.push(newSignal);
 
-                // Add the new signal to our state
-                setSignals(prevSignals => [...prevSignals, newSignal].slice(-MAX_SIGNALS));
-
-                // Refresh chart data to align with the new signal
-                fetchChartData();
-
-                const toastTitles = {
-                  High: `🚀 High ${newSignal.type} Signal!`,
-                  Medium: `🔥 Medium ${newSignal.type} Signal!`,
-                };
-                
-                if (newSignal.price && typeof newSignal.price === 'number') {
-                  toast({
-                    id: `signal-${newSignal.time}`,
-                    title: toastTitles[newSignal.level],
-                    description: `Generated at $${newSignal.price.toFixed(5)}`,
-                  });
+                    const toastTitles = {
+                      High: `🚀 High ${newSignal.type} Signal!`,
+                      Medium: `🔥 Medium ${newSignal.type} Signal!`,
+                    };
+                    
+                    if (newSignal.price && typeof newSignal.price === 'number') {
+                      toast({
+                        id: `signal-${newSignal.time}`,
+                        title: toastTitles[newSignal.level],
+                        description: `Generated at $${newSignal.price.toFixed(5)}`,
+                      });
+                    }
                 }
             }
-          }
         });
+
+        if (newSignalsFromSnapshot.length > 0) {
+            // Add the new signal(s) to our state
+            setSignals(prevSignals => [...prevSignals, ...newSignalsFromSnapshot].slice(-MAX_SIGNALS));
+            // Refresh chart data to align with the new signal
+            fetchChartData();
+        }
+
       }, (error) => {
         console.error("Firestore snapshot error: ", error);
         toast({
@@ -143,7 +147,7 @@ export function SignalDashboard() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchChartData]); // fetchChartData is memoized with useCallback
+  }, []); // Changed to only run on mount
 
   return (
     <div className="grid gap-8">
