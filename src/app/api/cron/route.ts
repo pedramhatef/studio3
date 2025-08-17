@@ -30,6 +30,23 @@ function logCond(name: string, passed: boolean, details?: string) {
   log(`${passed ? '✔' : '✘'} ${name}${details ? ` → ${details}` : ''}`);
 }
 
+type CacheType = {
+    emaFast: number | null;
+    emaSlow: number | null;
+    rsi: number | null;
+    psar: number | null;
+    volume: number | null;
+    avgVolume: number | null;
+    volumeStdDev: number | null;
+    atr: number | null;
+    prevAtr: number | null;
+};
+
+function allIndicatorsValid(cache: CacheType): cache is Required<CacheType> {
+    return Object.values(cache).every(value => value !== null && !isNaN(value));
+}
+
+
 export async function GET() {
   const ts = new Date().toISOString();
   let strategyConfig: StrategyParams;
@@ -59,7 +76,7 @@ export async function GET() {
       strategyConfig.RSI_PERIOD, 
       strategyConfig.ATR_PERIOD, 
       strategyConfig.VOLUME_PERIOD
-    ) + 2;
+    ) + 12; // Add 10 for ATR SMA + 2 for safety buffer
 
     const dogeChartData = await getChartData('DOGEUSDT');
 
@@ -106,58 +123,66 @@ export async function GET() {
       close: Number(prevCandle.close).toFixed(6),
     });
 
-    const emaFastPrev = indicators.getValueAt(emaFastArr, prev_prev_i);
-    const emaSlowPrev = indicators.getValueAt(emaSlowArr, prev_prev_i);
-    const emaFastCurr = indicators.getValueAt(emaFastArr, prev_i);
-    const emaSlowCurr = indicators.getValueAt(emaSlowArr, prev_i);
-    const rsiCurr = indicators.getValueAt(rsiArr, prev_i);
-    const psarCurr = indicators.getValueAt(psarArr, prev_i);
-    const volumeCurr = indicators.getValueAt(dogeVolume, prev_i);
-    const avgVolumeCurr = indicators.getValueAt(volumeSma, prev_i);
-    const atrCurr = indicators.getValueAt(atrArr, i); // Current ATR for SL/TP
+    const cache: CacheType = {
+        emaFast: indicators.getValueAt(emaFastArr, prev_i),
+        emaSlow: indicators.getValueAt(emaSlowArr, prev_i),
+        rsi: indicators.getValueAt(rsiArr, prev_i),
+        psar: indicators.getValueAt(psarArr, prev_i),
+        volume: indicators.getValueAt(dogeVolume, prev_i),
+        avgVolume: indicators.getValueAt(volumeSma, prev_i),
+        volumeStdDev: null, // This will be calculated inside the guard
+        atr: indicators.getValueAt(atrArr, i),
+        prevAtr: null // This will be calculated inside the guard
+    };
+    
+    // Add std dev and prevAtr only if base indicators are valid
+    if (cache.avgVolume && cache.atr) {
+        const volumeSlice = dogeVolume.slice(Math.max(0, prev_i - strategyConfig.VOLUME_PERIOD + 1), prev_i + 1);
+        if(volumeSlice.length === strategyConfig.VOLUME_PERIOD) {
+            const mean = volumeSlice.reduce((a, b) => a + b, 0) / strategyConfig.VOLUME_PERIOD;
+            const variance = volumeSlice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / strategyConfig.VOLUME_PERIOD;
+            cache.volumeStdDev = Math.sqrt(variance);
+        }
 
-    if ([emaFastPrev, emaSlowPrev, emaFastCurr, emaSlowCurr, rsiCurr, psarCurr, volumeCurr, avgVolumeCurr, atrCurr].some(v => v === null)) {
-      log('Indicator calculation incomplete on previous candle:', { 
-        emaFastPrev, emaSlowPrev, emaFastCurr, emaSlowCurr, 
-        rsiCurr, psarCurr, volumeCurr, avgVolumeCurr, atrCurr 
-      });
-      return NextResponse.json({ message: 'Incomplete indicator data.' });
+        const atrSlice = atrArr.slice(Math.max(0, i - 10 + 1), i + 1).filter(v => v !== null) as number[];
+        if (atrSlice.length === 10) {
+            cache.prevAtr = atrSlice.reduce((sum, val) => sum + val, 0) / atrSlice.length;
+        }
     }
 
-    const volumeConfirmed = volumeCurr! > avgVolumeCurr! * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85;
-    logCond('Volume Confirmation Base', volumeConfirmed, `Vol ${volumeCurr!.toFixed(2)} > AvgVol ${avgVolumeCurr!.toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER} "* 0.85"`);
 
-    const volumeRatio = volumeCurr! / avgVolumeCurr!;
-    const volumeConfirmation = volumeRatio > strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation;
-    logCond('Volume Confirmation Medium', volumeConfirmation, `Vol ${volumeRatio!.toFixed(2)} > Medium Threshold ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation}`);
+    if (!allIndicatorsValid(cache)) {
+        log('Indicator calculation incomplete on previous candle:', cache);
+        return NextResponse.json({ message: 'Incomplete indicator data.' });
+    }
 
- 
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     let signalType: Signal['type'] | null = null;
     let confidence: Signal['level'] | null = null;
 
-    
-    
+    const emaFastPrev = indicators.getValueAt(emaFastArr, prev_prev_i)!;
+    const emaSlowPrev = indicators.getValueAt(emaSlowArr, prev_prev_i)!;
+
     // High-confidence Crossover Logic
-    const emaCrossedUp = emaFastPrev! <= emaSlowPrev! && emaFastCurr! > emaSlowCurr!;
-    const emaCrossedDown = emaFastPrev! >= emaSlowPrev! && emaFastCurr! < emaSlowCurr!;
-    const rsiInRangeBuy = rsiCurr! < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-    const rsiInRangeSell = rsiCurr! > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-    const psarConfirmBuy = psarCurr! < prevCandle.close;
-    const psarConfirmSell = psarCurr! > prevCandle.close;
+    const emaCrossedUp = emaFastPrev <= emaSlowPrev && cache.emaFast > cache.emaSlow;
+    const emaCrossedDown = emaFastPrev >= emaSlowPrev && cache.emaFast < cache.emaSlow;
+    const rsiInRangeBuy = cache.rsi < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
+    const rsiInRangeSell = cache.rsi > strategyConfig.RSI_OVERSOLD_THRESHOLD;
+    const psarConfirmBuy = cache.psar < prevCandle.close;
+    const psarConfirmSell = cache.psar > prevCandle.close;
+    const volumeConfirmed = cache.volume > cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85;
 
-    logCond('EMA Crossover Up', emaCrossedUp, `Fast: ${emaFastPrev!.toFixed(5)}->${emaFastCurr!.toFixed(5)} | Slow: ${emaSlowPrev!.toFixed(5)}->${emaSlowCurr!.toFixed(5)}`);
-    logCond('EMA Crossover Down', emaCrossedDown, `Fast: ${emaFastPrev!.toFixed(5)}->${emaFastCurr!.toFixed(5)} | Slow: ${emaSlowPrev!.toFixed(5)}->${emaSlowCurr!.toFixed(5)}`);
-    logCond('RSI Buy Range', rsiInRangeBuy, `RSI: ${rsiCurr!.toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
-    logCond('RSI Sell Range', rsiInRangeSell, `RSI: ${rsiCurr!.toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
-    logCond('PSAR Buy Confirmation', psarConfirmBuy, `PSAR: ${psarCurr!.toFixed(5)} < Close: ${prevCandle.close}`);
-    logCond('PSAR Sell Confirmation', psarConfirmSell, `PSAR: ${psarCurr!.toFixed(5)} > Close: ${prevCandle.close}`);
 
-    
-    
+    logCond('EMA Crossover Up', emaCrossedUp, `Fast: ${emaFastPrev.toFixed(5)}->${cache.emaFast.toFixed(5)} | Slow: ${emaSlowPrev.toFixed(5)}->${cache.emaSlow.toFixed(5)}`);
+    logCond('EMA Crossover Down', emaCrossedDown, `Fast: ${emaFastPrev.toFixed(5)}->${cache.emaFast.toFixed(5)} | Slow: ${emaSlowPrev.toFixed(5)}->${cache.emaSlow.toFixed(5)}`);
+    logCond('RSI Buy Range', rsiInRangeBuy, `RSI: ${cache.rsi.toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
+    logCond('RSI Sell Range', rsiInRangeSell, `RSI: ${cache.rsi.toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
+    logCond('PSAR Buy Confirmation', psarConfirmBuy, `PSAR: ${cache.psar.toFixed(5)} < Close: ${prevCandle.close}`);
+    logCond('PSAR Sell Confirmation', psarConfirmSell, `PSAR: ${cache.psar.toFixed(5)} > Close: ${prevCandle.close}`);
+    logCond('Volume Confirmation Base', volumeConfirmed, `Vol ${cache.volume.toFixed(2)} > AvgVol ${cache.avgVolume.toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER} * 0.85`);
+
     
     if (volumeConfirmed) {
-        // High-confidence signals
         if (emaCrossedUp && rsiInRangeBuy && psarConfirmBuy) {
             signalType = 'BUY';
             confidence = 'High';
@@ -166,23 +191,21 @@ export async function GET() {
             confidence = 'High';
         }
 
-
-
         // Medium-confidence Pullback signals
         if (!signalType) {
-            const isPullbackBuy = prevCandle.low <= emaFastCurr! && prevCandle.close > emaFastCurr!;
-            const rsiPullbackOkBuy = rsiCurr! > 40 && rsiInRangeBuy;
-            logCond('Pullback Buy', isPullbackBuy, `Low: ${prevCandle.low.toFixed(5)} <= EMA Fast: ${emaFastCurr!.toFixed(5)} & Close: ${prevCandle.close.toFixed(5)} > EMA Fast`);
-            logCond('RSI Pullback Buy', rsiPullbackOkBuy, `RSI: ${rsiCurr!.toFixed(2)} > 40`);
+            const isPullbackBuy = prevCandle.low <= cache.emaSlow && prevCandle.close > cache.emaSlow;
+            const rsiPullbackOkBuy = cache.rsi > 40 && rsiInRangeBuy;
+            logCond('Pullback Buy Condition', isPullbackBuy, `Low: ${prevCandle.low.toFixed(5)} <= Slow EMA: ${cache.emaSlow.toFixed(5)} AND Close: ${prevCandle.close.toFixed(5)} > Slow EMA`);
+            logCond('RSI Range for Pullback Buy', rsiPullbackOkBuy, `RSI: ${cache.rsi.toFixed(2)} > 40`);
 
             if (isPullbackBuy && rsiPullbackOkBuy && psarConfirmBuy) {
                 signalType = 'BUY';
                 confidence = 'Medium';
             } else {
-                const isPullbackSell = prevCandle.high >= emaFastCurr! && prevCandle.close < emaFastCurr!;
-                const rsiPullbackOkSell = rsiCurr! < 60 && rsiInRangeSell;
-                logCond('Pullback Sell', isPullbackSell, `High: ${prevCandle.high.toFixed(5)} >= EMA Fast: ${emaFastCurr!.toFixed(5)} & Close: ${prevCandle.close.toFixed(5)} < EMA Fast`);
-                logCond('RSI Pullback Sell', rsiPullbackOkSell, `RSI: ${rsiCurr!.toFixed(2)} < 60`);
+                const isPullbackSell = prevCandle.high >= cache.emaSlow && prevCandle.close < cache.emaSlow;
+                const rsiPullbackOkSell = cache.rsi < 60 && rsiInRangeSell;
+                logCond('Pullback Sell Condition', isPullbackSell, `High: ${prevCandle.high.toFixed(5)} >= Slow EMA: ${cache.emaSlow.toFixed(5)} AND Close: ${prevCandle.close.toFixed(5)} < Slow EMA`);
+                logCond('RSI Range for Pullback Sell', rsiPullbackOkSell, `RSI: ${cache.rsi.toFixed(2)} < 60`);
 
                 if (isPullbackSell && rsiPullbackOkSell && psarConfirmSell) {
                     signalType = 'SELL';
@@ -190,73 +213,46 @@ export async function GET() {
                 }
             }
         }
+        
+        const volumeRatio = cache.volume / cache.avgVolume;
+        const mediumVolumeConfirmed = volumeRatio > strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation;
+        logCond('Volume Confirmation Medium', mediumVolumeConfirmed, `Volume Ratio (${volumeRatio.toFixed(2)}) > Threshold (${strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation})`);
 
+        if (confidence === 'High' && !mediumVolumeConfirmed) {
+            log('High confidence signal rejected due to insufficient medium volume confirmation.');
+            signalType = null;
+            confidence = null;
+        } else if (confidence === 'Medium' && !mediumVolumeConfirmed) {
+            log('Medium confidence signal rejected due to insufficient medium volume confirmation.');
+            signalType = null;
+            confidence = null;
+        }
 
-        if (!volumeConfirmation) {
-          logCond('Volume Confirmation Medium', volumeConfirmation, `Vol ${volumeRatio!.toFixed(2)} > Medium Threshold ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation}`);
-          signalType = null;
-          confidence = null;
-      } 
-      // Additional medium confidence filter
-      else if (confidence === 'Medium' && volumeRatio < 1.8) {
-          logCond('Volume Confirmation Medium', volumeConfirmation, `Vol ${volumeRatio!.toFixed(2)} < 1.8`);
-          signalType = null;
-          confidence = null;
- } else if (signalType && confidence) {
- log('Volume Confirmation passed:', {
- volumeRatio: volumeRatio.toFixed(2),
- threshold: strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation,
- });
-      }
-      
 
         if (signalType && confidence) {
-          // --- START OF NEW FILTER ---
-          // Get current ATR value
-          const atrCurr = indicators.getValueAt(atrArr, i);
-          if (atrCurr === null) {
-              logCond('ATR Value Check', false, 'ATR value not available for current candle');
-              signalType = null;
-              confidence = null;
-          } else {
- logCond('ATR Filter Evaluation', true, 'Evaluating filter');
- kv({
-                currentATR: atrCurr.toFixed(6),
-                requiredMinMovement: (atrCurr * 0.7).toFixed(6),
-              });
-              const minPriceMovement = atrCurr * 0.7; // Require min 70% of ATR
-              const priceChange = Math.abs(latest.open - prevCandle.close);
+            const minPriceMovement = cache.atr * strategyConfig.NOISE_FILTER_RATIO;
+            const priceChange = Math.abs(latest.open - prevCandle.close);
+            const atrFilterPassed = priceChange >= minPriceMovement;
+            logCond('ATR Noise Filter', atrFilterPassed, `Price Change (${priceChange.toFixed(6)}) >= Min Movement (${minPriceMovement.toFixed(6)})`);
 
-              if (priceChange < minPriceMovement) {
- logCond('ATR Filter', false, `Price change ${priceChange.toFixed(6)} < min required ${minPriceMovement.toFixed(6)} (ATR: ${atrCurr.toFixed(6)})`);
+            if (!atrFilterPassed) {
                 signalType = null;
                 confidence = null;
-              } else {
- logCond('ATR Filter', true, `Price change ${priceChange.toFixed(6)} >= min required ${minPriceMovement.toFixed(6)}`);
-              }
+            } else {
+                 const isBullishConfirmation = latest.close > latest.open && latest.close > prevCandle.high;
+                 const isBearishConfirmation = latest.close < latest.open && latest.close < prevCandle.low;
+                 logCond('Bullish Confirmation Candle', isBullishConfirmation, `Close (${latest.close}) > Open (${latest.open}) AND Close > Prev High (${prevCandle.high})`);
+                 logCond('Bearish Confirmation Candle', isBearishConfirmation, `Close (${latest.close}) < Open (${latest.open}) AND Close < Prev Low (${prevCandle.low})`);
+
+                 if (signalType === 'BUY' && !isBullishConfirmation) {
+                     log("Buy signal rejected: Missing bullish confirmation candle.");
+                     signalType = null;
+                 } else if (signalType === 'SELL' && !isBearishConfirmation) {
+                     log("Sell signal rejected: Missing bearish confirmation candle.");
+                     signalType = null;
+                 }
+            }
         }
-        // --- END OF NEW FILTER ---
-
-        const isBullishConfirmation = (
-          latest.close > latest.open && 
-          latest.close > prevCandle.high
-      );
-      
-      const isBearishConfirmation = (
-          latest.close < latest.open && 
-          latest.close < prevCandle.low
-      );
-      
-      if (signalType === 'BUY' && !isBullishConfirmation) {
-          log("Buy signal rejected: Missing bullish confirmation(ATR)");
-          signalType = null;
-      } else if (signalType === 'SELL' && !isBearishConfirmation) {
-          log("Sell signal rejected: Missing bearish confirmation(ATR)");
-          signalType = null;
-      }
-    }
-
-    
 
         if (signalType && confidence) {
             signal = { 
@@ -266,15 +262,13 @@ export async function GET() {
                 time: latest.time 
             };
 
-            // Calculate leverage and stop buffer
             const capital = 1000; 
-            const dollarRisk = capital * (atrCurr! > 0.0005 ? 0.0075 : 0.0125);
-            const positionSize = dollarRisk / (atrCurr! * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
+            const dollarRisk = capital * (cache.atr > 0.0005 ? 0.0075 : 0.0125);
+            const positionSize = dollarRisk / (cache.atr * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
             const leverage = Math.min(10, Math.max(1, Math.round((positionSize * latest.open) / capital)));
             
-            
             signal.suggestedLeverage = leverage;
-            signal.stopBuffer = atrCurr! * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
+            signal.stopBuffer = cache.atr * strategyConfig.STOP_LOSS_ATR_MULTIPLIER;
         }
     }
 
@@ -294,3 +288,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage });
   }
 }
+
+    
