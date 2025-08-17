@@ -1,3 +1,4 @@
+
 'use server';
 
 import { NextResponse } from 'next/server';
@@ -17,12 +18,12 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
   RSI_OVERSOLD_THRESHOLD: [30, 35, 40],
   RSI_OVERBOUGHT_THRESHOLD: [60, 65, 70],
   VOLUME_PERIOD: [20, 30, 50],
-  VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.5, 1.8, 2.0],
+  VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.3, 1.5, 1.7],
   VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.8, 1.0, 1.2],
   ATR_PERIOD: [10, 12, 14],
   TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0, 3.5],
   STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0, 2.5],
-  NOISE_FILTER_RATIO: [0.4, 0.5, 0.6],
+  NOISE_FILTER_RATIO: [0.3, 0.4, 0.5],
 };
 
 
@@ -30,11 +31,11 @@ async function runAndSaveOptimization() {
   console.log("=== STRATEGY OPTIMIZATION (GENETIC ALGORITHM) STARTING ===");
 
   // 1. Load data for DOGE
-  const dogeChartData = await getChartData('DOGEUSDT');
+  const dogeChartData = await getChartData('DOGEUSDT', 1000);
 
   console.log(`Loaded ${dogeChartData.length} DOGE data points for backtesting.`);
 
-  if (dogeChartData.length < 200) {
+  if (dogeChartData.length < 500) {
     console.error("Not enough historical data to run optimization.");
     return {
       success: false,

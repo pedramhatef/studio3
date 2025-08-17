@@ -6,8 +6,6 @@ import * as indicators from '@/lib/indicators';
 
 // Helper functions for logging
 function log(message: string, ...args: any[]) {
-    // We check for a global flag to avoid polluting backtest logs,
-    // which can be very verbose. The cron job will set this flag.
     if ((global as any).ENABLE_DETAILED_LOGS) {
         const timestamp = new Date().toISOString();
         console.log(`${timestamp} [info] ${message}`, ...args);
@@ -31,11 +29,10 @@ function candleStrength(candle: ChartDataPoint) {
     return range > 0 ? Math.abs(candle.close - candle.open) / range : 0;
 }
 
+const EMA_ROUNDING_DECIMALS = 7; // Number of decimals to round EMAs to for comparison
 
-// This function encapsulates the core logic for generating a trading signal.
-// It is designed to be used by both the backtester and the live cron job.
 export function generateSignal(
-    i: number, // The current candle index
+    i: number,
     chartData: ChartDataPoint[],
     params: StrategyParams,
     emaFastArr: (number | null)[],
@@ -43,16 +40,14 @@ export function generateSignal(
     rsiArr: (number | null)[],
     psarArr: (number | null)[],
     avgVolumeArr: (number | null)[],
-    atrArr: (number | null)[],
-    volumeMultiplier: (number | null)[]
+    atrArr: (number | null)[]
 ): Omit<Signal, 'displayTime' | 'serverTime'> | null {
 
-    if (i < 2) return null; // Need at least two previous candles for momentum checks
+    if (i < 2) return null;
 
     const currentCandle = chartData[i];
     const prevCandle = chartData[i - 1];
     
-    // --- Indicator Values for the PREVIOUS candle ---
     const emaFast = indicators.getValueAt(emaFastArr, i - 1) ?? 0;
     const emaSlow = indicators.getValueAt(emaSlowArr, i - 1) ?? 0;
     const rsi = indicators.getValueAt(rsiArr, i - 1) ?? 0;
@@ -71,11 +66,16 @@ export function generateSignal(
 
     // --- High-Confidence Crossover Logic ---
     log('=== High-Confidence Crossover Conditions ===');
-    const emaCrossedUp = emaFastPrev <= emaSlowPrev && emaFast > emaSlow;
-    logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${emaFastPrev.toFixed(5)} <= Prev Slow: ${emaSlowPrev.toFixed(5)} | Curr Fast: ${emaFast.toFixed(5)} > Curr Slow: ${emaSlow.toFixed(5)}`);
+    const roundedEmaFast = parseFloat(emaFast.toFixed(EMA_ROUNDING_DECIMALS));
+    const roundedEmaSlow = parseFloat(emaSlow.toFixed(EMA_ROUNDING_DECIMALS));
+    const roundedEmaFastPrev = parseFloat(emaFastPrev.toFixed(EMA_ROUNDING_DECIMALS));
+    const roundedEmaSlowPrev = parseFloat(emaSlowPrev.toFixed(EMA_ROUNDING_DECIMALS));
     
-    const emaCrossedDown = emaFastPrev >= emaSlowPrev && emaFast < emaSlow;
-    logCond('EMA Crossover Down', emaCrossedDown, `Prev Fast: ${emaFastPrev.toFixed(5)} >= Prev Slow: ${emaSlowPrev.toFixed(5)} | Curr Fast: ${emaFast.toFixed(5)} < Curr Slow: ${emaSlow.toFixed(5)}`);
+    const emaCrossedUp = roundedEmaFastPrev <= roundedEmaSlowPrev && roundedEmaFast > roundedEmaSlow;
+    logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${roundedEmaFastPrev} <= Prev Slow: ${roundedEmaSlowPrev} | Curr Fast: ${roundedEmaFast} > Curr Slow: ${roundedEmaSlow}`);
+    
+    const emaCrossedDown = roundedEmaFastPrev >= roundedEmaSlowPrev && roundedEmaFast < roundedEmaSlow;
+    logCond('EMA Crossover Down', emaCrossedDown, `Prev Fast: ${roundedEmaFastPrev} >= Prev Slow: ${roundedEmaSlowPrev} | Curr Fast: ${roundedEmaFast} < Curr Slow: ${roundedEmaSlow}`);
 
     const rsiBuyRange = rsi < params.RSI_OVERBOUGHT_THRESHOLD;
     logCond('RSI Buy Range', rsiBuyRange, `RSI: ${rsi.toFixed(2)} < ${params.RSI_OVERBOUGHT_THRESHOLD}`);
@@ -91,7 +91,7 @@ export function generateSignal(
     
     const highVolTarget = (avgVolume * params.VOLUME_THRESHOLD_MULTIPLIER);
     const volumeConditionHigh = volume > highVolTarget;
-    logCond('Volume Confirmation (High)', volumeConditionHigh, `Vol ${volume.toFixed(2)} > (AvgVol ${avgVolume.toFixed(2)} * ${params.VOLUME_THRESHOLD_MULTIPLIER}) = ${highVolTarget.toFixed(2)}`);
+    logCond(`Volume Confirmation (High)`, volumeConditionHigh, `Vol ${volume.toFixed(2)} > (AvgVol ${avgVolume.toFixed(2)} * ${params.VOLUME_THRESHOLD_MULTIPLIER}) = ${highVolTarget.toFixed(2)}`);
 
     if (emaCrossedUp && rsiBuyRange && psarBuyConfirm && volumeConditionHigh) {
         signal = 'BUY';
@@ -116,7 +116,6 @@ export function generateSignal(
         const isDowntrend = emaFast < emaSlow;
         logCond('Established Downtrend', isDowntrend, `Fast: ${emaFast.toFixed(5)} < Slow: ${emaSlow.toFixed(5)}`);
 
-        // Pullback Buy: In an uptrend, price dips to slow EMA and bounces.
         const isPullbackBuy = isUptrend && prevCandle.low <= emaSlow && prevCandle.close > emaSlow;
         logCond('Pullback to Slow EMA (Buy)', isPullbackBuy, `PrevLow (${prevCandle.low.toFixed(5)}) <= SlowEMA (${emaSlow.toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) > SlowEMA`);
 
@@ -125,8 +124,7 @@ export function generateSignal(
         
         logCond('PSAR Confirms Uptrend (Buy)', psarBuyConfirm, `PSAR: ${psar.toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
 
-        logCond('Volume Confirmation (Medium)', volumeConditionMedium, `Vol ${volume.toFixed(2)} > (AvgVol ${avgVolume.toFixed(2)} * ${params.VOLUME_THRESHOLD_MULTIPLIERConfirmation}) = ${medVolTarget.toFixed(2)}`);
-
+        logCond(`Volume Confirmation (Medium)`, volumeConditionMedium, `Vol ${volume.toFixed(2)} > (AvgVol ${avgVolume.toFixed(2)} * ${params.VOLUME_THRESHOLD_MULTIPLIERConfirmation}) = ${medVolTarget.toFixed(2)}`);
 
         if (isPullbackBuy && rsiOkForBuyPullback && psarBuyConfirm && volumeConditionMedium) {
             signal = 'BUY';
@@ -134,7 +132,6 @@ export function generateSignal(
             log('Signal Decision: Medium-Confidence BUY by Pullback.');
         }
 
-        // Pullback Sell: In a downtrend, price rallies to slow EMA and is rejected.
         const isPullbackSell = isDowntrend && prevCandle.high >= emaSlow && prevCandle.close < emaSlow;
         logCond('Pullback to Slow EMA (Sell)', isPullbackSell, `PrevHigh (${prevCandle.high.toFixed(5)}) >= SlowEMA (${emaSlow.toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) < SlowEMA`);
         
@@ -158,10 +155,14 @@ export function generateSignal(
         const atrFilterPassed = candleRange >= minPriceMovement;
         logCond('ATR Noise Filter', atrFilterPassed, `Candle Range (${candleRange.toFixed(5)}) >= Min Movement (${minPriceMovement.toFixed(5)})`);
 
-        const isBullishConfirm = isCandleBullish(currentCandle) && candleStrength(currentCandle) > 0.3;
-        logCond('Is Bullish Confirmation', isBullishConfirm, `Close > Open AND Strength > 0.3`);
-        const isBearishConfirm = isCandleBearish(currentCandle) && candleStrength(currentCandle) > 0.3;
-        logCond('Is Bearish Confirmation', isBearishConfirm, `Close < Open AND Strength > 0.3`);
+        // Dynamic candle strength threshold based on volatility
+        const dynamicStrengthThreshold = Math.min(0.3, Math.max(0.15, atr / currentCandle.close * 20)); // scales with ATR % of price
+        log(`Dynamic candle strength threshold: ${dynamicStrengthThreshold.toFixed(3)}`)
+
+        const isBullishConfirm = isCandleBullish(currentCandle) && candleStrength(currentCandle) > dynamicStrengthThreshold;
+        logCond('Is Bullish Confirmation', isBullishConfirm, `Close > Open AND Strength (${candleStrength(currentCandle).toFixed(2)}) > ${dynamicStrengthThreshold.toFixed(2)}`);
+        const isBearishConfirm = isCandleBearish(currentCandle) && candleStrength(currentCandle) > dynamicStrengthThreshold;
+        logCond('Is Bearish Confirmation', isBearishConfirm, `Close < Open AND Strength (${candleStrength(currentCandle).toFixed(2)}) > ${dynamicStrengthThreshold.toFixed(2)}`);
 
         const buySignalValid = signal === 'BUY' && isBullishConfirm && atrFilterPassed;
         const sellSignalValid = signal === 'SELL' && isBearishConfirm && atrFilterPassed;
@@ -171,7 +172,7 @@ export function generateSignal(
             return {
                 type: signal,
                 level: confidence,
-                price: currentCandle.open, // Entry price is the open of the current candle
+                price: currentCandle.open,
                 time: currentCandle.time,
             };
         } else {
@@ -181,5 +182,5 @@ export function generateSignal(
         log('No potential signal found in this run.');
     }
 
-    return null; // No valid signal generated
+    return null;
 }
