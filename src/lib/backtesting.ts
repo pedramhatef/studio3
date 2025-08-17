@@ -161,24 +161,25 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
 
             // High-Confidence Crossover Logic
             if (emaCrossedUp && rsi! < params.RSI_OVERBOUGHT_THRESHOLD && psar! < prevCandle.close) {
+                confidence = volumeBaseCondition ? 'High' : 'Medium';
                 signalType = 'BUY';
-                confidence = volumeBaseCondition ? 'High' : 'Medium';
+
             } else if (emaCrossedDown && rsi! > params.RSI_OVERSOLD_THRESHOLD && psar! > prevCandle.close) {
+                 confidence = volumeBaseCondition ? 'High' : 'Medium';
                 signalType = 'SELL';
-                confidence = volumeBaseCondition ? 'High' : 'Medium';
             }
             // Medium-Confidence Pullback Logic
             else {
                 const isPullbackBuy = prevCandle.low <= emaSlow! && prevCandle.close > emaSlow!;
-                const rsiPullbackOkBuy = rsi! > 40 && rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
-                if (isPullbackBuy && rsiPullbackOkBuy && psar! < prevCandle.close) {
+                const rsiOkForBuyPullback = rsi! > 40 && rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
+                if (isPullbackBuy && rsiOkForBuyPullback && psar! < prevCandle.close) {
                     signalType = 'BUY';
                     confidence = 'Medium';
                 }
                 
                 const isPullbackSell = prevCandle.high >= emaSlow! && prevCandle.close < emaSlow!;
-                const rsiPullbackOkSell = rsi! < 60 && rsi! > params.RSI_OVERSOLD_THRESHOLD;
-                if (isPullbackSell && rsiPullbackOkSell && psar! > prevCandle.close) {
+                const rsiOkForSellPullback = rsi! < 60 && rsi! > params.RSI_OVERSOLD_THRESHOLD;
+                if (isPullbackSell && rsiOkForSellPullback && psar! > prevCandle.close) {
                     signalType = 'SELL';
                     confidence = 'Medium';
                 }
@@ -186,10 +187,9 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
 
             // Final confirmation filters
             if (signalType) {
-                const atrValue = getValueAt(atrArr, i);
-                if (atrValue === null) continue;
+                if (atr === null) continue;
 
-                const minPriceMovement = atrValue * params.NOISE_FILTER_RATIO;
+                const minPriceMovement = atr * params.NOISE_FILTER_RATIO;
                 const priceChange = Math.abs(currentCandle.open - prevCandle.close);
                 if (priceChange < minPriceMovement) {
                     signalType = null;
@@ -204,8 +204,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             }
             
             if (signalType) {
-                const atrValue = getValueAt(atrArr, i);
-                if (atrValue === null) continue;
+                 if (atr === null) continue;
 
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
                 
@@ -216,11 +215,11 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                     entryCandleIndex: i,
                     initialCapital: capital,
                     stopLossPrice: signalType === 'BUY' 
-                        ? entryPrice - (atrValue * params.STOP_LOSS_ATR_MULTIPLIER) 
-                        : entryPrice + (atrValue * params.STOP_LOSS_ATR_MULTIPLIER),
+                        ? entryPrice - (atr * params.STOP_LOSS_ATR_MULTIPLIER) 
+                        : entryPrice + (atr * params.STOP_LOSS_ATR_MULTIPLIER),
                     takeProfitPrice: signalType === 'BUY' 
-                        ? entryPrice + (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER) 
-                        : entryPrice - (atrValue * params.TAKE_PROFIT_ATR_MULTIPLIER),
+                        ? entryPrice + (atr * params.TAKE_PROFIT_ATR_MULTIPLIER) 
+                        : entryPrice - (atr * params.TAKE_PROFIT_ATR_MULTIPLIER),
                 };
             }
         }
@@ -458,3 +457,5 @@ export async function optimizeParameters(
         return { bestParams: null, bestPerformance: null, bestTrades: [] };
     }
 }
+
+    

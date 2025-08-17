@@ -149,6 +149,7 @@ export async function GET() {
         const emaSlowPrev = indicators.getValueAt(emaSlowArr, prev_prev_i);
 
         logCond('EMA Fast > Slow', cache.emaFast > cache.emaSlow, `Fast: ${cache.emaFast.toFixed(5)} > Slow: ${cache.emaSlow.toFixed(5)}`);
+        logCond('EMA Fast < Slow', cache.emaFast < cache.emaSlow, `Fast: ${cache.emaFast.toFixed(5)} < Slow: ${cache.emaSlow.toFixed(5)}`);
         logCond('RSI Buy Range', cache.rsi < strategyConfig.RSI_OVERBOUGHT_THRESHOLD, `RSI: ${cache.rsi.toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
         logCond('RSI Sell Range', cache.rsi > strategyConfig.RSI_OVERSOLD_THRESHOLD, `RSI: ${cache.rsi.toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
         logCond('PSAR Buy Confirmation', cache.psar < prevCandle.close, `PSAR: ${cache.psar.toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
@@ -250,3 +251,5 @@ export async function GET() {
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
+
+    
