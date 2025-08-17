@@ -76,9 +76,8 @@ export async function GET() {
     const requiredPeriods = Math.max(
       strategyConfig.EMA_SLOW_PERIOD, 
       strategyConfig.RSI_PERIOD, 
-      strategyConfig.ATR_PERIOD, 
       strategyConfig.VOLUME_PERIOD
-    ) + 12; // Add 10 for ATR SMA + 2 for safety buffer
+    ) + strategyConfig.ATR_PERIOD + 12; // Add ATR period + 10 for ATR SMA + 2 for safety buffer
 
     const dogeChartData = await getChartData('DOGEUSDT');
 
@@ -160,26 +159,25 @@ export async function GET() {
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     let signalType: Signal['type'] | null = null;
     let confidence: Signal['level'] | null = null;
-
+    
     const emaFastPrev = indicators.getValueAt(emaFastArr, prev_prev_i)!;
     const emaSlowPrev = indicators.getValueAt(emaSlowArr, prev_prev_i)!;
 
+    // Log all conditions for better debugging
     logCond('EMA Fast > Slow', cache.emaFast > cache.emaSlow, `Fast: ${cache.emaFast.toFixed(5)} > Slow: ${cache.emaSlow.toFixed(5)}`);
     logCond('EMA Fast < Slow', cache.emaFast < cache.emaSlow, `Fast: ${cache.emaFast.toFixed(5)} < Slow: ${cache.emaSlow.toFixed(5)}`);
     logCond('RSI Buy Range', cache.rsi < strategyConfig.RSI_OVERBOUGHT_THRESHOLD, `RSI: ${cache.rsi.toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
     logCond('RSI Sell Range', cache.rsi > strategyConfig.RSI_OVERSOLD_THRESHOLD, `RSI: ${cache.rsi.toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
     logCond('PSAR Buy Confirmation', cache.psar < prevCandle.close, `PSAR: ${cache.psar.toFixed(5)} < Close: ${prevCandle.close}`);
     logCond('PSAR Sell Confirmation', cache.psar > prevCandle.close, `PSAR: ${cache.psar.toFixed(5)} > Close: ${prevCandle.close}`);
-    logCond('Volume Confirmation Base', cache.volume > (cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85), `Vol ${cache.volume.toFixed(2)} > AvgVol*Multiplier*0.85 (${(cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85).toFixed(2)})`);
-
+    const volumeBaseCondition = cache.volume > (cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85);
+    logCond('Volume Confirmation Base', volumeBaseCondition, `Vol ${cache.volume.toFixed(2)} > AvgVol*Multiplier*0.85 (${(cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85).toFixed(2)})`);
     const emaCrossedUp = emaFastPrev <= emaSlowPrev && cache.emaFast > cache.emaSlow;
     const emaCrossedDown = emaFastPrev >= emaSlowPrev && cache.emaFast < cache.emaSlow;
-    logCond('EMA Crossover Up', emaCrossedUp, `Fast: ${emaFastPrev.toFixed(5)}->${cache.emaFast.toFixed(5)} | Slow: ${emaSlowPrev.toFixed(5)}->${cache.emaSlow.toFixed(5)}`);
-    logCond('EMA Crossover Down', emaCrossedDown, `Fast: ${emaFastPrev.toFixed(5)}->${cache.emaFast.toFixed(5)} | Slow: ${emaSlowPrev.toFixed(5)}->${cache.emaSlow.toFixed(5)}`);
+    logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${emaFastPrev.toFixed(5)} <= Prev Slow: ${emaSlowPrev.toFixed(5)} AND Curr Fast: ${cache.emaFast.toFixed(5)} > Curr Slow: ${cache.emaSlow.toFixed(5)}`);
+    logCond('EMA Crossover Down', emaCrossedDown, `Prev Fast: ${emaFastPrev.toFixed(5)} >= Prev Slow: ${emaSlowPrev.toFixed(5)} AND Curr Fast: ${cache.emaFast.toFixed(5)} < Curr Slow: ${cache.emaSlow.toFixed(5)}`);
 
-    const volumeConfirmed = cache.volume > (cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85);
-    
-    if (volumeConfirmed) {
+    if (volumeBaseCondition) {
         // High-confidence Crossover Logic
         if (emaCrossedUp && cache.rsi < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && cache.psar < prevCandle.close) {
             signalType = 'BUY';
@@ -287,3 +285,4 @@ export async function GET() {
     log(`Error: ${errorMessage}`, errorStack ? `\nStack: ${errorStack}`: '');
     return NextResponse.json({ error: errorMessage });
   }
+}
