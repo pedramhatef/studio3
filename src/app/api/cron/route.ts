@@ -178,8 +178,8 @@ export async function GET() {
             const volumeConditionMedium = cache.volume > (cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation);
             
             section('High-Confidence Crossover Conditions');
-            logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${(emaFastPrev ?? 0)?.toFixed(5)} <= Prev Slow: ${(emaSlowPrev ?? 0)?.toFixed(5)} | Curr Fast: ${cache.emaFast.toFixed(5)} > Curr Slow: ${cache.emaSlow.toFixed(5)}`);
-            logCond('EMA Crossover Down', emaCrossedDown, `Prev Fast: ${(emaFastPrev ?? 0)?.toFixed(5)} >= Prev Slow: ${(emaSlowPrev ?? 0)?.toFixed(5)} | Curr Fast: ${cache.emaFast.toFixed(5)} < Curr Slow: ${cache.emaSlow.toFixed(5)}`);
+            logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${(emaFastPrev ?? 0).toFixed(5)} <= Prev Slow: ${(emaSlowPrev ?? 0).toFixed(5)} | Curr Fast: ${cache.emaFast.toFixed(5)} > Curr Slow: ${cache.emaSlow.toFixed(5)}`);
+            logCond('EMA Crossover Down', emaCrossedDown, `Prev Fast: ${(emaFastPrev ?? 0).toFixed(5)} >= Prev Slow: ${(emaSlowPrev ?? 0).toFixed(5)} | Curr Fast: ${cache.emaFast.toFixed(5)} < Curr Slow: ${cache.emaSlow.toFixed(5)}`);
             logCond('RSI Buy Range', cache.rsi < strategyConfig.RSI_OVERBOUGHT_THRESHOLD, `RSI: ${cache.rsi.toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
             logCond('RSI Sell Range', cache.rsi > strategyConfig.RSI_OVERSOLD_THRESHOLD, `RSI: ${cache.rsi.toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
             logCond('PSAR Buy Confirmation', cache.psar < prevCandle.close, `PSAR: ${cache.psar.toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
@@ -284,7 +284,7 @@ export async function GET() {
             return NextResponse.json({ message: 'No signal generated.' });
 
         } else {
-            log('Indicator calculation incomplete on previous candle:', cache);
+            log('Indicator calculation incomplete on previous candle. At least one indicator returned null.', cache);
             return NextResponse.json({ message: 'Indicator calculation failed.' });
         }
 
