@@ -45,3 +45,47 @@ export type StrategyParams = {
     STOP_LOSS_ATR_MULTIPLIER: number;
     SPREAD_PERCENT: number;
 };
+
+
+export type InTradeState = {
+    entryPrice: number;
+    entryTime: number;
+    type: 'BUY' | 'SELL';
+    entryCandleIndex: number;
+    initialCapital: number;
+    stopLossPrice: number;
+    takeProfitPrice: number;
+};
+
+
+export type TradeResult = {
+    entryPrice: number;
+    exitPrice: number;
+    entryTime: number;
+    exitTime: number;
+    type: 'BUY' | 'SELL';
+    profit: number;
+    profitPercentage: number;
+    entryCandleIndex: number;
+    exitCandleIndex: number;
+    initialCapital: number;
+    finalCapital: number;
+    exitReason: 'Opposite Signal' | 'Take Profit' | 'Stop Loss' | 'End of Data';
+};
+
+
+export type PerformanceMetrics = {
+    totalProfit: number;
+    totalProfitPercentage: number;
+    numberOfTrades: number;
+    winningTrades: number;
+    losingTrades: number;
+    winRate: number;
+    lossRate: number;
+    averageWin: number;
+    averageLoss: number;
+    profitFactor: number;
+    sharpeRatio: number;
+    maxDrawdown: number;
+    expectancy: number;
+};
