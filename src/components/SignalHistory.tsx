@@ -59,7 +59,9 @@ export function SignalHistory({ signals }: SignalHistoryProps) {
                       <span className="font-medium">{signal.type}</span>
                     </div>
                   </TableCell>
-                  <TableCell>{signal.price.toFixed(5)}</TableCell>
+                  <TableCell>
+                    {typeof signal.price === 'number' ? signal.price.toFixed(5) : '-'}
+                  </TableCell>
                   <TableCell className="text-right">
                     <Badge variant={levelVariantMap[signal.level]}>{levelTextMap[signal.level]}</Badge>
                   </TableCell>
