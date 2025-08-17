@@ -18,7 +18,7 @@ const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: 
   RSI_OVERSOLD_THRESHOLD: [30, 35, 40],
   RSI_OVERBOUGHT_THRESHOLD: [60, 65, 70],
   VOLUME_PERIOD: [20, 30, 50],
-  VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.5, 2.0], // Relaxed
+  VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.4, 1.6], // Relaxed
   VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.8, 1.0, 1.2], // Relaxed
   ATR_PERIOD: [10, 12, 14],
   TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0, 3.5],
