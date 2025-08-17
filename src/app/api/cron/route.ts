@@ -112,11 +112,19 @@ export async function GET() {
             const latestCandleTime = dogeChartData[dogeChartData.length - 1].time;
             const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
             const cooldown = lastSignal.level === 'High' ? COOLDOWN_HIGH : COOLDOWN_MEDIUM;
+            const cooldownActive = timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < cooldown;
             
-            if (timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < cooldown) { 
-                log(`Cooldown active (${Math.floor(cooldown/60000)}min). Skipping signal.`);
+            logCond(
+                'Cooldown Check',
+                !cooldownActive,
+                `Last Signal: ${new Date(lastSignalTime).toISOString()}, Time Since: ${Math.floor(timeSinceLastSignalMs/1000)}s, Cooldown: ${cooldown/1000}s`
+            );
+
+            if (cooldownActive) { 
                 return NextResponse.json({ message: 'In trade cooldown.' });
             }
+        } else {
+            log('No previous signals found, cooldown check skipped.');
         }
 
         section('Find New Signal');
@@ -157,68 +165,69 @@ export async function GET() {
         };
         
         if (allIndicatorsValid(cache)) {
-            // All cache values are guaranteed to be numbers here
             const emaFastPrev = indicators.getValueAt(emaFastArr, prev_i - 1);
             const emaSlowPrev = indicators.getValueAt(emaSlowArr, prev_i - 1);
 
             let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
             let confidence: Signal['level'] | null = null;
 
-            const emaCrossedUp = (emaFastPrev ?? 0) <= (emaSlowPrev ?? 0) && (cache.emaFast ?? 0) > (cache.emaSlow ?? 0);
-            const emaCrossedDown = (emaFastPrev ?? 0) >= (emaSlowPrev ?? 0) && (cache.emaFast ?? 0) < (cache.emaSlow ?? 0);
+            const emaCrossedUp = (emaFastPrev ?? 0) <= (emaSlowPrev ?? 0) && cache.emaFast > cache.emaSlow;
+            const emaCrossedDown = (emaFastPrev ?? 0) >= (emaSlowPrev ?? 0) && cache.emaFast < cache.emaSlow;
 
-            const volumeConditionHigh = (cache.volume ?? 0) > ((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER);
-            const volumeConditionMedium = (cache.volume ?? 0) > ((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation);
+            const volumeConditionHigh = cache.volume > (cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER);
+            const volumeConditionMedium = cache.volume > (cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation);
             
-            section('Signal Conditions');
-            logCond('EMA Fast > Slow', (cache.emaFast ?? 0) > (cache.emaSlow ?? 0), `Fast: ${(cache.emaFast ?? 0).toFixed(5)} > Slow: ${(cache.emaSlow ?? 0).toFixed(5)}`);
-            logCond('EMA Fast < Slow', (cache.emaFast ?? 0) < (cache.emaSlow ?? 0), `Fast: ${(cache.emaFast ?? 0).toFixed(5)} < Slow: ${(cache.emaSlow ?? 0).toFixed(5)}`);
-            logCond('RSI Buy Range', (cache.rsi ?? 0) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD, `RSI: ${(cache.rsi ?? 0).toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
-            logCond('RSI Sell Range', (cache.rsi ?? 0) > strategyConfig.RSI_OVERSOLD_THRESHOLD, `RSI: ${(cache.rsi ?? 0).toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
-            logCond('PSAR Buy Confirmation', (cache.psar ?? 0) < prevCandle.close, `PSAR: ${(cache.psar ?? 0).toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
-            logCond('PSAR Sell Confirmation', (cache.psar ?? 0) > prevCandle.close, `PSAR: ${(cache.psar ?? 0).toFixed(5)} > Close: ${prevCandle.close.toFixed(5)}`);
-            logCond('Volume Confirmation (High)', volumeConditionHigh, `Vol ${(cache.volume ?? 0).toFixed(2)} > AvgVol*Multiplier (${((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER).toFixed(2)})`);
-            logCond('Volume Confirmation (Medium)', volumeConditionMedium, `Vol ${(cache.volume ?? 0).toFixed(2)} > AvgVol*Multiplier (${((cache.avgVolume ?? 0) * strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation).toFixed(2)})`);
-            logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${(emaFastPrev ?? 0)?.toFixed(5)} <= Prev Slow: ${(emaSlowPrev ?? 0)?.toFixed(5)} AND Curr Fast: ${(cache.emaFast ?? 0).toFixed(5)} > Curr Slow: ${(cache.emaSlow ?? 0).toFixed(5)}`);
-            logCond('EMA Crossover Down', emaCrossedDown, `Prev Fast: ${(emaFastPrev ?? 0)?.toFixed(5)} >= Prev Slow: ${(emaSlowPrev ?? 0)?.toFixed(5)} AND Curr Fast: ${(cache.emaFast ?? 0).toFixed(5)} < Curr Slow: ${(cache.emaSlow ?? 0).toFixed(5)}`);
-            
-            // High-Confidence Crossover Logic
-            if (emaCrossedUp && (cache.rsi ?? 0) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && (cache.psar ?? 0) < prevCandle.close) {
-                if (volumeConditionHigh) {
-                    confidence = 'High';
-                    signal = { type: 'BUY', level: confidence, price: latestCandle.open, time: latestCandle.time };
-                }
+            section('High-Confidence Crossover Conditions');
+            logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${(emaFastPrev ?? 0)?.toFixed(5)} <= Prev Slow: ${(emaSlowPrev ?? 0)?.toFixed(5)} | Curr Fast: ${cache.emaFast.toFixed(5)} > Curr Slow: ${cache.emaSlow.toFixed(5)}`);
+            logCond('EMA Crossover Down', emaCrossedDown, `Prev Fast: ${(emaFastPrev ?? 0)?.toFixed(5)} >= Prev Slow: ${(emaSlowPrev ?? 0)?.toFixed(5)} | Curr Fast: ${cache.emaFast.toFixed(5)} < Curr Slow: ${cache.emaSlow.toFixed(5)}`);
+            logCond('RSI Buy Range', cache.rsi < strategyConfig.RSI_OVERBOUGHT_THRESHOLD, `RSI: ${cache.rsi.toFixed(2)} < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
+            logCond('RSI Sell Range', cache.rsi > strategyConfig.RSI_OVERSOLD_THRESHOLD, `RSI: ${cache.rsi.toFixed(2)} > ${strategyConfig.RSI_OVERSOLD_THRESHOLD}`);
+            logCond('PSAR Buy Confirmation', cache.psar < prevCandle.close, `PSAR: ${cache.psar.toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
+            logCond('PSAR Sell Confirmation', cache.psar > prevCandle.close, `PSAR: ${cache.psar.toFixed(5)} > Close: ${prevCandle.close.toFixed(5)}`);
+            logCond('Volume Confirmation (High)', volumeConditionHigh, `Vol ${cache.volume.toFixed(2)} > AvgVol*Multiplier (${(cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER).toFixed(2)})`);
+
+            if (emaCrossedUp && cache.rsi < strategyConfig.RSI_OVERBOUGHT_THRESHOLD && cache.psar < prevCandle.close && volumeConditionHigh) {
+                confidence = 'High';
+                signal = { type: 'BUY', level: confidence, price: latestCandle.open, time: latestCandle.time };
+                log('High-Confidence BUY Signal Triggered by Crossover.');
             } 
-            else if (emaCrossedDown && (cache.rsi ?? 0) > strategyConfig.RSI_OVERSOLD_THRESHOLD && (cache.psar ?? 0) > prevCandle.close) {
-                if (volumeConditionHigh) {
-                    confidence = 'High';
-                    signal = { type: 'SELL', level: confidence, price: latestCandle.open, time: latestCandle.time };
-                }
+            else if (emaCrossedDown && cache.rsi > strategyConfig.RSI_OVERSOLD_THRESHOLD && cache.psar > prevCandle.close && volumeConditionHigh) {
+                confidence = 'High';
+                signal = { type: 'SELL', level: confidence, price: latestCandle.open, time: latestCandle.time };
+                log('High-Confidence SELL Signal Triggered by Crossover.');
             }
             // Medium-Confidence Pullback Logic
             else {
+                section('Medium-Confidence Pullback Conditions');
                 const prevPrevCandle = dogeChartData[prev_i - 1];
 
-                const isPullbackBuy = (cache.emaFast ?? 0) > (cache.emaSlow ?? 0) && prevPrevCandle.low <= (cache.emaSlow ?? 0) && prevCandle.close > (cache.emaSlow ?? 0);
-                logCond('Pullback Buy Condition', isPullbackBuy, `Fast > Slow AND PrevPrevLow (${prevPrevCandle.low.toFixed(5)}) <= SlowEMA (${(cache.emaSlow ?? 0).toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) > SlowEMA (${(cache.emaSlow ?? 0).toFixed(5)})`);
-                
-                const rsiOkForBuyPullback = (cache.rsi ?? 0) > 40 && (cache.rsi ?? 0) < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
-                logCond('Pullback Buy RSI Range', rsiOkForBuyPullback, `40 < RSI (${(cache.rsi ?? 0).toFixed(2)}) < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
-                
-                if (isPullbackBuy && rsiOkForBuyPullback && (cache.psar ?? 0) < prevCandle.close && volumeConditionMedium) {
+                const isPullbackBuy = cache.emaFast > cache.emaSlow && prevPrevCandle.low <= cache.emaSlow && prevCandle.close > cache.emaSlow;
+                const rsiOkForBuyPullback = cache.rsi > 40 && cache.rsi < strategyConfig.RSI_OVERBOUGHT_THRESHOLD;
+
+                logCond('Established Uptrend', cache.emaFast > cache.emaSlow, `Fast: ${cache.emaFast.toFixed(5)} > Slow: ${cache.emaSlow.toFixed(5)}`);
+                logCond('Pullback to Slow EMA (Buy)', prevPrevCandle.low <= cache.emaSlow && prevCandle.close > cache.emaSlow, `PrevPrevLow (${prevPrevCandle.low.toFixed(5)}) <= SlowEMA (${cache.emaSlow.toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) > SlowEMA`);
+                logCond('Healthy RSI for Buy Pullback', rsiOkForBuyPullback, `40 < RSI (${cache.rsi.toFixed(2)}) < ${strategyConfig.RSI_OVERBOUGHT_THRESHOLD}`);
+                logCond('PSAR Confirms Uptrend (Buy)', cache.psar < prevCandle.close, `PSAR: ${cache.psar.toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
+                logCond('Volume Confirmation (Medium)', volumeConditionMedium, `Vol ${cache.volume.toFixed(2)} > AvgVol*Multiplier (${(cache.avgVolume * strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation).toFixed(2)})`);
+
+                if (isPullbackBuy && rsiOkForBuyPullback && cache.psar < prevCandle.close && volumeConditionMedium) {
                     confidence = 'Medium';
                     signal = { type: 'BUY', level: confidence, price: latestCandle.open, time: latestCandle.time };
+                    log('Medium-Confidence BUY Signal Triggered by Pullback.');
                 }
                 
-                const isPullbackSell = (cache.emaFast ?? 0) < (cache.emaSlow ?? 0) && prevPrevCandle.high >= (cache.emaSlow ?? 0) && prevCandle.close < (cache.emaSlow ?? 0);
-                logCond('Pullback Sell Condition', isPullbackSell, `Fast < Slow AND PrevPrevHigh (${prevPrevCandle.high.toFixed(5)}) >= SlowEMA (${(cache.emaSlow ?? 0).toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) < SlowEMA (${(cache.emaSlow ?? 0).toFixed(5)})`);
+                const isPullbackSell = cache.emaFast < cache.emaSlow && prevPrevCandle.high >= cache.emaSlow && prevCandle.close < cache.emaSlow;
+                const rsiOkForSellPullback = cache.rsi < 60 && cache.rsi > strategyConfig.RSI_OVERSOLD_THRESHOLD;
+                
+                logCond('Established Downtrend', cache.emaFast < cache.emaSlow, `Fast: ${cache.emaFast.toFixed(5)} < Slow: ${cache.emaSlow.toFixed(5)}`);
+                logCond('Pullback to Slow EMA (Sell)', prevPrevCandle.high >= cache.emaSlow && prevCandle.close < cache.emaSlow, `PrevPrevHigh (${prevPrevCandle.high.toFixed(5)}) >= SlowEMA (${cache.emaSlow.toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) < SlowEMA`);
+                logCond('Healthy RSI for Sell Pullback', rsiOkForSellPullback, `${strategyConfig.RSI_OVERSOLD_THRESHOLD} < RSI (${cache.rsi.toFixed(2)}) < 60`);
+                logCond('PSAR Confirms Downtrend (Sell)', cache.psar > prevCandle.close, `PSAR: ${cache.psar.toFixed(5)} > Close: ${prevCandle.close.toFixed(5)}`);
 
-                const rsiOkForSellPullback = (cache.rsi ?? 0) < 60 && (cache.rsi ?? 0) > strategyConfig.RSI_OVERSOLD_THRESHOLD;
-                logCond('Pullback Sell RSI Range', rsiOkForSellPullback, `${strategyConfig.RSI_OVERSOLD_THRESHOLD} < RSI (${(cache.rsi ?? 0).toFixed(2)}) < 60`);
-
-                if (isPullbackSell && rsiOkForSellPullback && (cache.psar ?? 0) > prevCandle.close && volumeConditionMedium) {
+                if (isPullbackSell && rsiOkForSellPullback && cache.psar > prevCandle.close && volumeConditionMedium) {
                     confidence = 'Medium';
                     signal = { type: 'SELL', level: confidence, price: latestCandle.open, time: latestCandle.time };
+                    log('Medium-Confidence SELL Signal Triggered by Pullback.');
                 }
             }
 
@@ -226,22 +235,25 @@ export async function GET() {
             if (signal) {
                 section('Signal Validation');
                 
-                const minPriceMovement = (cache.atr ?? 0) * strategyConfig.NOISE_FILTER_RATIO;
+                const minPriceMovement = cache.atr * strategyConfig.NOISE_FILTER_RATIO;
                 const priceChange = Math.abs(latestCandle.open - prevCandle.close);
                 const atrFilterPassed = priceChange >= minPriceMovement;
-                logCond('ATR Noise Filter', atrFilterPassed, `Change: ${priceChange.toFixed(6)} >= Min Move: ${minPriceMovement.toFixed(6)}`);
+                logCond('ATR Noise Filter', atrFilterPassed, `Change: ${priceChange.toFixed(6)} >= Min Move (ATR*${strategyConfig.NOISE_FILTER_RATIO}): ${minPriceMovement.toFixed(6)}`);
 
                 const isBullishConfirm = isCandleBullish(latestCandle) && candleStrength(latestCandle) > 0.3;
                 const isBearishConfirm = isCandleBearish(latestCandle) && candleStrength(latestCandle) > 0.3;
                     
-                logCond('Bullish Confirm Candle', isBullishConfirm, `Curr Close ${latestCandle.close.toFixed(5)} > Curr Open ${latestCandle.open.toFixed(5)} AND Strength ${candleStrength(latestCandle).toFixed(2)} > 0.3`);
-                logCond('Bearish Confirm Candle', isBearishConfirm, `Curr Close ${latestCandle.close.toFixed(5)} < Curr Open ${latestCandle.open.toFixed(5)} AND Strength ${candleStrength(latestCandle).toFixed(2)} > 0.3`);
+                logCond('Bullish Confirmation Candle', isBullishConfirm, `Curr Close ${latestCandle.close.toFixed(5)} > Curr Open ${latestCandle.open.toFixed(5)} AND Strength ${candleStrength(latestCandle).toFixed(2)} > 0.3`);
+                logCond('Bearish Confirmation Candle', isBearishConfirm, `Curr Close ${latestCandle.close.toFixed(5)} < Curr Open ${latestCandle.open.toFixed(5)} AND Strength ${candleStrength(latestCandle).toFixed(2)} > 0.3`);
 
-                if ((signal.type === 'BUY' && !isBullishConfirm) || 
-                    (signal.type === 'SELL' && !isBearishConfirm) || 
-                    !atrFilterPassed) {
-                    log(`Signal rejected: ${!atrFilterPassed ? 'ATR filter failed' : 'Missing confirmation candle'}`);
+                const buySignalValid = signal.type === 'BUY' && isBullishConfirm && atrFilterPassed;
+                const sellSignalValid = signal.type === 'SELL' && isBearishConfirm && atrFilterPassed;
+
+                if (!buySignalValid && !sellSignalValid) {
+                    log(`Signal invalidated by final filters. Type: ${signal.type}, ATR Passed: ${atrFilterPassed}, Bullish Confirm: ${isBullishConfirm}, Bearish Confirm: ${isBearishConfirm}`);
                     signal = null; // Invalidate signal
+                } else {
+                    log('Signal PASSED final validation filters.');
                 }
             }
 
@@ -249,15 +261,15 @@ export async function GET() {
             if (signal && confidence) {
                 section('Saving Signal');
                 const capital = 1000;
-                const dollarRisk = capital * ((cache.atr ?? 0) > 0.0005 ? 0.0075 : 0.0125);
-                const positionSize = dollarRisk / ((cache.atr ?? 0) * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
+                const dollarRisk = capital * (cache.atr > 0.0005 ? 0.0075 : 0.0125);
+                const positionSize = dollarRisk / (cache.atr * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
                 const leverage = Math.min(10, Math.max(1, Math.round((positionSize * latestCandle.open) / capital)));
                 
                 const enhancedSignal: EnhancedSignal = {
                     ...signal,
                     level: confidence,
                     suggestedLeverage: leverage,
-                    stopBuffer: (cache.atr ?? 0) * strategyConfig.STOP_LOSS_ATR_MULTIPLIER,
+                    stopBuffer: cache.atr * strategyConfig.STOP_LOSS_ATR_MULTIPLIER,
                     confidenceScore: confidence === 'High' ? 0.85 : 0.65
                 };
 
@@ -266,7 +278,9 @@ export async function GET() {
                 return NextResponse.json({ signal: enhancedSignal });
             }
 
-            log('No valid signal generated.');
+            if (!signal) {
+                 log('No valid signal generated in this run.');
+            }
             return NextResponse.json({ message: 'No signal generated.' });
 
         } else {
@@ -276,7 +290,9 @@ export async function GET() {
 
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        console.error(`Error: ${errorMessage}`);
+        console.error(`Error in cron job: ${errorMessage}`);
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }
+
+    
