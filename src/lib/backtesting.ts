@@ -1,4 +1,3 @@
-
 'use server';
 
 import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
@@ -43,8 +42,9 @@ export type PerformanceMetrics = {
     sharpeRatio: number;
     maxDrawdown: number;
     expectancy: number;
+    sortinoRatio: number;
+    calmarRatio: number;
 };
-
 
 const getValueAt = (arr: (number | null)[], idx: number): number | null => {
     if (idx < 0 || idx >= arr.length) return null;
@@ -57,6 +57,10 @@ const applySpread = (price: number, type: 'BUY' | 'SELL', spreadPercent: number)
     return type === 'BUY' ? price + spread : price - spread;
 };
 
+const isCandleBullish = (candle: ChartDataPoint) => candle.close > candle.open;
+const isCandleBearish = (candle: ChartDataPoint) => candle.close < candle.open;
+const candleStrength = (candle: ChartDataPoint) => Math.abs(candle.close - candle.open) / (candle.high - candle.low);
+
 export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyParams, initialCapital: number = 10000): Promise<TradeResult[]> {
     const trades: TradeResult[] = [];
     let capital = initialCapital;
@@ -67,7 +71,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
         params.RSI_PERIOD, 
         params.ATR_PERIOD, 
         params.VOLUME_PERIOD
-    ) + 12;
+    ) + 15; // Increased buffer for indicator stability
 
     if (dogeData.length < requiredPeriods) {
         return trades;
@@ -76,17 +80,21 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
     const dogeClose = dogeData.map(d => d.close);
     const dogeVolume = dogeData.map(d => d.volume);
 
-    // Calculate all indicators once
+    // Pre-calculate all indicators
     const emaFastArr = indicators.calculateEMA(dogeClose, params.EMA_FAST_PERIOD);
     const emaSlowArr = indicators.calculateEMA(dogeClose, params.EMA_SLOW_PERIOD);
     const rsiArr = indicators.calculateRSI(dogeClose, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(dogeData, params.ATR_PERIOD);
     const psarArr = indicators.calculateParabolicSAR(dogeData, params.PARABOLIC_SAR_STEP, params.PARABOLIC_SAR_MAX);
     const avgVolumeArr = indicators.calculateSMA(dogeVolume, params.VOLUME_PERIOD);
+    const volumeMultiplier = indicators.calculateSMA(dogeVolume.map((v, i) => 
+        v / (getValueAt(avgVolumeArr, i) || 1
+    ), 5);
 
     for (let i = requiredPeriods; i < dogeData.length; i++) {
         const currentCandle = dogeData[i]; 
         const prevCandle = dogeData[i-1]; 
+        const prevPrevCandle = dogeData[i-2];
         
         // --- EXIT LOGIC ---
         if (inTrade) {
@@ -144,7 +152,8 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             const psar = getValueAt(psarArr, i - 1);
             const volume = getValueAt(dogeVolume, i - 1);
             const avgVolume = getValueAt(avgVolumeArr, i - 1);
-            const atr = getValueAt(atrArr, i-1);
+            const volMult = getValueAt(volumeMultiplier, i - 1);
+            const atr = getValueAt(atrArr, i - 1);
             const emaFastPrev = getValueAt(emaFastArr, i - 2);
             const emaSlowPrev = getValueAt(emaSlowArr, i - 2);
             
@@ -157,54 +166,87 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             
             const emaCrossedUp = emaFastPrev! <= emaSlowPrev! && emaFast! > emaSlow!;
             const emaCrossedDown = emaFastPrev! >= emaSlowPrev! && emaFast! < emaSlow!;
-            const volumeBaseCondition = volume! > (avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER * 0.85);
+            const volumeCondition = volume! > (avgVolume! * params.VOLUME_THRESHOLD_MULTIPLIER);
+            const volumeSpike = volMult! > 1.5;
+
+            // Enhanced signal confirmation
+            const bullishConfirmation = 
+                isCandleBullish(prevCandle) && 
+                candleStrength(prevCandle) > 0.5 &&
+                prevCandle.close > prevPrevCandle.high;
+                
+            const bearishConfirmation = 
+                isCandleBearish(prevCandle) && 
+                candleStrength(prevCandle) > 0.5 &&
+                prevCandle.close < prevPrevCandle.low;
 
             // High-Confidence Crossover Logic
             if (emaCrossedUp && rsi! < params.RSI_OVERBOUGHT_THRESHOLD && psar! < prevCandle.close) {
-                confidence = volumeBaseCondition ? 'High' : 'Medium';
-                signalType = 'BUY';
+                if (volumeCondition && bullishConfirmation) {
+                    confidence = volumeSpike ? 'High' : 'Medium';
+                    signalType = 'BUY';
+                }
 
             } else if (emaCrossedDown && rsi! > params.RSI_OVERSOLD_THRESHOLD && psar! > prevCandle.close) {
-                 confidence = volumeBaseCondition ? 'High' : 'Medium';
-                signalType = 'SELL';
+                if (volumeCondition && bearishConfirmation) {
+                    confidence = volumeSpike ? 'High' : 'Medium';
+                    signalType = 'SELL';
+                }
             }
             // Medium-Confidence Pullback Logic
             else {
-                const isPullbackBuy = prevCandle.low <= emaSlow! && prevCandle.close > emaSlow!;
+                const isPullbackBuy = 
+                    prevPrevCandle.low <= emaSlow! && 
+                    prevCandle.close > emaSlow! &&
+                    prevCandle.close > prevPrevCandle.high;
+                    
                 const rsiOkForBuyPullback = rsi! > 40 && rsi! < params.RSI_OVERBOUGHT_THRESHOLD;
-                if (isPullbackBuy && rsiOkForBuyPullback && psar! < prevCandle.close) {
+                
+                if (isPullbackBuy && rsiOkForBuyPullback && psar! < prevCandle.close && volumeCondition) {
                     signalType = 'BUY';
                     confidence = 'Medium';
                 }
                 
-                const isPullbackSell = prevCandle.high >= emaSlow! && prevCandle.close < emaSlow!;
+                const isPullbackSell = 
+                    prevPrevCandle.high >= emaSlow! && 
+                    prevCandle.close < emaSlow! &&
+                    prevCandle.close < prevPrevCandle.low;
+                    
                 const rsiOkForSellPullback = rsi! < 60 && rsi! > params.RSI_OVERSOLD_THRESHOLD;
-                if (isPullbackSell && rsiOkForSellPullback && psar! > prevCandle.close) {
+                
+                if (isPullbackSell && rsiOkForSellPullback && psar! > prevCandle.close && volumeCondition) {
                     signalType = 'SELL';
                     confidence = 'Medium';
                 }
             }
 
-            // Final confirmation filters
+            // Final noise filter
             if (signalType) {
                 if (atr === null) continue;
 
                 const minPriceMovement = atr * params.NOISE_FILTER_RATIO;
                 const priceChange = Math.abs(currentCandle.open - prevCandle.close);
+                
                 if (priceChange < minPriceMovement) {
                     signalType = null;
                 } else {
-                    const isBullishConfirmation = currentCandle.close > currentCandle.open && currentCandle.close > prevCandle.high;
-                    const isBearishConfirmation = currentCandle.close < currentCandle.open && currentCandle.close < prevCandle.low;
+                    const isBullishConfirm = 
+                        currentCandle.close > currentCandle.open && 
+                        currentCandle.close > prevCandle.high;
+                        
+                    const isBearishConfirm = 
+                        currentCandle.close < currentCandle.open && 
+                        currentCandle.close < prevCandle.low;
 
-                    if ((signalType === 'BUY' && !isBullishConfirmation) || (signalType === 'SELL' && !isBearishConfirmation)) {
+                    if ((signalType === 'BUY' && !isBullishConfirm) || 
+                        (signalType === 'SELL' && !isBearishConfirm)) {
                         signalType = null;
                     }
                 }
             }
             
-            if (signalType) {
-                 if (atr === null) continue;
+            if (signalType && confidence) {
+                if (atr === null) continue;
 
                 const entryPrice = applySpread(currentCandle.open, signalType, params.SPREAD_PERCENT);
                 
@@ -247,7 +289,6 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
     return trades;
 }
 
-
 export async function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): Promise<PerformanceMetrics> {
     const numberOfTrades = trades.length;
     
@@ -269,19 +310,43 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
     
     const profitFactor = totalLossAmount > 0 ? totalWinAmount / totalLossAmount : Infinity;
 
+    // Enhanced risk-adjusted metrics
     const returns = trades.map(t => t.profitPercentage / 100);
     const avgReturn = numberOfTrades > 0 ? returns.reduce((sum, r) => sum + r, 0) / numberOfTrades : 0;
-    const stdDev = numberOfTrades > 1 ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (numberOfTrades - 1)) : 0;
-    const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(numberOfTrades) : 0; 
-
+    
+    // Downside deviation for Sortino ratio
+    const downsideReturns = returns.filter(r => r < 0);
+    const downsideDev = downsideReturns.length > 0 ? 
+        Math.sqrt(downsideReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / downsideReturns.length) : 0;
+    
+    const sortinoRatio = downsideDev > 0 ? avgReturn / downsideDev : 0;
+    
+    // Max drawdown calculation
     let peak = initialCapital;
     let maxDrawdown = 0;
-    trades.forEach(trade => {
-        peak = Math.max(peak, trade.finalCapital);
-        const drawdown = peak > 0 ? (peak - trade.finalCapital) / peak : 0;
-        maxDrawdown = Math.max(maxDrawdown, drawdown);
+    let maxDrawdownDuration = 0;
+    let currentDrawdown = 0;
+    let drawdownStart = 0;
+    
+    trades.forEach((trade, i) => {
+        if (trade.finalCapital > peak) {
+            peak = trade.finalCapital;
+            currentDrawdown = 0;
+            drawdownStart = trade.exitTime;
+        } else {
+            const drawdown = (peak - trade.finalCapital) / peak;
+            if (drawdown > currentDrawdown) {
+                currentDrawdown = drawdown;
+                maxDrawdown = Math.max(maxDrawdown, drawdown);
+                maxDrawdownDuration = trade.exitTime - drawdownStart;
+            }
+        }
     });
 
+    // Calmar ratio (return vs max drawdown)
+    const calmarRatio = maxDrawdown > 0 ? (totalProfitPercentage / 100) / maxDrawdown : 0;
+
+    // Expectancy calculation
     const winExpectancy = averageWin / initialCapital;
     const lossExpectancy = averageLoss / initialCapital;
     const expectancy = (winRate / 100) * winExpectancy - (lossRate / 100) * lossExpectancy;
@@ -297,17 +362,18 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
         averageWin,
         averageLoss,
         profitFactor: isFinite(profitFactor) ? profitFactor : 0,
-        sharpeRatio: isNaN(sharpeRatio) ? 0 : sharpeRatio,
-        maxDrawdown: maxDrawdown * 100, 
-        expectancy: expectancy * 100, 
+        sharpeRatio: sortinoRatio, // Using Sortino as primary metric
+        maxDrawdown: maxDrawdown * 100,
+        expectancy: expectancy * 100,
+        sortinoRatio,
+        calmarRatio
     };
 }
 
-
-const POPULATION_SIZE = 30;
-const GENERATIONS = 15;
-const MUTATION_RATE = 0.2;
-const ELITISM_RATE = 0.1;
+const POPULATION_SIZE = 50;
+const GENERATIONS = 20;
+const MUTATION_RATE = 0.15;
+const ELITISM_RATE = 0.15;
 
 function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] }): Omit<StrategyParams, 'SPREAD_PERCENT'> {
     const individual: any = {};
@@ -325,15 +391,21 @@ function createIndividual(paramRanges: { [key in keyof Omit<StrategyParams, 'SPR
 }
 
 function calculateFitness(performance: PerformanceMetrics): number {
-    if (!performance || performance.numberOfTrades < 5) return -1e9; 
+    if (!performance || performance.numberOfTrades < 10) return -1e9; 
     
-    const tradePenalty = Math.min(1, performance.numberOfTrades / 10);
-    const profitScore = performance.totalProfit;
-    const stabilityScore = performance.sharpeRatio > 0 ? performance.sharpeRatio : 0; 
+    const tradePenalty = Math.min(1, performance.numberOfTrades / 15);
+    const profitScore = performance.totalProfitPercentage;
+    const stabilityScore = performance.sortinoRatio > 0 ? performance.sortinoRatio : 0; 
     const winRateScore = performance.winRate / 100;
-    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 20);
+    const drawdownPenalty = Math.exp(-performance.maxDrawdown / 15);
+    const profitFactorScore = Math.log(performance.profitFactor + 1);
 
-    let fitness = (profitScore * 0.4) + (stabilityScore * 0.3) + (winRateScore * 0.2) + (performance.expectancy * 0.1);
+    let fitness = 
+        (profitScore * 0.3) + 
+        (stabilityScore * 0.25) + 
+        (winRateScore * 0.25) + 
+        (profitFactorScore * 0.2);
+        
     fitness *= drawdownPenalty;
     fitness *= tradePenalty;
 
@@ -382,7 +454,6 @@ function mutate(individual: any, paramRanges: any): any {
     return mutatedIndividual;
 }
 
-
 export async function optimizeParameters(
     dogeData: ChartDataPoint[], 
     paramRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]?: number[] }
@@ -421,7 +492,7 @@ export async function optimizeParameters(
             generationsWithoutImprovement++;
         }
 
-        console.log(`Generation ${gen + 1}/${GENERATIONS} | Best Fitness: ${bestResult.fitness.toPrecision(4)} | Trades: ${bestResult.performance.numberOfTrades} | Profit: ${bestResult.performance.totalProfit.toPrecision(4)}`);
+        console.log(`Generation ${gen + 1}/${GENERATIONS} | Best Fitness: ${bestResult.fitness.toPrecision(4)} | Trades: ${bestResult.performance.numberOfTrades} | Profit: ${bestResult.performance.totalProfit.toPrecision(4)} | Win Rate: ${bestResult.performance.winRate.toFixed(1)}%`);
 
         if (generationsWithoutImprovement >= 5) {
             console.log("Stopping early due to convergence.");
@@ -457,5 +528,3 @@ export async function optimizeParameters(
         return { bestParams: null, bestPerformance: null, bestTrades: [] };
     }
 }
-
-    
