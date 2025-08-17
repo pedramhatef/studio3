@@ -2,7 +2,6 @@
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
 import type { Signal, StrategyParams } from '@/lib/types';
-import * as indicators from '@/lib/indicators'; 
 import { generateSignal } from '@/lib/signal-generator';
 
 interface EnhancedSignal extends Signal {
@@ -103,7 +102,7 @@ export async function GET() {
         const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
         const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
         
-        const signal = generateSignal(i, dogeChartData, strategyConfig, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr);
+        const signal = await generateSignal(i, dogeChartData, strategyConfig, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr);
 
         if (signal) {
             section('Saving Signal');

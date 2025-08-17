@@ -78,7 +78,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             
             // Check for opposite signal as an exit condition
             if (!shouldExit) {
-                const oppositeSignal = generateSignal(i, dogeData, params, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr);
+                const oppositeSignal = await generateSignal(i, dogeData, params, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr);
                 if (oppositeSignal && oppositeSignal.type !== inTrade.type) {
                     exitPrice = currentCandle.open;
                     exitReason = 'Opposite Signal';
@@ -114,7 +114,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
         
         // --- ENTRY LOGIC ---
         if (!inTrade) {
-            const signal = generateSignal(i, dogeData, params, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr);
+            const signal = await generateSignal(i, dogeData, params, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr);
             
             if (signal) {
                 const atrValue = indicators.getValueAt(atrArr, i-1) ?? 0;
