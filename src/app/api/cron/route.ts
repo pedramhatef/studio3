@@ -203,7 +203,7 @@ export async function GET() {
  } else if (signalType && confidence) {
  log('Volume Confirmation passed:', {
  volumeRatio: volumeRatio.toFixed(2),
- threshold: strategyConfig.VOLUME_THRESHOLD_MULTIPLIER,
+ threshold: strategyConfig.VOLUME_THRESHOLD_MULTIPLIER1,
  });
       }
       
