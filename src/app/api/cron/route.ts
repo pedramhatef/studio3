@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
 import type { Signal, StrategyParams } from '@/lib/types';
 import { generateSignal } from '@/lib/signal-generator';
+import * as indicators from '@/lib/indicators';
 
 interface EnhancedSignal extends Signal {
     suggestedLeverage?: number;
