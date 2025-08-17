@@ -17,7 +17,7 @@ interface BybitKlineResponse {
   time: number;
 }
 
-export async function getChartData(symbol: 'DOGEUSDT' | 'BTCUSDT' = 'DOGEUSDT', limit: number = 200): Promise<ChartDataPoint[]> {
+export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: number = 200): Promise<ChartDataPoint[]> {
   try {
     const host = 'https://api-demo.bybit.com';
     const path = '/v5/market/kline';
