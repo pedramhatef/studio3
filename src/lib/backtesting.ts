@@ -95,7 +95,6 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
         const currentCandle = dogeData[i]; 
         
         // --- EXIT LOGIC ---
-        // Check for exits first, based on the current candle's movement.
         if (inTrade) {
             let exitPrice: number | null = null;
             let exitReason: TradeResult['exitReason'] | null = null;
@@ -118,7 +117,6 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                 }
             }
             
-            // Check for opposite signal exit (based on PREVIOUS candle's close)
             const emaFastPrev = getValueAt(emaFastArr, i - 2);
             const emaSlowPrev = getValueAt(emaSlowArr, i - 2);
             const emaFast = getValueAt(emaFastArr, i - 1);
@@ -162,11 +160,9 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
         }
 
         // --- ENTRY LOGIC ---
-        // Can only enter a trade if we are not already in one.
         if (!inTrade) {
             const prevCandle = dogeData[i-1];
-            const prevPrevCandle = dogeData[i-2];
-
+            
             const emaFast = getValueAt(emaFastArr, i - 1);
             const emaSlow = getValueAt(emaSlowArr, i - 1);
             const rsi = getValueAt(rsiArr, i - 1);
@@ -181,8 +177,7 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             
             if (allIndicatorsValid) {
                 let signalType: Signal['type'] | null = null;
-
-                // High-Confidence Crossover Logic
+                
                 const emaCrossedUp = (emaFastPrev!) <= (emaSlowPrev!) && (emaFast!) > (emaSlow!);
                 const volumeConditionHigh = (volume!) > ((avgVolume!) * params.VOLUME_THRESHOLD_MULTIPLIER);
                 if (emaCrossedUp && (rsi!) < params.RSI_OVERBOUGHT_THRESHOLD && (psar!) < prevCandle.close && volumeConditionHigh) {
@@ -194,17 +189,16 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
                     signalType = 'SELL';
                 }
                 
-                // Medium-Confidence Pullback Logic
                 if (!signalType) {
                     const volumeConditionMedium = (volume!) > ((avgVolume!) * params.VOLUME_THRESHOLD_MULTIPLIERConfirmation);
                     
-                    const isPullbackBuy = (emaFast!) > (emaSlow!) && prevPrevCandle.low <= (emaSlow!) && prevCandle.close > (emaSlow!);
+                    const isPullbackBuy = (emaFast!) > (emaSlow!) && prevCandle.low <= (emaSlow!) && prevCandle.close > (emaSlow!);
                     const rsiOkForBuyPullback = (rsi!) > 40 && (rsi!) < params.RSI_OVERBOUGHT_THRESHOLD;
                     if (isPullbackBuy && rsiOkForBuyPullback && (psar!) < prevCandle.close && volumeConditionMedium) {
                         signalType = 'BUY';
                     }
                     
-                    const isPullbackSell = (emaFast!) < (emaSlow!) && prevPrevCandle.high >= (emaSlow!) && prevCandle.close < (emaSlow!);
+                    const isPullbackSell = (emaFast!) < (emaSlow!) && prevCandle.high >= (emaSlow!) && prevCandle.close < (emaSlow!);
                     const rsiOkForSellPullback = (rsi!) < 60 && (rsi!) > params.RSI_OVERSOLD_THRESHOLD;
                     if (!signalType && isPullbackSell && rsiOkForSellPullback && (psar!) > prevCandle.close && volumeConditionMedium) {
                         signalType = 'SELL';
