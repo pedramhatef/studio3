@@ -124,11 +124,13 @@ export async function GET() {
       return NextResponse.json({ message: 'Incomplete indicator data.' });
     }
 
-    const volumeConfirmed = volumeCurr! > avgVolumeCurr! * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER1;
-    logCond('Volume Confirmation', volumeConfirmed, `Vol ${volumeCurr!.toFixed(2)} > AvgVol ${avgVolumeCurr!.toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
+    const volumeConfirmed = volumeCurr! > avgVolumeCurr! * strategyConfig.VOLUME_THRESHOLD_MULTIPLIER * 0.85;
+    logCond('Volume Confirmation Base', volumeConfirmed, `Vol ${volumeCurr!.toFixed(2)} > AvgVol ${avgVolumeCurr!.toFixed(2)} * ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER} "* 0.85"`);
 
     const volumeRatio = volumeCurr! / avgVolumeCurr!;
-    const volumeConfirmation = volumeRatio > strategyConfig.VOLUME_THRESHOLD_MULTIPLIER;
+    const volumeConfirmation = volumeRatio > strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation;
+    logCond('Volume Confirmation Medium', volumeConfirmation, `Vol ${volumeRatio!.toFixed(2)} > Medium Threshold ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation}`);
+
  
     let signal: Omit<EnhancedSignal, 'displayTime' | 'serverTime'> | null = null;
     let signalType: Signal['type'] | null = null;
@@ -191,19 +193,19 @@ export async function GET() {
 
 
         if (!volumeConfirmation) {
-          log(`Signal rejected: Volume ratio ${volumeRatio.toFixed(2)} < threshold ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIER}`);
+          logCond('Volume Confirmation Medium', volumeConfirmation, `Vol ${volumeRatio!.toFixed(2)} > Medium Threshold ${strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation}`);
           signalType = null;
           confidence = null;
       } 
       // Additional medium confidence filter
       else if (confidence === 'Medium' && volumeRatio < 1.8) {
-          log(`Medium confidence signal rejected: Volume ratio ${volumeRatio.toFixed(2)} < 1.8`);
+          logCond('Volume Confirmation Medium', volumeConfirmation, `Vol ${volumeRatio!.toFixed(2)} < 1.8`);
           signalType = null;
           confidence = null;
  } else if (signalType && confidence) {
  log('Volume Confirmation passed:', {
  volumeRatio: volumeRatio.toFixed(2),
- threshold: strategyConfig.VOLUME_THRESHOLD_MULTIPLIER1,
+ threshold: strategyConfig.VOLUME_THRESHOLD_MULTIPLIERConfirmation,
  });
       }
       
@@ -213,11 +215,12 @@ export async function GET() {
           // Get current ATR value
           const atrCurr = indicators.getValueAt(atrArr, i);
           if (atrCurr === null) {
-              log('ATR value not available for current candle');
+              logCond('ATR Value Check', false, 'ATR value not available for current candle');
               signalType = null;
               confidence = null;
           } else {
-              log('ATR filter evaluation:', {
+ logCond('ATR Filter Evaluation', true, 'Evaluating filter');
+ kv({
                 currentATR: atrCurr.toFixed(6),
                 requiredMinMovement: (atrCurr * 0.7).toFixed(6),
               });
@@ -225,17 +228,14 @@ export async function GET() {
               const priceChange = Math.abs(latest.open - prevCandle.close);
 
               if (priceChange < minPriceMovement) {
-                log(`Signal rejected: Price change ${priceChange.toFixed(6)} < min required ${minPriceMovement.toFixed(6)} (ATR: ${atrCurr.toFixed(6)})`);
+ logCond('ATR Filter', false, `Price change ${priceChange.toFixed(6)} < min required ${minPriceMovement.toFixed(6)} (ATR: ${atrCurr.toFixed(6)})`);
                 signalType = null;
                 confidence = null;
-            }
-            else {
- log('ATR filter passed:', { priceChange: priceChange.toFixed(6) });
-            }
-
+              } else {
+ logCond('ATR Filter', true, `Price change ${priceChange.toFixed(6)} >= min required ${minPriceMovement.toFixed(6)}`);
+              }
         }
         // --- END OF NEW FILTER ---
-
 
         const isBullishConfirmation = (
           latest.close > latest.open && 
@@ -248,10 +248,10 @@ export async function GET() {
       );
       
       if (signalType === 'BUY' && !isBullishConfirmation) {
-          log("Buy signal rejected: Missing bullish confirmation");
+          log("Buy signal rejected: Missing bullish confirmation(ATR)");
           signalType = null;
       } else if (signalType === 'SELL' && !isBearishConfirmation) {
-          log("Sell signal rejected: Missing bearish confirmation");
+          log("Sell signal rejected: Missing bearish confirmation(ATR)");
           signalType = null;
       }
     }
