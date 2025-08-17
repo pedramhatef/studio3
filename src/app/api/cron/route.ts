@@ -28,6 +28,9 @@ function kv(obj: Record<string, any>) {
 }
 
 export async function GET() {
+    // Set a global flag to enable detailed logging just for this cron run
+    (global as any).ENABLE_DETAILED_LOGS = true;
+
     const ts = new Date().toISOString();
     let strategyConfig: StrategyParams;
 
@@ -40,10 +43,12 @@ export async function GET() {
             kv(strategyConfig);
         } else {
             log('No optimization results found. Cannot proceed without strategy.');
+            (global as any).ENABLE_DETAILED_LOGS = false;
             return NextResponse.json({ message: 'No strategy parameters available.' }, { status: 500 });
         }
     } catch (error) {
         console.error(`Error fetching optimization results:`, error);
+        (global as any).ENABLE_DETAILED_LOGS = false;
         return NextResponse.json({ message: 'Failed to fetch strategy.' }, { status: 500 });
     }
 
@@ -57,10 +62,11 @@ export async function GET() {
             strategyConfig.ATR_PERIOD
         ) + 15; // Increased safety buffer
 
-        const dogeChartData = await getChartData('DOGEUSDT', 200);
+        const dogeChartData = await getChartData('DOGEUSDT');
 
         if (!Array.isArray(dogeChartData) || dogeChartData.length < requiredPeriods) { 
             log(`Insufficient data. DOGE=${dogeChartData?.length ?? 0} Need=${requiredPeriods}`);
+            (global as any).ENABLE_DETAILED_LOGS = false;
             return NextResponse.json({ message: 'Not enough data for indicators.' });
         }
         
@@ -76,6 +82,7 @@ export async function GET() {
             
             if (cooldownActive) { 
                 log(`In trade cooldown. Last signal was ${Math.floor(timeSinceLastSignalMs/1000)}s ago.`);
+                (global as any).ENABLE_DETAILED_LOGS = false;
                 return NextResponse.json({ message: 'In trade cooldown.' });
             }
         } else {
@@ -96,8 +103,6 @@ export async function GET() {
         const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
         const volumeRatioArr = dogeVolume.map((v, i) => v / ((indicators.getValueAt(avgVolumeArr, i) ?? 1)));
         const volumeMultiplier = indicators.calculateSMA(volumeRatioArr, 5);
-
-        log(`Evaluating signal on previous candle: { time: '${new Date(dogeChartData[i - 1].time).toISOString()}', close: '${dogeChartData[i - 1].close.toFixed(6)}' }`);
         
         const signal = generateSignal(i, dogeChartData, strategyConfig, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr, volumeMultiplier);
 
@@ -118,15 +123,17 @@ export async function GET() {
 
             await saveSignalToFirestore(enhancedSignal);
             log('Signal saved:', enhancedSignal);
+            (global as any).ENABLE_DETAILED_LOGS = false;
             return NextResponse.json({ signal: enhancedSignal });
         }
 
-        log('No valid signal generated in this run.');
+        (global as any).ENABLE_DETAILED_LOGS = false;
         return NextResponse.json({ message: 'No signal generated.' });
 
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error(`Error in cron job: ${errorMessage}`);
+        (global as any).ENABLE_DETAILED_LOGS = false;
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }

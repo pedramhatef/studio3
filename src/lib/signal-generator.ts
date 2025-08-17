@@ -6,9 +6,12 @@ import * as indicators from '@/lib/indicators';
 
 // Helper functions for logging
 function log(message: string, ...args: any[]) {
-    const timestamp = new Date().toISOString();
-    // A simple console.log is fine, but a more robust logging service could be used here
-    console.log(`${timestamp} [info] ${message}`, ...args);
+    // We check for a global flag to avoid polluting backtest logs,
+    // which can be very verbose. The cron job will set this flag.
+    if ((global as any).ENABLE_DETAILED_LOGS) {
+        const timestamp = new Date().toISOString();
+        console.log(`${timestamp} [info] ${message}`, ...args);
+    }
 }
 
 function logCond(name: string, passed: boolean, details?: string) {
@@ -44,7 +47,7 @@ export function generateSignal(
     volumeMultiplier: (number | null)[]
 ): Omit<Signal, 'displayTime' | 'serverTime'> | null {
 
-    if (i < 1) return null; // Need at least one previous candle
+    if (i < 2) return null; // Need at least two previous candles for momentum checks
 
     const currentCandle = chartData[i];
     const prevCandle = chartData[i - 1];
@@ -63,65 +66,108 @@ export function generateSignal(
 
     let signal: 'BUY' | 'SELL' | null = null;
     let confidence: Signal['level'] | null = null;
+    
+    log(`Evaluating signal on previous candle: { time: '${new Date(prevCandle.time).toISOString()}', close: '${prevCandle.close.toFixed(6)}' }`);
 
     // --- High-Confidence Crossover Logic ---
+    log('=== High-Confidence Crossover Conditions ===');
     const emaCrossedUp = emaFastPrev <= emaSlowPrev && emaFast > emaSlow;
-    const emaCrossedDown = emaFastPrev >= emaSlowPrev && emaFast < emaSlow;
-    const volumeConditionHigh = volume > (avgVolume * params.VOLUME_THRESHOLD_MULTIPLIER);
+    logCond('EMA Crossover Up', emaCrossedUp, `Prev Fast: ${emaFastPrev.toFixed(5)} <= Prev Slow: ${emaSlowPrev.toFixed(5)} | Curr Fast: ${emaFast.toFixed(5)} > Curr Slow: ${emaSlow.toFixed(5)}`);
     
-    if (emaCrossedUp && rsi < params.RSI_OVERBOUGHT_THRESHOLD && psar < prevCandle.close && volumeConditionHigh) {
+    const emaCrossedDown = emaFastPrev >= emaSlowPrev && emaFast < emaSlow;
+    logCond('EMA Crossover Down', emaCrossedDown, `Prev Fast: ${emaFastPrev.toFixed(5)} >= Prev Slow: ${emaSlowPrev.toFixed(5)} | Curr Fast: ${emaFast.toFixed(5)} < Curr Slow: ${emaSlow.toFixed(5)}`);
+
+    const rsiBuyRange = rsi < params.RSI_OVERBOUGHT_THRESHOLD;
+    logCond('RSI Buy Range', rsiBuyRange, `RSI: ${rsi.toFixed(2)} < ${params.RSI_OVERBOUGHT_THRESHOLD}`);
+
+    const rsiSellRange = rsi > params.RSI_OVERSOLD_THRESHOLD;
+    logCond('RSI Sell Range', rsiSellRange, `RSI: ${rsi.toFixed(2)} > ${params.RSI_OVERSOLD_THRESHOLD}`);
+
+    const psarBuyConfirm = psar < prevCandle.close;
+    logCond('PSAR Buy Confirmation', psarBuyConfirm, `PSAR: ${psar.toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
+
+    const psarSellConfirm = psar > prevCandle.close;
+    logCond('PSAR Sell Confirmation', psarSellConfirm, `PSAR: ${psar.toFixed(5)} > Close: ${prevCandle.close.toFixed(5)}`);
+    
+    const highVolTarget = (avgVolume * params.VOLUME_THRESHOLD_MULTIPLIER);
+    const volumeConditionHigh = volume > highVolTarget;
+    logCond('Volume Confirmation (High)', volumeConditionHigh, `Vol ${volume.toFixed(2)} > (AvgVol ${avgVolume.toFixed(2)} * ${params.VOLUME_THRESHOLD_MULTIPLIER}) = ${highVolTarget.toFixed(2)}`);
+
+    if (emaCrossedUp && rsiBuyRange && psarBuyConfirm && volumeConditionHigh) {
         signal = 'BUY';
         confidence = 'High';
-        log('High-Confidence BUY Signal Triggered by Crossover.');
+        log('Signal Decision: High-Confidence BUY by Crossover.');
     } 
-    else if (emaCrossedDown && rsi > params.RSI_OVERSOLD_THRESHOLD && psar > prevCandle.close && volumeConditionHigh) {
+    else if (emaCrossedDown && rsiSellRange && psarSellConfirm && volumeConditionHigh) {
         signal = 'SELL';
         confidence = 'High';
-        log('High-Confidence SELL Signal Triggered by Crossover.');
+        log('Signal Decision: High-Confidence SELL by Crossover.');
     }
 
     // --- Medium-Confidence Pullback Logic ---
     if (!signal) {
-        const volumeConditionMedium = volume > (avgVolume * params.VOLUME_THRESHOLD_MULTIPLIERConfirmation);
+        log('=== Medium-Confidence Pullback Conditions ===');
+        const medVolTarget = (avgVolume * params.VOLUME_THRESHOLD_MULTIPLIERConfirmation);
+        const volumeConditionMedium = volume > medVolTarget;
+
         const isUptrend = emaFast > emaSlow;
+        logCond('Established Uptrend', isUptrend, `Fast: ${emaFast.toFixed(5)} > Slow: ${emaSlow.toFixed(5)}`);
+
         const isDowntrend = emaFast < emaSlow;
+        logCond('Established Downtrend', isDowntrend, `Fast: ${emaFast.toFixed(5)} < Slow: ${emaSlow.toFixed(5)}`);
 
         // Pullback Buy: In an uptrend, price dips to slow EMA and bounces.
         const isPullbackBuy = isUptrend && prevCandle.low <= emaSlow && prevCandle.close > emaSlow;
-        const rsiOkForBuyPullback = rsi > 40 && rsi < params.RSI_OVERBOUGHT_THRESHOLD;
+        logCond('Pullback to Slow EMA (Buy)', isPullbackBuy, `PrevLow (${prevCandle.low.toFixed(5)}) <= SlowEMA (${emaSlow.toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) > SlowEMA`);
 
-        if (isPullbackBuy && rsiOkForBuyPullback && psar < prevCandle.close && volumeConditionMedium) {
+        const rsiOkForBuyPullback = rsi > 40 && rsi < params.RSI_OVERBOUGHT_THRESHOLD;
+        logCond('Healthy RSI for Buy Pullback', rsiOkForBuyPullback, `40 < RSI (${rsi.toFixed(2)}) < ${params.RSI_OVERBOUGHT_THRESHOLD}`);
+        
+        logCond('PSAR Confirms Uptrend (Buy)', psarBuyConfirm, `PSAR: ${psar.toFixed(5)} < Close: ${prevCandle.close.toFixed(5)}`);
+
+        logCond('Volume Confirmation (Medium)', volumeConditionMedium, `Vol ${volume.toFixed(2)} > (AvgVol ${avgVolume.toFixed(2)} * ${params.VOLUME_THRESHOLD_MULTIPLIERConfirmation}) = ${medVolTarget.toFixed(2)}`);
+
+
+        if (isPullbackBuy && rsiOkForBuyPullback && psarBuyConfirm && volumeConditionMedium) {
             signal = 'BUY';
             confidence = 'Medium';
-            log('Medium-Confidence BUY Signal Triggered by Pullback.');
+            log('Signal Decision: Medium-Confidence BUY by Pullback.');
         }
 
         // Pullback Sell: In a downtrend, price rallies to slow EMA and is rejected.
         const isPullbackSell = isDowntrend && prevCandle.high >= emaSlow && prevCandle.close < emaSlow;
-        const rsiOkForSellPullback = rsi < 60 && rsi > params.RSI_OVERSOLD_THRESHOLD;
+        logCond('Pullback to Slow EMA (Sell)', isPullbackSell, `PrevHigh (${prevCandle.high.toFixed(5)}) >= SlowEMA (${emaSlow.toFixed(5)}) AND PrevClose (${prevCandle.close.toFixed(5)}) < SlowEMA`);
         
-        if (isPullbackSell && rsiOkForSellPullback && psar > prevCandle.close && volumeConditionMedium) {
+        const rsiOkForSellPullback = rsi > params.RSI_OVERSOLD_THRESHOLD && rsi < 60;
+        logCond('Healthy RSI for Sell Pullback', rsiOkForSellPullback, `${params.RSI_OVERSOLD_THRESHOLD} < RSI (${rsi.toFixed(2)}) < 60`);
+
+        logCond('PSAR Confirms Downtrend (Sell)', psarSellConfirm, `PSAR: ${psar.toFixed(5)} > Close: ${prevCandle.close.toFixed(5)}`);
+        
+        if (!signal && isPullbackSell && rsiOkForSellPullback && psarSellConfirm && volumeConditionMedium) {
              signal = 'SELL';
              confidence = 'Medium';
-             log('Medium-Confidence SELL Signal Triggered by Pullback.');
+             log('Signal Decision: Medium-Confidence SELL by Pullback.');
         }
     }
 
     // --- Final Validation ---
     if (signal && confidence) {
-        // ATR Noise Filter: Ensure the entry candle has meaningful movement
+        log('=== Final Validation on Current Candle ===');
         const minPriceMovement = atr * params.NOISE_FILTER_RATIO;
-        const priceChange = Math.abs(currentCandle.open - prevCandle.close);
-        const atrFilterPassed = priceChange >= minPriceMovement;
+        const candleRange = currentCandle.high - currentCandle.low;
+        const atrFilterPassed = candleRange >= minPriceMovement;
+        logCond('ATR Noise Filter', atrFilterPassed, `Candle Range (${candleRange.toFixed(5)}) >= Min Movement (${minPriceMovement.toFixed(5)})`);
 
-        // Confirmation Candle: Ensure the entry candle moves in the direction of the signal
         const isBullishConfirm = isCandleBullish(currentCandle) && candleStrength(currentCandle) > 0.3;
+        logCond('Is Bullish Confirmation', isBullishConfirm, `Close > Open AND Strength > 0.3`);
         const isBearishConfirm = isCandleBearish(currentCandle) && candleStrength(currentCandle) > 0.3;
+        logCond('Is Bearish Confirmation', isBearishConfirm, `Close < Open AND Strength > 0.3`);
 
         const buySignalValid = signal === 'BUY' && isBullishConfirm && atrFilterPassed;
         const sellSignalValid = signal === 'SELL' && isBearishConfirm && atrFilterPassed;
 
         if (buySignalValid || sellSignalValid) {
+            log(`✔✔✔ Final Decision: VALID ${confidence.toUpperCase()} ${signal} SIGNAL!`);
             return {
                 type: signal,
                 level: confidence,
@@ -129,8 +175,10 @@ export function generateSignal(
                 time: currentCandle.time,
             };
         } else {
-             log(`Signal invalidated by final filters. Type: ${signal}, ATR Passed: ${atrFilterPassed}, Bullish Confirm: ${isBullishConfirm}, Bearish Confirm: ${isBearishConfirm}`);
+             log(`✘✘✘ Final Decision: Signal invalidated by final filters.`);
         }
+    } else {
+        log('No potential signal found in this run.');
     }
 
     return null; // No valid signal generated
