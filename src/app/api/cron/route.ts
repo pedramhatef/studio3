@@ -1,7 +1,7 @@
 
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
-import type { Signal, StrategyParams, ChartDataPoint } from '@/lib/types'; // Added ChartDataPoint import
+import type { Signal, StrategyParams } from '@/lib/types';
 import * as indicators from '@/lib/indicators'; 
 import { generateSignal } from '@/lib/signal-generator';
 
@@ -16,6 +16,7 @@ const COOLDOWN_MEDIUM = 5 * 60 * 1000; // 5 minutes
 
 export const revalidate = 0;
 
+// Wrapper for console.log to include a timestamp
 function log(message: string, ...args: any[]) {
     const timestamp = new Date().toISOString();
     console.log(`${timestamp} [info] ${message}`, ...args);
@@ -62,7 +63,7 @@ export async function GET() {
             strategyConfig.ATR_PERIOD
         ) + 15; // Increased safety buffer
 
-        const dogeChartData = await getChartData('DOGEUSDT');
+        const dogeChartData = await getChartData('DOGEUSDT', 500);
 
         if (!Array.isArray(dogeChartData) || dogeChartData.length < requiredPeriods) { 
             log(`Insufficient data. DOGE=${dogeChartData?.length ?? 0} Need=${requiredPeriods}`);
@@ -92,7 +93,7 @@ export async function GET() {
         section('Find New Signal');
         const i = dogeChartData.length - 1; 
 
-        // Calculate all indicators
+        // Calculate all indicators once for performance
         const dogeClose = dogeChartData.map(d => d.close);
         const dogeVolume = dogeChartData.map(d => d.volume);
         const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
@@ -101,10 +102,8 @@ export async function GET() {
         const atrArr = indicators.calculateATR(dogeChartData, strategyConfig.ATR_PERIOD);
         const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
         const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
-        const volumeRatioArr = dogeVolume.map((v, i) => v / ((indicators.getValueAt(avgVolumeArr, i) ?? 1)));
-        const volumeMultiplier = indicators.calculateSMA(volumeRatioArr, 5);
         
-        const signal = generateSignal(i, dogeChartData, strategyConfig, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr, volumeMultiplier);
+        const signal = generateSignal(i, dogeChartData, strategyConfig, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr);
 
         if (signal) {
             section('Saving Signal');
