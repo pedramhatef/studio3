@@ -29,11 +29,11 @@ const chartConfig = {
   },
   buy: {
     label: 'Buy Signal',
-    color: 'hsl(var(--chart-2))',
+    color: '#22c55e', // tailwind green-500
   },
   sell: {
     label: 'Sell Signal',
-    color: '#ef4444',
+    color: '#ef4444', // tailwind red-500
   },
 };
 
@@ -132,6 +132,9 @@ export function CryptoChart({ data, signals }: CryptoChartProps) {
           fill="url(#colorClose)"
         />
         {signals.map((signal, index) => {
+           if (typeof signal.price !== 'number' || typeof signal.time !== 'number') {
+             return null;
+           }
            const signalColor = getSignalColor(signal.type);
            const { fillOpacity, strokeOpacity } = getSignalOpacity(signal.level);
 
