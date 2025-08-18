@@ -1,7 +1,7 @@
 
 'use server';
 
-import type { ChartDataPoint, Signal, StrategyParams, TradeResult, PerformanceMetrics, InTradeState } from '@/lib/types';
+import type { ChartDataPoint, Signal, StrategyParams, TradeResult, InTradeState } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 import { generateSignal } from '@/lib/signal-generator';
 
@@ -119,11 +119,11 @@ export async function runBacktest(dogeData: ChartDataPoint[], params: StrategyPa
             if (signal) {
                 const atrValue = indicators.getValueAt(atrArr, i-1) ?? 0;
                 if (atrValue > 0) { // Ensure ATR is valid before entering
-                    const entryPrice = applySpread(currentCandle.open, signal.type, params.SPREAD_PERCENT);
+                    const entryPrice = applySpread(signal.price, signal.type, params.SPREAD_PERCENT);
 
                     inTrade = {
                         entryPrice: entryPrice,
-                        entryTime: currentCandle.time,
+                        entryTime: signal.time,
                         type: signal.type,
                         entryCandleIndex: i,
                         initialCapital: capital,

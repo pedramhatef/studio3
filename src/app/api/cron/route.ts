@@ -74,7 +74,7 @@ export async function GET() {
         const recentSignals = await getSignalHistoryFromFirestore();
         const lastSignal = recentSignals?.[0] ?? null;
 
-        if (lastSignal) {
+        if (lastSignal?.time) {
             const lastSignalTime = lastSignal.time;
             const latestCandleTime = dogeChartData[dogeChartData.length - 1].time;
             const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
