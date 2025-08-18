@@ -9,19 +9,27 @@ import { db } from '../../../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
 const parameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } = {
-  // Core Trend-Following
-  EMA_FAST_PERIOD: [5, 8, 10, 13, 15],
+  // Core Trend-Following - Wider gap between fast and slow to catch established trends
+  EMA_FAST_PERIOD: [8, 10, 13, 15],
   EMA_SLOW_PERIOD: [25, 30, 35, 40, 50],
+  
+  // Parabolic SAR - Standard values
   PARABOLIC_SAR_STEP: [0.01, 0.02, 0.03],
   PARABOLIC_SAR_MAX: [0.1, 0.2, 0.3],
-  RSI_PERIOD: [10, 14, 21],
+
+  // Momentum - Wider RSI thresholds to allow for more pullback opportunities
+  RSI_PERIOD: [14, 21],
   RSI_OVERSOLD_THRESHOLD: [30, 35, 40],
   RSI_OVERBOUGHT_THRESHOLD: [60, 65, 70],
+  
+  // Volume - Relaxed thresholds to avoid filtering out good signals on moderate volume
   VOLUME_PERIOD: [20, 30, 50],
-  VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.4, 1.6], 
+  VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.5, 1.8], 
   VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.8, 1.0, 1.2], 
-  ATR_PERIOD: [10, 12, 14],
-  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0, 3.5],
+
+  // Volatility & Risk - More flexible ATR multipliers
+  ATR_PERIOD: [12, 14],
+  TAKE_PROFIT_ATR_MULTIPLIER: [2.5, 3.0, 3.5, 4.0],
   STOP_LOSS_ATR_MULTIPLIER: [1.5, 2.0, 2.5],
   NOISE_FILTER_RATIO: [0.3, 0.4, 0.5], 
 };
