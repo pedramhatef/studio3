@@ -11,15 +11,15 @@ interface EnhancedSignal extends Signal {
     confidenceScore?: number;
 }
 
-const COOLDOWN_HIGH = 3 * 60 * 1000; // 3 minutes
-const COOLDOWN_MEDIUM = 5 * 60 * 1000; // 5 minutes
+const COOLDOWN_HIGH = 1 * 60 * 1000; // 1 minute
+const COOLDOWN_MEDIUM = 2 * 60 * 1000; // 2 minutes
 
 export const revalidate = 0;
 
 // Wrapper for console.log to include a timestamp
 function log(message: string, ...args: any[]) {
     const timestamp = new Date().toISOString();
-    console.log(`${timestamp} [info] ${message}`, ...args);
+    console.log(`${timestamp} [info] [Scalp] ${message}`, ...args);
 }
 function section(title: string) {
     log(`=== ${title} ===`);
@@ -29,8 +29,7 @@ function kv(obj: Record<string, any>) {
 }
 
 export async function GET() {
-    // This cron job will run the "DayTrade" strategy by default
-    const STRATEGY_TYPE = 'Day';
+    const STRATEGY_TYPE = 'Scalp';
 
     (global as any).ENABLE_DETAILED_LOGS = true;
 
@@ -76,7 +75,7 @@ export async function GET() {
         const recentSignals = await getSignalHistoryFromFirestore();
         const lastSignal = recentSignals?.[0] ?? null;
 
-        if (lastSignal?.time) {
+        if (lastSignal?.time && lastSignal.strategy === STRATEGY_TYPE) {
             const lastSignalTime = lastSignal.time;
             const latestCandleTime = dogeChartData[dogeChartData.length - 1].time;
             const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
@@ -84,12 +83,12 @@ export async function GET() {
             const cooldownActive = timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < cooldown;
             
             if (cooldownActive) { 
-                log(`In trade cooldown. Last signal was ${Math.floor(timeSinceLastSignalMs/1000)}s ago.`);
+                log(`In trade cooldown for ${STRATEGY_TYPE}. Last signal was ${Math.floor(timeSinceLastSignalMs/1000)}s ago.`);
                 (global as any).ENABLE_DETAILED_LOGS = false;
                 return NextResponse.json({ message: 'In trade cooldown.' });
             }
         } else {
-            log('No previous signals found, cooldown check skipped.');
+            log('No previous signals found for this strategy, cooldown check skipped.');
         }
 
         section('Find New Signal');

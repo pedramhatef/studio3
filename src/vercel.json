@@ -2,8 +2,16 @@
 {
   "crons": [
     {
-      "path": "/api/cron",
+      "path": "/api/cron/day",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/scalp",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/swing",
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/strategy-optimizer/Day",
