@@ -6,12 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { CryptoChart } from './CryptoChart';
 import { SignalHistory } from './SignalHistory';
 import type { ChartDataPoint, Signal } from '@/lib/types';
-import { BarChart2 } from 'lucide-react';
+import { BarChart2, Briefcase, Zap, Waves } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getChartData } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, limit, getDocs, where, Timestamp } from 'firebase/firestore';
+import { Button } from '@/components/ui/button';
+
 
 const MAX_SIGNALS = 15;
 
@@ -159,8 +161,23 @@ export function SignalDashboard() {
                 DOGE/USDT Real-Time Signals
               </CardTitle>
               <CardDescription>
-                Algorithmic signals using enhanced WaveTrend strategy with volume confirmation.
+              Algorithmic signals using an adaptive, trend-following strategy.
               </CardDescription>
+              <div className="mt-4 flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled>
+                      <Zap className="mr-2 h-4 w-4" />
+                      ScalpTrade
+                  </Button>
+                  <Button variant="outline" size="sm" disabled>
+                      <Briefcase className="mr-2 h-4 w-4" />
+                      DayTrade
+                  </Button>
+                  <Button variant="outline" size="sm" disabled>
+                      <Waves className="mr-2 h-4 w-4" />
+                      SwingTrade
+                  </Button>
+              </div>
+
             </div>
             <div className="text-xs text-muted-foreground border rounded-lg p-2 flex flex-col gap-2">
                 <div className='font-bold'>Chart Legend:</div>
