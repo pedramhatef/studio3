@@ -48,6 +48,10 @@ export function SignalDashboard() {
     }).sort((a,b) => b.time - a.time);
   }, [signals]);
 
+  const chartSignals = useMemo(() => {
+    return signals.filter(s => s.strategy === activeView);
+  }, [signals, activeView]);
+
   const fetchChartData = useCallback(async (view: StrategyType) => {
     try {
       const dataLimit = chartDataLimits[view];
@@ -238,7 +242,7 @@ export function SignalDashboard() {
           {isLoading && chartData.length === 0 ? (
             <Skeleton className="h-[400px] w-full" />
           ) : (
-            <CryptoChart data={chartData} signals={signals} />
+            <CryptoChart data={chartData} signals={chartSignals} />
           )}
         </CardContent>
       </Card>
