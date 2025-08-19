@@ -22,7 +22,7 @@
     },
     {
       "path": "/api/strategy-optimizer/swing",
-      "schedule": "* 0 * * *"
+      "schedule": "* */5 * * *"
     }
   ]
 }
