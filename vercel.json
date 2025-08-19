@@ -13,16 +13,16 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/strategy-optimizer/[strategy]/day",
-      "schedule": "0 0 * * *"
+      "path": "/api/strategy-optimizer/day",
+      "schedule": "0/5 * * *"
     },
     {
-      "path": "/api/strategy-optimizer/[strategy]/scalp",
-      "schedule": "0 1 * * *"
+      "path": "/api/strategy-optimizer/scalp",
+      "schedule": "0/5 * * *"
     },
     {
-      "path": "/api/strategy-optimizer/[strategy]/swing",
-      "schedule": "0 2 * * *"
+      "path": "/api/strategy-optimizer/swing",
+      "schedule": "0/10 * * *"
     }
   ]
 }

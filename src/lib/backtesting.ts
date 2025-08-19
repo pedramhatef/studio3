@@ -1,7 +1,7 @@
 
 'use server';
 
-import type { ChartDataPoint, Signal, StrategyParams, TradeResult, InTradeState, PerformanceMetrics } from '@/lib/types';
+import type { ChartDataPoint, StrategyParams, TradeResult, InTradeState, PerformanceMetrics } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 import { generateSignal } from '@/lib/signal-generator';
 
