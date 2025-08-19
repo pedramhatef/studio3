@@ -38,15 +38,20 @@ export async function GET() {
 
     section(`Fetch Optimal Parameters for ${STRATEGY_TYPE}`);
     try {
-        const latestParams = await getLatestOptimizationParams(STRATEGY_TYPE);
+        let latestParams = await getLatestOptimizationParams(STRATEGY_TYPE);
+        if (!latestParams) {
+            log(`No optimization results found for ${STRATEGY_TYPE}. Attempting to fall back to 'Day' strategy parameters.`);
+            latestParams = await getLatestOptimizationParams('Day');
+        }
+
         if (latestParams) {
             strategyConfig = { ...latestParams, SPREAD_PERCENT: 0.01 } as StrategyParams;
-            log(`Applied optimal ${STRATEGY_TYPE} parameters from Firestore.`);
+            log(`Applied optimal parameters for strategy run.`);
             kv(strategyConfig);
         } else {
-            log(`No optimization results found for ${STRATEGY_TYPE}. Cannot proceed.`);
+            log(`No optimization results found for ${STRATEGY_TYPE} or Day. Cannot proceed.`);
             (global as any).ENABLE_DETAILED_LOGS = false;
-            return NextResponse.json({ message: `No strategy parameters available for ${STRATEGY_TYPE}.` }, { status: 500 });
+            return NextResponse.json({ message: `No strategy parameters available for ${STRATEGY_TYPE} or fallback.` }, { status: 500 });
         }
     } catch (error) {
         console.error(`Error fetching optimization results:`, error);
