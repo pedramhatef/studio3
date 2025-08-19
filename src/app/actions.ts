@@ -3,7 +3,7 @@
 
 import type { ChartDataPoint, Signal, StrategyParams, StrategyType } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit } from "firebase/firestore"; 
+import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit, doc, getDoc } from "firebase/firestore"; 
 
 interface BybitKlineResponse {
   retCode: number;
@@ -110,15 +110,17 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
 export async function getLatestOptimizationParams(strategy: StrategyType = 'Day'): Promise<Partial<StrategyParams> | null> {
     try {
         const docId = `latest-${strategy}`;
-        const optimizationResultsCol = collection(db, 'optimizationResults');
-        const q = query(collection(db, `optimizationResults`), orderBy('timestamp', 'desc'), limit(1));
-        const latestResultSnapshot = await getDocs(q);
+        const docRef = doc(db, 'optimizationResults', docId);
+        const docSnap = await getDoc(docRef);
     
-        if (!latestResultSnapshot.empty) {
-          const latestResult = latestResultSnapshot.docs[0].data();
-          if (latestResult.bestParams) {
-             return latestResult.bestParams as StrategyParams;
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && data.bestParams) {
+             console.log(`Fetched optimization params for ${strategy}`, data.bestParams);
+             return data.bestParams as StrategyParams;
           }
+        } else {
+            console.log(`No optimization document found for strategy: ${strategy}`);
         }
         return null;
       } catch (error) {
@@ -126,4 +128,3 @@ export async function getLatestOptimizationParams(strategy: StrategyType = 'Day'
         return null;
       }
 }
-
