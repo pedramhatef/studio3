@@ -74,6 +74,7 @@ export async function generateSignal(
 
     // We generate signals based on the completed, previous candle's data.
     const signalCandle = chartData[i - 1];
+    const currentCandle = chartData[i];
     
     // --- Indicator Values for the Signal Candle ---
     const emaFast = indicators.getValueAt(emaFastArr, i - 1) ?? 0;
@@ -89,17 +90,26 @@ export async function generateSignal(
     const emaSlowPrev = indicators.getValueAt(emaSlowArr, i - 2) ?? 0;
 
     // --- Absolute Minimum Volume Filter ---
+    // Define the minimum volume multiplier for each strategy type.
     let minVolumeMultiplier: number;
 
+    // The strategy type isn't directly passed to generateSignal, so we need to infer it from the parameters.
+    // A common trick is to look at the EMA periods. A fast EMA < 10 suggests Scalp, etc.
     if (params.EMA_FAST_PERIOD < 10) {
-        minVolumeMultiplier = 0.35; 
+        // Scalp Mode - Needs the most active market to work
+        minVolumeMultiplier = 0.35; // 35% of the recent average volume is the absolute minimum
     } else if (params.EMA_FAST_PERIOD < 20) {
-        minVolumeMultiplier = 0.25;
+        // Day Mode
+        minVolumeMultiplier = 0.25; // 25% of the recent average volume
     } else {
-        minVolumeMultiplier = 0.15;
+        // Swing Mode - Can tolerate quieter periods as it's catching larger moves
+        minVolumeMultiplier = 0.15; // 15% of the recent average volume
     }
 
+    // Calculate the absolute minimum volume floor
     const minVolumeFloor = avgVolume * minVolumeMultiplier;
+
+    // Check if the current volume is above the absolute minimum
     if (volume < minVolumeFloor) {
         log(`Volume too low. Vol: ${volume.toFixed(0)} < Min Floor: ${minVolumeFloor.toFixed(0)} (${minVolumeMultiplier*100}% of AvgVol). Skipping signal.`);
         return null;
@@ -130,6 +140,7 @@ export async function generateSignal(
     const rsiSellRange = rsi > params.RSI_OVERSOLD_THRESHOLD;
     logCond('RSI Sell Range', rsiSellRange, `RSI: ${rsi.toFixed(2)} > ${params.RSI_OVERSOLD_THRESHOLD}`);
 
+    // PSAR is now a confirmation, not a hard requirement for high-confidence.
     const psarBuyConfirm = psar < signalCandle.close;
     logCond('PSAR Buy Confirmation', psarBuyConfirm, `PSAR: ${psar.toFixed(5)} < Close: ${signalCandle.close.toFixed(5)}`);
     
@@ -142,6 +153,7 @@ export async function generateSignal(
 
     if (emaCrossedUp && rsiBuyRange && volumeConditionHigh) {
         signalType = 'BUY';
+        // If PSAR also confirms, it's a high-confidence signal. Otherwise, medium.
         confidence = psarBuyConfirm ? 'High' : 'Medium';
         log(`Signal Decision: ${confidence}-Confidence BUY by Crossover.`);
     } 
@@ -195,18 +207,41 @@ export async function generateSignal(
         }
     }
 
+    // --- Final Validation on the *Current* Candle ---
     if (signalType && confidence) {
-        log(`✔✔✔ Final Decision: VALID ${confidence.toUpperCase()} ${signalType} SIGNAL!`);
-        return {
-            type: signalType,
-            level: confidence,
-            price: signalCandle.close, // Entry price is the close of the signal candle
-            time: signalCandle.time,
-        };
-    }
+        log('=== Final Validation on Current Candle ===');
+        const minPriceMovement = atr * params.NOISE_FILTER_RATIO;
+        const candleRange = currentCandle.high - currentCandle.low;
+        const atrFilterPassed = candleRange >= minPriceMovement;
+        logCond('ATR Noise Filter', atrFilterPassed, `Candle Range (${candleRange.toFixed(5)}) >= Min Movement (${minPriceMovement.toFixed(5)})`);
 
-    if ((global as any).ENABLE_DETAILED_LOGS) {
-        log('No potential signal found in this run.');
+        const dynamicStrengthThreshold = Math.min(0.3, Math.max(0.15, (atr / currentCandle.close) * 20));
+        log(`Dynamic candle strength threshold: ${dynamicStrengthThreshold.toFixed(3)}`)
+
+        const isBullishConfirm = isCandleBullish(currentCandle) && candleStrength(currentCandle) > dynamicStrengthThreshold;
+        logCond('Is Bullish Confirmation', isBullishConfirm, `Close > Open AND Strength (${candleStrength(currentCandle).toFixed(2)}) > ${dynamicStrengthThreshold.toFixed(2)}`);
+        
+        const isBearishConfirm = isCandleBearish(currentCandle) && candleStrength(currentCandle) > dynamicStrengthThreshold;
+        logCond('Is Bearish Confirmation', isBearishConfirm, `Close < Open AND Strength (${candleStrength(currentCandle).toFixed(2)}) > ${dynamicStrengthThreshold.toFixed(2)}`);
+
+        const buySignalValid = signalType === 'BUY' && isBullishConfirm && atrFilterPassed;
+        const sellSignalValid = signalType === 'SELL' && isBearishConfirm && atrFilterPassed;
+
+        if (buySignalValid || sellSignalValid) {
+            log(`✔✔✔ Final Decision: VALID ${confidence.toUpperCase()} ${signalType} SIGNAL!`);
+            return {
+                type: signalType,
+                level: confidence,
+                price: currentCandle.open, // Entry price is the open of the current (confirmation) candle
+                time: currentCandle.time,
+            };
+        } else {
+             log(`✘✘✘ Final Decision: Signal invalidated by final filters.`);
+        }
+    } else {
+        if ((global as any).ENABLE_DETAILED_LOGS) {
+            log('No potential signal found in this run.');
+        }
     }
 
     return null;
