@@ -34,7 +34,14 @@ export function SignalDashboard() {
   const displayedSignals = useMemo(() => {
     return signals.map(s => ({
         ...s,
-        displayTime: new Date(s.time).toLocaleTimeString(),
+        displayTime: new Date(s.time).toLocaleString([], {
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        }),
     })).sort((a,b) => b.time - a.time);
   }, [signals]);
 
