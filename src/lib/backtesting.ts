@@ -21,7 +21,7 @@ const MUTATION_RATE = 0.2;
 const ELITISM_RATE = 0.1;
 const CONVERGENCE_THRESHOLD = 5;
 
-export function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): PerformanceMetrics {
+export async function calculatePerformanceMetrics(trades: TradeResult[], initialCapital: number): Promise<PerformanceMetrics> {
   const numTrades = trades.length;
   if (numTrades === 0) {
     return {
@@ -475,5 +475,3 @@ export async function optimizeParameters(
     return { bestParams: null, bestPerformance: null, bestTrades: [] };
   }
 }
-
-    
