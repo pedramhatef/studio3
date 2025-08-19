@@ -54,8 +54,8 @@ const swingParameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT
   PARABOLIC_SAR_STEP: [0.01, 0.015, 0.02],
   PARABOLIC_SAR_MAX: [0.1, 0.15, 0.2],
   RSI_PERIOD: [21, 28, 35],
-  RSI_OVERSOLD_THRESHOLD: [25, 30, 35], // Kept this range as it's standard for swing
-  RSI_OVERBOUGHT_THRESHOLD: [65, 70, 75], // Kept this range as it's standard for swing
+  RSI_OVERSOLD_THRESHOLD: [25, 30, 35],
+  RSI_OVERBOUGHT_THRESHOLD: [65, 70, 75],
   VOLUME_PERIOD: [30, 40, 50],
   VOLUME_THRESHOLD_MULTIPLIER: [1.0, 1.2, 1.5], // Relaxed to capture trend starts, not just spikes
   VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.7, 0.9, 1.0],
@@ -153,7 +153,7 @@ export async function GET(
           console.error(`Error in background optimization task for ${strategy}:`, err);
       });
       return NextResponse.json({ message: `Strategy optimization for ${strategy} started in the background.` });
-    } catch (error)
+    } catch (error) {
       console.error("An error occurred during the optimization GET request:", error);
       return NextResponse.json(
         { error: (error as Error).message },
@@ -161,4 +161,3 @@ export async function GET(
       );
     }
   }
-
