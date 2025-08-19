@@ -11,58 +11,58 @@ import { setDoc, doc } from 'firebase/firestore';
 // Tighter ranges for quick, small moves.
 // Goal: High win rate, quick in-and-out.
 const scalpParameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } = {
-  EMA_FAST_PERIOD: [3, 5, 8],
-  EMA_SLOW_PERIOD: [10, 13, 21], 
-  PARABOLIC_SAR_STEP: [0.02, 0.025, 0.03],
-  PARABOLIC_SAR_MAX: [0.2, 0.25, 0.3],
-  RSI_PERIOD: [7, 9, 12],
-  RSI_OVERSOLD_THRESHOLD: [25, 30, 35], // Tightened from 20 to avoid deep oversold bounces that fail
-  RSI_OVERBOUGHT_THRESHOLD: [65, 70, 75], // Tightened from 80
-  VOLUME_PERIOD: [8, 12, 15],
-  VOLUME_THRESHOLD_MULTIPLIER: [1.8, 2.2, 2.5], // Keep this high to confirm breakouts
-  VOLUME_THRESHOLD_MULTIPLIERConfirmation: [1.0, 1.3],
-  ATR_PERIOD: [8, 10, 12],
-  TAKE_PROFIT_ATR_MULTIPLIER: [1.2, 1.5, 2.0],
-  STOP_LOSS_ATR_MULTIPLIER: [0.8, 1.0, 1.2],
-  NOISE_FILTER_RATIO: [0.15, 0.25], 
+  EMA_FAST_PERIOD: [3, 4, 5],           // Very fast response
+  EMA_SLOW_PERIOD: [8, 10, 12],         // Quick but stable baseline
+  PARABOLIC_SAR_STEP: [0.025, 0.03, 0.035], // Aggressive SAR sensitivity
+  PARABOLIC_SAR_MAX: [0.2, 0.25, 0.3],  // Tighter max acceleration
+  RSI_PERIOD: [6, 7, 8],                // Very responsive RSI
+  RSI_OVERSOLD_THRESHOLD: [30, 32, 35], // Avoid deep oversold traps
+  RSI_OVERBOUGHT_THRESHOLD: [65, 68, 70], // Avoid overbought false signals
+  VOLUME_PERIOD: [7, 8, 9],             // Short volume avg for responsiveness
+  VOLUME_THRESHOLD_MULTIPLIER: [2.0, 2.2, 2.5], // High volume confirmation
+  VOLUME_THRESHOLD_MULTIPLIERConfirmation: [1.2, 1.3, 1.4], // Strong pullback volume
+  ATR_PERIOD: [7, 8, 9],                // Short ATR for noise filtering
+  TAKE_PROFIT_ATR_MULTIPLIER: [1.0, 1.2, 1.5],  // Tight take-profit
+  STOP_LOSS_ATR_MULTIPLIER: [0.7, 0.8, 0.9],     // Tight stop-loss
+  NOISE_FILTER_RATIO: [0.1, 0.15, 0.2], // Strict noise filter
 };
 
 // Balanced ranges for intraday trends.
 // Goal: Good win rate with decent profit per trade.
 const dayTradeParameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } = {
-  EMA_FAST_PERIOD: [5, 8, 13],
-  EMA_SLOW_PERIOD: [20, 25, 30],
-  PARABOLIC_SAR_STEP: [0.015, 0.02, 0.025],
-  PARABOLIC_SAR_MAX: [0.2, 0.25],
-  RSI_PERIOD: [12, 14, 21],
-  RSI_OVERSOLD_THRESHOLD: [35, 40], // Raised to be more selective
-  RSI_OVERBOUGHT_THRESHOLD: [60, 65], // Lowered to be more selective
-  VOLUME_PERIOD: [20, 25, 30],
-  VOLUME_THRESHOLD_MULTIPLIER: [1.5, 1.7, 2.0], // Increased to demand stronger volume confirmation
-  VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.9, 1.1, 1.3],
-  ATR_PERIOD: [12, 14, 16],
-  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.5, 3.0],
-  STOP_LOSS_ATR_MULTIPLIER: [1.2, 1.5, 2.0],
-  NOISE_FILTER_RATIO: [0.25, 0.35],
+  EMA_FAST_PERIOD: [7, 8, 9],           // Balanced speed
+  EMA_SLOW_PERIOD: [20, 22, 25],        // Reliable trend baseline
+  PARABOLIC_SAR_STEP: [0.018, 0.02, 0.022], // Moderate SAR sensitivity
+  PARABOLIC_SAR_MAX: [0.18, 0.2, 0.22], // Standard max acceleration
+  RSI_PERIOD: [12, 14, 16],             // Classic RSI period
+  RSI_OVERSOLD_THRESHOLD: [35, 38, 40], // Avoid weak bounces
+  RSI_OVERBOUGHT_THRESHOLD: [60, 62, 65], // Early exit from overbought
+  VOLUME_PERIOD: [18, 20, 22],          // Medium-term volume avg
+  VOLUME_THRESHOLD_MULTIPLIER: [1.7, 1.9, 2.1], // Strong volume confirmation
+  VOLUME_THRESHOLD_MULTIPLIERConfirmation: [1.0, 1.1, 1.2], // Moderate pullback volume
+  ATR_PERIOD: [12, 13, 14],             // Standard ATR period
+  TAKE_PROFIT_ATR_MULTIPLIER: [2.0, 2.3, 2.6],  // Balanced reward
+  STOP_LOSS_ATR_MULTIPLIER: [1.2, 1.4, 1.6],     // Balanced risk
+  NOISE_FILTER_RATIO: [0.25, 0.3, 0.35], // Moderate noise filter
 };
 
 // Wider ranges for longer trends
 // Goal: Catch larger moves, win rate is less important than profit factor.
 const swingParameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT'>]: number[] } = {
-  EMA_FAST_PERIOD: [13, 21, 34],
-  EMA_SLOW_PERIOD: [50, 75, 100],
-  PARABOLIC_SAR_STEP: [0.01, 0.015, 0.02],
-  PARABOLIC_SAR_MAX: [0.1, 0.15, 0.2],
-  RSI_PERIOD: [21, 28, 35],
-  RSI_OVERSOLD_THRESHOLD: [25, 30, 35],
-  RSI_OVERBOUGHT_THRESHOLD: [65, 70, 75],
-  VOLUME_PERIOD: [30, 40, 50],
-  VOLUME_THRESHOLD_MULTIPLIER: [1.0, 1.2, 1.5], // Relaxed to capture trend starts, not just spikes
-  VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.7, 0.9, 1.0],
-  ATR_PERIOD: [14, 21, 28],
-  TAKE_PROFIT_ATR_MULTIPLIER: [3.5, 5.0, 6.0],
-  STOP_LOSS_ATR_MULTIPLIER: [2.0, 2.5, 3.0],
-  NOISE_FILTER_RATIO: [0.35, 0.5],
+  EMA_FAST_PERIOD: [18, 21, 24],        // Slower, more reliable
+  EMA_SLOW_PERIOD: [65, 75, 85],        // Long-term trend
+  PARABOLIC_SAR_STEP: [0.01, 0.012, 0.014], // Conservative SAR
+  PARABOLIC_SAR_MAX: [0.1, 0.12, 0.14], // Slow acceleration
+  RSI_PERIOD: [24, 28, 32],             // Smoothed RSI
+  RSI_OVERSOLD_THRESHOLD: [28, 30, 32], // Allow deeper oversold
+  RSI_OVERBOUGHT_THRESHOLD: [68, 70, 72], // Allow deeper overbought
+  VOLUME_PERIOD: [35, 40, 45],          // Long-term volume avg
+  VOLUME_THRESHOLD_MULTIPLIER: [1.0, 1.1, 1.2], // Relaxed volume for trend starts
+  VOLUME_THRESHOLD_MULTIPLIERConfirmation: [0.8, 0.9, 1.0], // Weak pullback volume ok
+  ATR_PERIOD: [18, 21, 24],             // Smoothed ATR
+  TAKE_PROFIT_ATR_MULTIPLIER: [4.5, 5.0, 5.5],  // Wide take-profit
+  STOP_LOSS_ATR_MULTIPLIER: [2.2, 2.5, 2.8],     // Wide stop-loss
+  NOISE_FILTER_RATIO: [0.4, 0.45, 0.5], // Loose noise filter
 };
 
 
