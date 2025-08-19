@@ -32,17 +32,20 @@ export function SignalDashboard() {
   const lastSignalRef = useRef<Signal | null>(null);
 
   const displayedSignals = useMemo(() => {
-    return signals.map(s => ({
+    return signals.map(s => {
+      const date = new Date(s.time);
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = String(date.getFullYear()).slice(-2);
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      
+      return {
         ...s,
-        displayTime: new Date(s.time).toLocaleString([], {
-            year: 'numeric',
-            month: 'numeric',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        }),
-    })).sort((a,b) => b.time - a.time);
+        displayTime: `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`,
+      };
+    }).sort((a,b) => b.time - a.time);
   }, [signals]);
 
   const fetchChartData = useCallback(async (view: StrategyType) => {
