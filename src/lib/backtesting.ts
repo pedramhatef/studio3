@@ -343,7 +343,7 @@ export async function optimizeParameters(
 
     for (let gen = 0; gen < GENERATIONS; gen++) {
         const fitnessPromises = population.map(async (individual) => {
-            const params: StrategyParams = { ...individual, SPREAD_PERCENT: 0.01 };
+            const params: StrategyParams = { ...individual, SPREAD_PERCENT: 0.02 };
             const trades = await runBacktest(dogeData, params, initialCapital);
             const performance = await calculatePerformanceMetrics(trades, initialCapital);
             const fitness = calculateFitness(performance);
@@ -395,7 +395,7 @@ export async function optimizeParameters(
 
     if (bestIndividualFromAllGens) {
         console.log('Genetic algorithm optimization complete.');
-        const bestParams: StrategyParams = { ...bestIndividualFromAllGens, SPREAD_PERCENT: 0.01 };
+        const bestParams: StrategyParams = { ...bestIndividualFromAllGens, SPREAD_PERCENT: 0.02 };
         return { bestParams, bestPerformance: bestPerformanceFromAllGens, bestTrades: bestTradesFromAllGens };
     } else {
         console.warn("Genetic algorithm did not find a suitable strategy.");

@@ -89,6 +89,33 @@ export async function generateSignal(
     const emaFastPrev = indicators.getValueAt(emaFastArr, i - 2) ?? 0;
     const emaSlowPrev = indicators.getValueAt(emaSlowArr, i - 2) ?? 0;
 
+    // --- Absolute Minimum Volume Filter ---
+    // Define the minimum volume multiplier for each strategy type.
+    let minVolumeMultiplier: number;
+
+    // The strategy type isn't directly passed to generateSignal, so we need to infer it from the parameters.
+    // A common trick is to look at the EMA periods. A fast EMA < 10 suggests Scalp, etc.
+    if (params.EMA_FAST_PERIOD < 10) {
+        // Scalp Mode - Needs the most active market to work
+        minVolumeMultiplier = 0.35; // 35% of the recent average volume is the absolute minimum
+    } else if (params.EMA_FAST_PERIOD < 20) {
+        // Day Mode
+        minVolumeMultiplier = 0.25; // 25% of the recent average volume
+    } else {
+        // Swing Mode - Can tolerate quieter periods as it's catching larger moves
+        minVolumeMultiplier = 0.15; // 15% of the recent average volume
+    }
+
+    // Calculate the absolute minimum volume floor
+    const minVolumeFloor = avgVolume * minVolumeMultiplier;
+
+    // Check if the current volume is above the absolute minimum
+    if (volume < minVolumeFloor) {
+        log(`Volume too low. Vol: ${volume.toFixed(0)} < Min Floor: ${minVolumeFloor.toFixed(0)} (${minVolumeMultiplier*100}% of AvgVol). Skipping signal.`);
+        return null;
+    }
+
+
     let signalType: 'BUY' | 'SELL' | null = null;
     let confidence: Signal['level'] | null = null;
     
