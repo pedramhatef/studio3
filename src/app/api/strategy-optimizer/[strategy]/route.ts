@@ -2,10 +2,10 @@
 'use server';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { getChartData } from '../../../app/actions';
-import { optimizeParameters } from '../../../lib/backtesting';
-import type { StrategyParams, StrategyType } from '../../../lib/types';
-import { db } from '../../../lib/firebase';
+import { getChartData } from '../../../../app/actions';
+import { optimizeParameters } from '../../../../lib/backtesting';
+import type { StrategyParams, StrategyType } from '../../../../lib/types';
+import { db } from '../../../../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 
 // Tighter ranges for quick, small moves
@@ -63,11 +63,15 @@ const swingParameterRanges: { [key in keyof Omit<StrategyParams, 'SPREAD_PERCENT
 };
 
 
-const strategyMap = {
+const strategyMap: { [key: string]: any } = {
   Scalp: scalpParameterRanges,
   Day: dayTradeParameterRanges,
   Swing: swingParameterRanges,
 };
+
+function capitalizeFirstLetter(string: string) {
+    return string.charAt(0).toUpperCase() + string.slice(1);
+}
 
 async function runAndSaveOptimization(strategyType: StrategyType) {
   console.log(`=== STRATEGY OPTIMIZATION (${strategyType}) STARTING ===`);
@@ -129,25 +133,28 @@ async function runAndSaveOptimization(strategyType: StrategyType) {
   }
 }
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const strategy = (searchParams.get('strategy') as StrategyType) || 'Day';
+export async function GET(
+    request: NextRequest,
+    { params }: { params: { strategy: string } }
+  ) {
+    const strategyParam = params.strategy;
+    const strategy = capitalizeFirstLetter(strategyParam) as StrategyType;
 
-  if (!Object.keys(strategyMap).includes(strategy)) {
-      return NextResponse.json({ message: 'Invalid strategy type provided.' }, { status: 400 });
+    if (!Object.keys(strategyMap).includes(strategy)) {
+        return NextResponse.json({ message: 'Invalid strategy type provided.' }, { status: 400 });
+    }
+  
+    try {
+      // Run in background, don't await
+      runAndSaveOptimization(strategy).catch(err => {
+          console.error(`Error in background optimization task for ${strategy}:`, err);
+      });
+      return NextResponse.json({ message: `Strategy optimization for ${strategy} started in the background.` });
+    } catch (error) {
+      console.error("An error occurred during the optimization GET request:", error);
+      return NextResponse.json(
+        { error: (error as Error).message },
+        { status: 500 }
+      );
+    }
   }
-
-  try {
-    // Run in background, don't await
-    runAndSaveOptimization(strategy).catch(err => {
-        console.error(`Error in background optimization task for ${strategy}:`, err);
-    });
-    return NextResponse.json({ message: `Strategy optimization for ${strategy} started in the background.` });
-  } catch (error) {
-    console.error("An error occurred during the optimization GET request:", error);
-    return NextResponse.json(
-      { error: (error as Error).message },
-      { status: 500 }
-    );
-  }
-}

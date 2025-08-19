@@ -6,15 +6,15 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/strategy-optimizer?strategy=Day",
+      "path": "/api/strategy-optimizer/Day",
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/strategy-optimizer?strategy=Scalp",
+      "path": "/api/strategy-optimizer/Scalp",
       "schedule": "0 1 * * *"
     },
     {
-      "path": "/api/strategy-optimizer?strategy=Swing",
+      "path": "/api/strategy-optimizer/Swing",
       "schedule": "0 2 * * *"
     }
   ]
