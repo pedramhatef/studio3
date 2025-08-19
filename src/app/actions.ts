@@ -1,7 +1,7 @@
 
 'use server';
 
-import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
+import type { ChartDataPoint, Signal, StrategyParams, StrategyType } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit } from "firebase/firestore"; 
 
@@ -96,6 +96,7 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
           level: data.level,
           price: data.price,
           time: data.time,
+          strategy: data.strategy || 'Day', // Default to day if not present
         } as Signal;
       });
       
@@ -106,10 +107,11 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
     }
 }
 
-export async function getLatestOptimizationParams(): Promise<Partial<StrategyParams> | null> {
+export async function getLatestOptimizationParams(strategy: StrategyType = 'Day'): Promise<Partial<StrategyParams> | null> {
     try {
+        const docId = `latest-${strategy}`;
         const optimizationResultsCol = collection(db, 'optimizationResults');
-        const q = query(optimizationResultsCol, orderBy('timestamp', 'desc'), limit(1));
+        const q = query(collection(db, `optimizationResults`), orderBy('timestamp', 'desc'), limit(1));
         const latestResultSnapshot = await getDocs(q);
     
         if (!latestResultSnapshot.empty) {
@@ -120,9 +122,8 @@ export async function getLatestOptimizationParams(): Promise<Partial<StrategyPar
         }
         return null;
       } catch (error) {
-        console.error(`Error fetching optimization results:`, error);
+        console.error(`Error fetching optimization results for ${strategy}:`, error);
         return null;
       }
 }
 
-    

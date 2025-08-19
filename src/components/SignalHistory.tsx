@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import type { Signal } from '@/lib/types';
-import { TrendingUp, TrendingDown, History } from 'lucide-react';
+import { TrendingUp, TrendingDown, History, Zap, Waves, Briefcase } from 'lucide-react';
 
 interface SignalHistoryProps {
   signals: Signal[];
@@ -19,6 +19,12 @@ const levelVariantMap: { [key in Signal['level']]: 'default' | 'secondary' | 'de
 const levelTextMap: { [key in Signal['level']]: string } = {
     'Medium': 'Medium Confidence',
     'High': 'High Confidence'
+};
+
+const strategyIconMap: { [key in Signal['strategy']]: React.ReactNode } = {
+    'Scalp': <Zap className="h-4 w-4 text-yellow-500" />,
+    'Day': <Briefcase className="h-4 w-4 text-blue-500" />,
+    'Swing': <Waves className="h-4 w-4 text-purple-500" />
 };
 
 
@@ -38,6 +44,7 @@ export function SignalHistory({ signals }: SignalHistoryProps) {
             <TableRow>
               <TableHead>Time</TableHead>
               <TableHead>Type</TableHead>
+              <TableHead>Strategy</TableHead>
               <TableHead>Price (USDT)</TableHead>
               <TableHead className="text-right">Confidence</TableHead>
             </TableRow>
@@ -45,7 +52,7 @@ export function SignalHistory({ signals }: SignalHistoryProps) {
           <TableBody>
             {signals.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center h-24">
+                <TableCell colSpan={5} className="text-center h-24">
                   Waiting for signals...
                 </TableCell>
               </TableRow>
@@ -57,6 +64,12 @@ export function SignalHistory({ signals }: SignalHistoryProps) {
                     <div className={`flex items-center gap-2 ${signal.type === 'BUY' ? 'text-green-500' : 'text-red-500'}`}>
                       {signal.type === 'BUY' ? <TrendingUp className="text-green-500" /> : <TrendingDown className="text-red-500" />}
                       <span className="font-medium">{signal.type}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                        {strategyIconMap[signal.strategy] || strategyIconMap['Day']}
+                        <span className="font-medium">{signal.strategy}</span>
                     </div>
                   </TableCell>
                   <TableCell>

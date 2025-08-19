@@ -1,0 +1,21 @@
+
+{
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/strategy-optimizer?strategy=Day",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/strategy-optimizer?strategy=Scalp",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/strategy-optimizer?strategy=Swing",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

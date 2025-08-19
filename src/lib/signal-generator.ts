@@ -1,7 +1,7 @@
 
 'use server';
 
-import type { ChartDataPoint, Signal, StrategyParams } from '@/lib/types';
+import type { ChartDataPoint, Signal, StrategyParams, StrategyType } from '@/lib/types';
 import * as indicators from '@/lib/indicators';
 
 // =================================================================================
@@ -67,7 +67,7 @@ export async function generateSignal(
     psarArr: (number | null)[],
     avgVolumeArr: (number | null)[],
     atrArr: (number | null)[]
-): Promise<Omit<Signal, 'displayTime' | 'serverTime'> | null> {
+): Promise<Omit<Signal, 'displayTime' | 'serverTime' | 'strategy'> | null> {
 
     // Ensure we have enough data to look back on
     if (i < 2) return null;

@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { CryptoChart } from './CryptoChart';
 import { SignalHistory } from './SignalHistory';
-import type { ChartDataPoint, Signal } from '@/lib/types';
+import type { ChartDataPoint, Signal, StrategyType } from '@/lib/types';
 import { BarChart2, Briefcase, Zap, Waves } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getChartData } from '@/app/actions';
@@ -14,14 +14,12 @@ import { db } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, limit, getDocs, where, Timestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 
-
 const MAX_SIGNALS = 15;
-type StrategyView = 'ScalpTrade' | 'DayTrade' | 'SwingTrade';
 
-const chartDataLimits: Record<StrategyView, number> = {
-  ScalpTrade: 100,
-  DayTrade: 200,
-  SwingTrade: 500,
+const chartDataLimits: Record<StrategyType, number> = {
+  Scalp: 100,
+  Day: 200,
+  Swing: 500,
 };
 
 
@@ -29,7 +27,7 @@ export function SignalDashboard() {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeView, setActiveView] = useState<StrategyView>('DayTrade');
+  const [activeView, setActiveView] = useState<StrategyType>('Day');
   const { toast } = useToast();
   const lastSignalRef = useRef<Signal | null>(null);
 
@@ -40,7 +38,7 @@ export function SignalDashboard() {
     })).sort((a,b) => b.time - a.time);
   }, [signals]);
 
-  const fetchChartData = useCallback(async (view: StrategyView) => {
+  const fetchChartData = useCallback(async (view: StrategyType) => {
     try {
       const dataLimit = chartDataLimits[view];
       const formattedData = await getChartData('DOGEUSDT', dataLimit);
@@ -81,6 +79,7 @@ export function SignalDashboard() {
             level: data.level,
             price: data.price,
             time: data.time,
+            strategy: data.strategy || 'Day', // Default to Day if not present
         } as Signal);
       });
       // The query is desc, so we need to reverse to get chronological order for the state
@@ -109,6 +108,7 @@ export function SignalDashboard() {
                     level: newSignalData.level,
                     price: newSignalData.price,
                     time: newSignalData.time,
+                    strategy: newSignalData.strategy || 'Day',
                 } as Signal;
 
                 // Simple check to avoid processing duplicates from the listener
@@ -124,7 +124,7 @@ export function SignalDashboard() {
                     if (newSignal.price && typeof newSignal.price === 'number') {
                       toast({
                         title: toastTitles[newSignal.level],
-                        description: `Generated at $${newSignal.price.toFixed(5)}`,
+                        description: `${newSignal.strategy} Trade generated at $${newSignal.price.toFixed(5)}`,
                       });
                     }
                 }
@@ -180,15 +180,15 @@ export function SignalDashboard() {
               Algorithmic signals using an adaptive, trend-following strategy.
               </CardDescription>
               <div className="mt-4 flex items-center gap-2">
-                  <Button variant={activeView === 'ScalpTrade' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('ScalpTrade')}>
+                  <Button variant={activeView === 'Scalp' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('Scalp')}>
                       <Zap className="mr-2 h-4 w-4" />
                       ScalpTrade
                   </Button>
-                  <Button variant={activeView === 'DayTrade' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('DayTrade')}>
+                  <Button variant={activeView === 'Day' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('Day')}>
                       <Briefcase className="mr-2 h-4 w-4" />
                       DayTrade
                   </Button>
-                  <Button variant={activeView === 'SwingTrade' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('SwingTrade')}>
+                  <Button variant={activeView === 'Swing' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('Swing')}>
                       <Waves className="mr-2 h-4 w-4" />
                       SwingTrade
                   </Button>

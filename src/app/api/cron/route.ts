@@ -29,23 +29,25 @@ function kv(obj: Record<string, any>) {
 }
 
 export async function GET() {
-    // Set a global flag to enable detailed logging just for this cron run
+    // This cron job will run the "DayTrade" strategy by default
+    const STRATEGY_TYPE = 'Day';
+
     (global as any).ENABLE_DETAILED_LOGS = true;
 
     const ts = new Date().toISOString();
     let strategyConfig: StrategyParams;
 
-    section('Fetch Optimal Parameters');
+    section(`Fetch Optimal Parameters for ${STRATEGY_TYPE}`);
     try {
-        const latestParams = await getLatestOptimizationParams();
+        const latestParams = await getLatestOptimizationParams(STRATEGY_TYPE);
         if (latestParams) {
             strategyConfig = { ...latestParams, SPREAD_PERCENT: 0.01 } as StrategyParams;
-            log('Applied optimal parameters from Firestore.');
+            log(`Applied optimal ${STRATEGY_TYPE} parameters from Firestore.`);
             kv(strategyConfig);
         } else {
-            log('No optimization results found. Cannot proceed without strategy.');
+            log(`No optimization results found for ${STRATEGY_TYPE}. Cannot proceed.`);
             (global as any).ENABLE_DETAILED_LOGS = false;
-            return NextResponse.json({ message: 'No strategy parameters available.' }, { status: 500 });
+            return NextResponse.json({ message: `No strategy parameters available for ${STRATEGY_TYPE}.` }, { status: 500 });
         }
     } catch (error) {
         console.error(`Error fetching optimization results:`, error);
@@ -93,7 +95,6 @@ export async function GET() {
         section('Find New Signal');
         const i = dogeChartData.length - 1; 
 
-        // Calculate all indicators once for performance
         const dogeClose = dogeChartData.map(d => d.close);
         const dogeVolume = dogeChartData.map(d => d.volume);
         const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
@@ -115,6 +116,7 @@ export async function GET() {
             
             const enhancedSignal: EnhancedSignal = {
                 ...signal,
+                strategy: STRATEGY_TYPE,
                 suggestedLeverage: leverage,
                 stopBuffer: atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER,
                 confidenceScore: signal.level === 'High' ? 0.85 : 0.65

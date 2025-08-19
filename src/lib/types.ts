@@ -14,9 +14,12 @@ export interface Signal {
   level: 'High' | 'Medium';
   price: number;
   time: number;
+  strategy: 'Scalp' | 'Day' | 'Swing';
   displayTime?: string;
   serverTime?: any;
 }
+
+export type StrategyType = 'Scalp' | 'Day' | 'Swing';
 
 export type StrategyParams = {
     // Core Trend-Following
