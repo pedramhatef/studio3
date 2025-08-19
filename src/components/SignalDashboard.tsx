@@ -16,11 +16,20 @@ import { Button } from '@/components/ui/button';
 
 
 const MAX_SIGNALS = 15;
+type StrategyView = 'ScalpTrade' | 'DayTrade' | 'SwingTrade';
+
+const chartDataLimits: Record<StrategyView, number> = {
+  ScalpTrade: 100,
+  DayTrade: 200,
+  SwingTrade: 500,
+};
+
 
 export function SignalDashboard() {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeView, setActiveView] = useState<StrategyView>('DayTrade');
   const { toast } = useToast();
   const lastSignalRef = useRef<Signal | null>(null);
 
@@ -31,9 +40,10 @@ export function SignalDashboard() {
     })).sort((a,b) => b.time - a.time);
   }, [signals]);
 
-  const fetchChartData = useCallback(async () => {
+  const fetchChartData = useCallback(async (view: StrategyView) => {
     try {
-      const formattedData = await getChartData();
+      const dataLimit = chartDataLimits[view];
+      const formattedData = await getChartData('DOGEUSDT', dataLimit);
       if (formattedData?.length) {
         setChartData(formattedData);
       }
@@ -57,7 +67,7 @@ export function SignalDashboard() {
     const initialFetch = async () => {
       setIsLoading(true);
       
-      await fetchChartData();
+      await fetchChartData(activeView);
 
       // 1. One-time fetch for historical signals
       const historyQuery = query(collection(db, "signals"), orderBy("serverTime", "desc"), limit(MAX_SIGNALS));
@@ -125,7 +135,7 @@ export function SignalDashboard() {
             // Add the new signal(s) to our state
             setSignals(prevSignals => [...prevSignals, ...newSignalsFromSnapshot].slice(-MAX_SIGNALS));
             // Refresh chart data to align with the new signal
-            fetchChartData();
+            fetchChartData(activeView);
         }
 
       }, (error) => {
@@ -150,6 +160,12 @@ export function SignalDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Changed to only run on mount
 
+  // Effect to refetch chart data when activeView changes
+  useEffect(() => {
+    fetchChartData(activeView);
+  }, [activeView, fetchChartData]);
+
+
   return (
     <div className="grid gap-8">
       <Card className="shadow-lg">
@@ -164,15 +180,15 @@ export function SignalDashboard() {
               Algorithmic signals using an adaptive, trend-following strategy.
               </CardDescription>
               <div className="mt-4 flex items-center gap-2">
-                  <Button variant="outline" size="sm" disabled>
+                  <Button variant={activeView === 'ScalpTrade' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('ScalpTrade')}>
                       <Zap className="mr-2 h-4 w-4" />
                       ScalpTrade
                   </Button>
-                  <Button variant="outline" size="sm" disabled>
+                  <Button variant={activeView === 'DayTrade' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('DayTrade')}>
                       <Briefcase className="mr-2 h-4 w-4" />
                       DayTrade
                   </Button>
-                  <Button variant="outline" size="sm" disabled>
+                  <Button variant={activeView === 'SwingTrade' ? 'default' : 'outline'} size="sm" onClick={() => setActiveView('SwingTrade')}>
                       <Waves className="mr-2 h-4 w-4" />
                       SwingTrade
                   </Button>
