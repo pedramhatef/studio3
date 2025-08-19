@@ -395,7 +395,7 @@ export async function optimizeParameters(
 
     if (bestIndividualFromAllGens) {
         console.log('Genetic algorithm optimization complete.');
-        const bestParams: StrategyParams = { ...bestIndividualFromAllGens, SPREAD_PERCENT: 0.02 };
+        const bestParams: StrategyParams = { ...bestIndividualFromAllGens, SPREAD_PERCENT: 0.0 };
         return { bestParams, bestPerformance: bestPerformanceFromAllGens, bestTrades: bestTradesFromAllGens };
     } else {
         console.warn("Genetic algorithm did not find a suitable strategy.");
