@@ -170,7 +170,7 @@ async function runAndSaveOptimization(strategyType: StrategyType) {
             const params: StrategyParams = { ...individual, leverage: 10 };
             const backtestResult = await runBacktest(chartData, params);
             const performance = await calculatePerformanceMetrics(backtestResult.trades, backtestResult.initialBalance);
-            const score = scoreMetrics(performance);
+            const score = await scoreMetrics(performance);
             return { individual, performance, score, trades: backtestResult.trades };
         });
 
@@ -253,6 +253,7 @@ export async function GET(
         return NextResponse.json({ message: 'Invalid strategy type provided.' }, { status: 400 });
     }
   
+    // Don't await this, let it run in the background
     runAndSaveOptimization(strategy).catch(err => {
         console.error(`Error in background optimization task for ${strategy}:`, err);
     });
