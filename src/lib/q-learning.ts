@@ -9,6 +9,8 @@
 import { db } from './firebase';
 import { doc, getDoc, setDoc, updateDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import type { StrategyParams, MarketRegime, QTableEntry } from './types';
+import crypto from 'crypto';
+
 
 const Q_TABLE_COLLECTION = 'qLearningTable';
 const LEARNING_RATE = 0.1; // Alpha: How much we accept the new value.
@@ -65,8 +67,7 @@ export async function getBestParamsFromQTable(regime: MarketRegime): Promise<Omi
  */
 export async function updateQTable(regime: MarketRegime, params: Omit<StrategyParams, 'leverage'>, newScore: number) {
     const paramsKey = getParamsKey(params);
-    // Use a hash of the key for a more uniform document ID
-    const docId = await createHash(paramsKey);
+    const docId = createHash(paramsKey);
     const docRef = doc(db, Q_TABLE_COLLECTION, docId);
 
     try {
@@ -107,11 +108,7 @@ export async function updateQTable(regime: MarketRegime, params: Omit<StrategyPa
 }
 
 
-// Simple hash function to create a consistent doc ID.
-async function createHash(input: string): Promise<string> {
-    const buffer = new TextEncoder().encode(input);
-    const hashBuffer = await crypto.subtle.digest('SHA-1', buffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    return hashHex;
+// Simple hash function to create a consistent doc ID using Node.js crypto.
+function createHash(input: string): string {
+    return crypto.createHash('sha1').update(input).digest('hex');
 }
