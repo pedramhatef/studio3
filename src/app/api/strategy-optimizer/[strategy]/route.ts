@@ -4,7 +4,7 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { getChartData } from '../../../../app/actions';
 import { runBacktest, calculatePerformanceMetrics, scoreMetrics } from '../../../../lib/backtesting';
-import type { StrategyParams, StrategyType, ChartDataPoint, PerformanceMetrics, TradeResult } from '../../../../lib/types';
+import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from '../../../../lib/types';
 import { db } from '../../../../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 import { detectMarketRegime } from '../../../../lib/market-regime';
@@ -145,20 +145,16 @@ async function runAndSaveOptimization(strategyType: StrategyType) {
         return;
     }
     
-    // 1. Detect Market Regime
     const marketRegime = await detectMarketRegime(chartData);
     console.log(`Current Market Regime Detected: ${marketRegime}`);
 
-    // 2. Get Best Known Params from Q-Table to seed the population
     const bestKnownParams = await getBestParamsFromQTable(marketRegime);
 
-    // 3. Genetic Algorithm Optimization
     let population: Omit<StrategyParams, 'leverage'>[] = [];
     if (bestKnownParams) {
         console.log("Seeding population with best known parameters from Q-Table.");
-        population.push(bestKnownParams); // Add the best known as the first individual
+        population.push(bestKnownParams); 
     }
-    // Fill the rest of the population with random individuals
     while(population.length < POPULATION_SIZE) {
         population.push(createIndividual(parameterRanges));
     }
@@ -225,10 +221,8 @@ async function runAndSaveOptimization(strategyType: StrategyType) {
       return;
     }
 
-    // 4. Update Q-Table with the best result from this optimization run
     await updateQTable(marketRegime, bestIndividualFromAllGens, bestScore);
     
-    // 5. Save the best parameters to be used by the live cron job
     try {
         const docId = `latest-${strategyType}`;
         console.log(`Saving best parameters to Firestore document: ${docId}`);
@@ -259,8 +253,6 @@ export async function GET(
         return NextResponse.json({ message: 'Invalid strategy type provided.' }, { status: 400 });
     }
   
-    // Run in background, do not await.
-    // This immediately returns a response to the caller while the optimization runs.
     runAndSaveOptimization(strategy).catch(err => {
         console.error(`Error in background optimization task for ${strategy}:`, err);
     });

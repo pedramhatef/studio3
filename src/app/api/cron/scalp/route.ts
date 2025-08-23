@@ -10,7 +10,6 @@ const COOLDOWN_MEDIUM = 2 * 60 * 1000; // 2 minutes
 
 export const revalidate = 0;
 
-// Wrapper for console.log to include a timestamp
 function log(message: string, ...args: any[]) {
     const timestamp = new Date().toISOString();
     console.log(`${timestamp} [info] [Scalp] ${message}`, ...args);
@@ -24,10 +23,7 @@ function kv(obj: Record<string, any>) {
 
 export async function GET() {
     const STRATEGY_TYPE = 'Scalp';
-
     (global as any).ENABLE_DETAILED_LOGS = true;
-
-    const ts = new Date().toISOString();
     let strategyConfig: StrategyParams;
 
     section(`Fetch Optimal Parameters for ${STRATEGY_TYPE}`);
@@ -56,7 +52,7 @@ export async function GET() {
         return NextResponse.json({ message: 'Failed to fetch strategy.' }, { status: 500 });
     }
 
-    section(`CRON RUN @ ${ts}`);
+    section(`CRON RUN @ ${new Date().toISOString()}`);
 
     try {
         const requiredPeriods = Math.max(
@@ -97,7 +93,6 @@ export async function GET() {
         section('Find New Signal');
         const i = chartData.length - 1; 
 
-        // Pre-calculate all indicators
         const closes = chartData.map(d => d.close);
         const volumes = chartData.map(d => d.volume);
         const emaFastArr = indicators.calculateEMA(closes, strategyConfig.EMA_FAST_PERIOD);

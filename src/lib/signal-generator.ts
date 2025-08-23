@@ -2,7 +2,7 @@
 'use server';
 
 import type { ChartDataPoint, SignalResult, StrategyParams } from '@/lib/types';
-import * as indicators from '@/lib/indicators';
+import * as indicators from './indicators';
 
 // Helper for safely getting values from indicator arrays.
 const gv = (arr: (number | null)[], index: number, fallback: number = 0): number => {
@@ -11,9 +11,6 @@ const gv = (arr: (number | null)[], index: number, fallback: number = 0): number
 };
 
 // Helper for analyzing candle properties
-function isCandleBullish(candle: ChartDataPoint) {
-    return candle.close > candle.open;
-}
 function candleStrength(candle: ChartDataPoint) {
     const range = candle.high - candle.low;
     return range > 0 ? Math.abs(candle.close - candle.open) / range : 0;
@@ -36,14 +33,12 @@ export async function generateSignal(
 ): Promise<SignalResult> {
 
     const c = candles[i];
-    const prev = candles[i - 1];
   
     // --- Indicator Values ---
     const eFast = gv(emaFastArr, i);
     const eSlow = gv(emaSlowArr, i);
     const eLong = gv(emaLongArr, i);
     const rsi = gv(rsiArr, i, 50);
-    const atr = gv(atrArr, i, 0);
     const vol = gv(candles.map(c => c.volume), i, 0);
     const vAvg = gv(volSmaArr, i, 1);
   
@@ -57,7 +52,6 @@ export async function generateSignal(
   
     // --- Entry Logic: Pullback to Fast EMA ---
     if (isUpTrend && enoughVolume && rsi > params.RSI_OVERSOLD) {
-      // Look for a dip/pullback to the fast EMA
       if (c.low < eFast && c.close > eFast) {
           entry = true;
           side = 'long';
@@ -65,7 +59,6 @@ export async function generateSignal(
     }
   
     if (isDownTrend && enoughVolume && rsi < params.RSI_OVERBOUGHT) {
-      // Look for a rally/pullback to the fast EMA
       if (c.high > eFast && c.close < eFast) {
           entry = true;
           side = 'short';
@@ -78,13 +71,9 @@ export async function generateSignal(
   
     // --- Confidence Scoring ---
     const components: number[] = [];
-    // 1. Trend Strength (distance between slow and long EMAs)
     components.push(Math.min(1, Math.abs(eSlow - eLong) / (eLong * 0.01)));
-    // 2. Candle Strength
     components.push(candleStrength(c));
-    // 3. Volume Strength
     components.push(Math.min(1, vol / vAvg - params.VOLUME_THRESHOLD_MULTIPLIER));
-    // 4. RSI position (how far from overbought/oversold)
     if(side === 'long') {
         components.push((rsi - params.RSI_OVERSOLD) / (50 - params.RSI_OVERSOLD));
     } else {
