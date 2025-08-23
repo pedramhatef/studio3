@@ -7,7 +7,7 @@
  */
 
 import { getChartData } from '../app/actions';
-import { runBacktest, calculatePerformanceMetrics, scoreMetrics } from './backtesting';
+import { runBacktest, scoreMetrics, PARAMETER_RANGES } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
 import { db } from './firebase';
 import { setDoc, doc, terminate } from 'firebase/firestore';
@@ -20,54 +20,6 @@ const GENERATIONS = 20;
 const MUTATION_RATE = 0.3;
 const ELITISM_RATE = 0.1;
 const CONVERGENCE_THRESHOLD = 5; // Stop if the best score doesn't improve for this many generations
-
-export const PARAMETER_RANGES: Record<StrategyType, Record<keyof Omit<StrategyParams, 'leverage'>, number[]>> = {
-    Scalp: {
-        EMA_FAST_PERIOD: [5, 6, 7, 8, 9, 10],
-        EMA_SLOW_PERIOD: [11, 12, 13, 14, 15, 16, 18, 20],
-        EMA_LONG_PERIOD: [30, 35, 40, 45, 50],
-        RSI_PERIOD: [8, 9, 10, 11, 12, 13],
-        RSI_OVERSOLD: [20, 25, 28, 30, 32],
-        RSI_OVERBOUGHT: [68, 70, 72, 75, 80],
-        VOLUME_PERIOD: [10, 12, 15, 18, 20],
-        VOLUME_THRESHOLD_MULTIPLIER: [1.8, 2.0, 2.2, 2.5, 3.0, 3.5],
-        ATR_PERIOD: [8, 9, 10, 11, 12],
-        ATR_STOP_MULT: [0.8, 1.0, 1.2, 1.4, 1.6],
-        ATR_TRAIL_MULT: [1.0, 1.2, 1.5, 1.8],
-        RISK_PCT: [0.005, 0.0075, 0.01],
-        TP_R_MULT: [1.2, 1.5, 1.8, 2.0, 2.2],
-    },
-    Day: {
-        EMA_FAST_PERIOD: [10, 12, 15, 18, 20],
-        EMA_SLOW_PERIOD: [22, 25, 30, 35, 40],
-        EMA_LONG_PERIOD: [80, 90, 100, 110, 120],
-        RSI_PERIOD: [13, 14, 15, 16, 18],
-        RSI_OVERSOLD: [28, 30, 32, 35, 38],
-        RSI_OVERBOUGHT: [62, 65, 68, 70, 72],
-        VOLUME_PERIOD: [20, 22, 25, 30],
-        VOLUME_THRESHOLD_MULTIPLIER: [1.5, 1.8, 2.0, 2.2],
-        ATR_PERIOD: [13, 14, 15, 16, 18],
-        ATR_STOP_MULT: [1.5, 1.8, 2.0, 2.5, 3.0],
-        ATR_TRAIL_MULT: [2.0, 2.5, 3.0, 3.5],
-        RISK_PCT: [0.01, 0.015, 0.02],
-        TP_R_MULT: [2.0, 2.5, 3.0, 3.5, 4.0],
-    },
-    Swing: {
-        EMA_FAST_PERIOD: [20, 25, 30, 35, 40],
-        EMA_SLOW_PERIOD: [45, 50, 60, 70, 80],
-        EMA_LONG_PERIOD: [150, 180, 200, 220, 250],
-        RSI_PERIOD: [18, 20, 22, 25],
-        RSI_OVERSOLD: [25, 28, 30, 33],
-        RSI_OVERBOUGHT: [67, 70, 72, 75],
-        VOLUME_PERIOD: [30, 35, 40, 50],
-        VOLUME_THRESHOLD_MULTIPLIER: [1.2, 1.5, 1.8, 2.0],
-        ATR_PERIOD: [18, 20, 22, 25],
-        ATR_STOP_MULT: [2.5, 3.0, 3.5, 4.0, 4.5],
-        ATR_TRAIL_MULT: [3.0, 3.5, 4.0, 5.0],
-        RISK_PCT: [0.015, 0.02, 0.025],
-        TP_R_MULT: [3.0, 4.0, 5.0, 6.0],
-    },
-};
 
 /**
  * Creates a single set of random strategy parameters.
@@ -124,8 +76,8 @@ function crossover(parent1: any, parent2: any): any {
 }
 
 /**
- * Randomly mutates an individual's parameters.
- */
+* Randomly mutates an individual's parameters.
+*/
 function mutate(individual: any, paramRanges: any): any {
     const mutatedIndividual = { ...individual };
     for (const key in mutatedIndividual) {
@@ -146,14 +98,15 @@ function mutate(individual: any, paramRanges: any): any {
  * @param strategyType The type of strategy to optimize ('Scalp', 'Day', 'Swing').
  */
 export async function runAndSaveOptimization(strategyType: StrategyType) {
+    if (!Object.keys(PARAMETER_RANGES).includes(strategyType)) {
+        console.error(`Invalid strategy type provided: ${strategyType}. Aborting optimization.`);
+        return;
+    }
+    
     try {
         console.log(`=== STRATEGY OPTIMIZATION (${strategyType}) STARTING ===`);
         
         const parameterRanges = PARAMETER_RANGES[strategyType];
-        if (!parameterRanges) {
-            console.error(`Invalid strategy type provided: ${strategyType}. Aborting optimization.`);
-            return;
-        }
 
         const chartData = await getChartData('DOGEUSDT', 1000);
         console.log(`Loaded ${chartData.length} DOGE data points for backtesting.`);
@@ -163,11 +116,9 @@ export async function runAndSaveOptimization(strategyType: StrategyType) {
             return;
         }
         
-        // Step 1: Detect the current market regime from the latest data.
         const marketRegime = await detectMarketRegime(chartData);
         console.log(`Current Market Regime Detected: ${marketRegime}`);
 
-        // Step 2: Seed the population with the best known params for this regime + random params.
         const bestKnownParams = await getBestParamsFromQTable(marketRegime);
 
         let population: Omit<StrategyParams, 'leverage'>[] = [];
@@ -185,7 +136,6 @@ export async function runAndSaveOptimization(strategyType: StrategyType) {
         let generationsWithoutImprovement = 0;
         let bestScore = -Infinity;
 
-        // Step 3: Run the Genetic Algorithm to explore and find the best parameters.
         for (let gen = 0; gen < GENERATIONS; gen++) {
             const fitnessPromises = population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, leverage: 10 };
@@ -213,7 +163,6 @@ export async function runAndSaveOptimization(strategyType: StrategyType) {
             
             console.log(`Gen ${gen + 1}/${GENERATIONS} | Best Score: ${bestOfGen.score.toFixed(4)}`);
 
-            // Convergence check
             if (generationsWithoutImprovement >= CONVERGENCE_THRESHOLD && bestScore > 0) {
                 console.log("Stopping early due to convergence on a good result.");
                 break;
@@ -239,14 +188,12 @@ export async function runAndSaveOptimization(strategyType: StrategyType) {
         }
 
         if (!bestIndividualFromAllGens || !bestPerformanceFromAllGens || bestPerformanceFromAllGens.numberOfTrades < 5) {
-        console.error(`Optimization failed for ${strategyType}: did not find a suitable strategy with enough trades.`);
-        return;
+            console.error(`Optimization failed for ${strategyType}: did not find a suitable strategy with enough trades.`);
+            return;
         }
 
-        // Step 4: Update the Q-Table with the newly discovered best parameters and their score.
         await updateQTable(marketRegime, bestIndividualFromAllGens, bestScore);
         
-        // Step 5: Save the best found parameters to Firestore for the live cron jobs to use.
         console.log(`Saving best parameters to Firestore document: latest-${strategyType}`);
         const docId = `latest-${strategyType}`;
         const optimizationResultDoc = doc(db, 'optimizationResults', docId);
@@ -255,7 +202,7 @@ export async function runAndSaveOptimization(strategyType: StrategyType) {
             marketRegime,
             bestParams: bestIndividualFromAllGens,
             bestPerformance: bestPerformanceFromAllGens,
-            bestTrades: bestTradesFromAllGens.slice(0, 20), // Limit saved trades
+            bestTrades: bestTradesFromAllGens.slice(0, 20),
             score: bestScore,
             timestamp: new Date(),
         });
@@ -264,7 +211,6 @@ export async function runAndSaveOptimization(strategyType: StrategyType) {
     } catch (error) {
         console.error(`[Optimization Task Error] Failed to run optimization for ${strategyType}:`, error);
     } finally {
-        // IMPORTANT: Terminate the Firestore connection to allow the serverless function to exit gracefully.
         await terminate(db);
         console.log(`Firestore connection terminated for ${strategyType} optimizer.`);
     }
