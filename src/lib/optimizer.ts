@@ -148,11 +148,11 @@ function mutate(individual: any, paramRanges: any): any {
 export async function runAndSaveOptimization(strategyType: StrategyType) {
     try {
         console.log(`=== STRATEGY OPTIMIZATION (${strategyType}) STARTING ===`);
-        (global as any).ENABLE_DETAILED_LOGS = false;
-    
+        
         const parameterRanges = PARAMETER_RANGES[strategyType];
         if (!parameterRanges) {
-            throw new Error(`Invalid strategy type provided: ${strategyType}`);
+            console.error(`Invalid strategy type provided: ${strategyType}. Aborting optimization.`);
+            return;
         }
 
         const chartData = await getChartData('DOGEUSDT', 1000);
