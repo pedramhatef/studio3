@@ -1,0 +1,118 @@
+
+'use server';
+/**
+ * @fileOverview Q-Learning inspired optimizer for managing and improving strategy parameters.
+ * This system uses a Q-table stored in Firestore to associate strategy parameters
+ * with market regimes, learning over time which parameters perform best under
+ * different conditions.
+ */
+import { db } from './firebase';
+import { doc, getDoc, setDoc, updateDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import type { StrategyParams, MarketRegime, QTableEntry } from './types';
+
+const Q_TABLE_COLLECTION = 'qLearningTable';
+const LEARNING_RATE = 0.1; // Alpha: How much we accept the new value.
+const DISCOUNT_FACTOR = 0.9; // Gamma: Importance of future rewards (less relevant here, but standard).
+
+/**
+ * Creates a stable, string-based key from a strategy parameters object.
+ * @param params The strategy parameters.
+ * @returns A string key.
+ */
+function getParamsKey(params: Omit<StrategyParams, 'leverage'>): string {
+    return Object.entries(params)
+        .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+        .map(([key, value]) => `${key}:${value}`)
+        .join('|');
+}
+
+/**
+ * Retrieves the best-performing parameters for a given market regime from the Q-table.
+ * @param regime The current market regime.
+ * @returns The best known StrategyParams or null if none are found.
+ */
+export async function getBestParamsFromQTable(regime: MarketRegime): Promise<Omit<StrategyParams, 'leverage'> | null> {
+    try {
+        const qTableRef = collection(db, Q_TABLE_COLLECTION);
+        const q = query(
+            qTableRef,
+            orderBy(`scores.${regime}`, 'desc'),
+            limit(1)
+        );
+        
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            console.log(`No entries found in Q-Table for regime: ${regime}. Starting with random params.`);
+            return null;
+        }
+
+        const bestEntry = snapshot.docs[0].data() as QTableEntry;
+        console.log(`Found best params for regime ${regime} with score ${bestEntry.scores[regime]}`);
+        return bestEntry.params;
+
+    } catch (error) {
+        console.error(`Error getting best params from Q-Table for regime ${regime}:`, error);
+        return null;
+    }
+}
+
+
+/**
+ * Updates the Q-table with the performance of a given set of parameters.
+ * @param regime The market regime during which the parameters were tested.
+ * @param params The strategy parameters that were tested.
+ * @param newScore The performance score achieved by the parameters.
+ */
+export async function updateQTable(regime: MarketRegime, params: Omit<StrategyParams, 'leverage'>, newScore: number) {
+    const paramsKey = getParamsKey(params);
+    // Use a hash of the key for a more uniform document ID
+    const docId = await createHash(paramsKey);
+    const docRef = doc(db, Q_TABLE_COLLECTION, docId);
+
+    try {
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+            // Update existing entry
+            const existingData = docSnap.data() as QTableEntry;
+            const oldScore = existingData.scores[regime] || 0;
+            
+            // Q-learning formula: Q(s,a) = Q(s,a) + alpha * (R + gamma * max_a' Q(s',a') - Q(s,a))
+            // Simplified for our use case: NewScore = OldScore + alpha * (Reward - OldScore)
+            const updatedScore = oldScore + LEARNING_RATE * (newScore - oldScore);
+
+            await updateDoc(docRef, {
+                [`scores.${regime}`]: updatedScore,
+                lastUpdated: new Date(),
+                uses: (existingData.uses || 0) + 1,
+            });
+            console.log(`Q-Table updated for regime ${regime}. New score: ${updatedScore.toFixed(4)}`);
+
+        } else {
+            // Create new entry
+            const newEntry: QTableEntry = {
+                params,
+                scores: {
+                    [regime]: newScore,
+                },
+                lastUpdated: new Date(),
+                uses: 1,
+            };
+            await setDoc(docRef, newEntry);
+            console.log(`Q-Table new entry created for regime ${regime} with score ${newScore.toFixed(4)}`);
+        }
+    } catch (error) {
+        console.error("Error updating Q-Table:", error);
+    }
+}
+
+
+// Simple hash function to create a consistent doc ID.
+async function createHash(input: string): Promise<string> {
+    const buffer = new TextEncoder().encode(input);
+    const hashBuffer = await crypto.subtle.digest('SHA-1', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex;
+}

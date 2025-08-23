@@ -5,12 +5,6 @@ import type { Signal, StrategyParams } from '@/lib/types';
 import { generateSignal } from '@/lib/signal-generator';
 import * as indicators from '@/lib/indicators';
 
-interface EnhancedSignal extends Signal {
-    suggestedLeverage?: number;
-    stopBuffer?: number;
-    confidenceScore?: number;
-}
-
 const COOLDOWN_HIGH = 1 * 60 * 1000; // 1 minute
 const COOLDOWN_MEDIUM = 2 * 60 * 1000; // 2 minutes
 
@@ -38,20 +32,23 @@ export async function GET() {
 
     section(`Fetch Optimal Parameters for ${STRATEGY_TYPE}`);
     try {
-        let latestParams = await getLatestOptimizationParams(STRATEGY_TYPE);
-        if (!latestParams) {
-            log(`No optimization results found for ${STRATEGY_TYPE}. Attempting to fall back to 'Day' strategy parameters.`);
-            latestParams = await getLatestOptimizationParams('Day');
-        }
-
+        const latestParams = await getLatestOptimizationParams(STRATEGY_TYPE);
         if (latestParams) {
-            strategyConfig = { ...latestParams, SPREAD_PERCENT: 0.01 } as StrategyParams;
-            log(`Applied optimal parameters for strategy run.`);
+            strategyConfig = { ...latestParams } as StrategyParams;
+            log(`Applied optimal ${STRATEGY_TYPE} parameters from Firestore.`);
             kv(strategyConfig);
         } else {
-            log(`No optimization results found for ${STRATEGY_TYPE} or Day. Cannot proceed.`);
-            (global as any).ENABLE_DETAILED_LOGS = false;
-            return NextResponse.json({ message: `No strategy parameters available for ${STRATEGY_TYPE} or fallback.` }, { status: 500 });
+            log(`No optimization results found for ${STRATEGY_TYPE}. Attempting to fall back to 'Day' strategy parameters.`);
+            const dayParams = await getLatestOptimizationParams('Day');
+            if (dayParams) {
+                strategyConfig = { ...dayParams } as StrategyParams;
+                 log(`Applied FALLBACK 'Day' parameters.`);
+                 kv(strategyConfig);
+            } else {
+                log(`No optimization results found for ${STRATEGY_TYPE} or Day. Cannot proceed.`);
+                (global as any).ENABLE_DETAILED_LOGS = false;
+                return NextResponse.json({ message: `No strategy parameters available for ${STRATEGY_TYPE} or fallback.` }, { status: 500 });
+            }
         }
     } catch (error) {
         console.error(`Error fetching optimization results:`, error);
@@ -66,13 +63,14 @@ export async function GET() {
             strategyConfig.EMA_SLOW_PERIOD, 
             strategyConfig.RSI_PERIOD, 
             strategyConfig.VOLUME_PERIOD,
-            strategyConfig.ATR_PERIOD
-        ) + 15; // Increased safety buffer
+            strategyConfig.ATR_PERIOD,
+            strategyConfig.EMA_LONG_PERIOD
+        ) + 50;
 
-        const dogeChartData = await getChartData('DOGEUSDT', 500);
+        const chartData = await getChartData('DOGEUSDT', 500);
 
-        if (!Array.isArray(dogeChartData) || dogeChartData.length < requiredPeriods) { 
-            log(`Insufficient data. DOGE=${dogeChartData?.length ?? 0} Need=${requiredPeriods}`);
+        if (!Array.isArray(chartData) || chartData.length < requiredPeriods) { 
+            log(`Insufficient data. DOGE=${chartData?.length ?? 0} Need=${requiredPeriods}`);
             (global as any).ENABLE_DETAILED_LOGS = false;
             return NextResponse.json({ message: 'Not enough data for indicators.' });
         }
@@ -82,7 +80,7 @@ export async function GET() {
 
         if (lastSignal?.time && lastSignal.strategy === STRATEGY_TYPE) {
             const lastSignalTime = lastSignal.time;
-            const latestCandleTime = dogeChartData[dogeChartData.length - 1].time;
+            const latestCandleTime = chartData[chartData.length - 1].time;
             const timeSinceLastSignalMs = latestCandleTime - lastSignalTime;
             const cooldown = lastSignal.level === 'High' ? COOLDOWN_HIGH : COOLDOWN_MEDIUM;
             const cooldownActive = timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < cooldown;
@@ -93,51 +91,49 @@ export async function GET() {
                 return NextResponse.json({ message: 'In trade cooldown.' });
             }
         } else {
-            log('No previous signals found for this strategy, cooldown check skipped.');
+            log('No previous signals for this strategy found, cooldown check skipped.');
         }
 
         section('Find New Signal');
-        const i = dogeChartData.length - 1; 
+        const i = chartData.length - 1; 
 
-        const dogeClose = dogeChartData.map(d => d.close);
-        const dogeVolume = dogeChartData.map(d => d.volume);
-        const emaFastArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_FAST_PERIOD);
-        const emaSlowArr = indicators.calculateEMA(dogeClose, strategyConfig.EMA_SLOW_PERIOD);
-        const rsiArr = indicators.calculateRSI(dogeClose, strategyConfig.RSI_PERIOD);
-        const atrArr = indicators.calculateATR(dogeChartData, strategyConfig.ATR_PERIOD);
-        const psarArr = indicators.calculateParabolicSAR(dogeChartData, strategyConfig.PARABOLIC_SAR_STEP, strategyConfig.PARABOLIC_SAR_MAX);
-        const avgVolumeArr = indicators.calculateSMA(dogeVolume, strategyConfig.VOLUME_PERIOD);
+        // Pre-calculate all indicators
+        const closes = chartData.map(d => d.close);
+        const volumes = chartData.map(d => d.volume);
+        const emaFastArr = indicators.calculateEMA(closes, strategyConfig.EMA_FAST_PERIOD);
+        const emaSlowArr = indicators.calculateEMA(closes, strategyConfig.EMA_SLOW_PERIOD);
+        const emaLongArr = indicators.calculateEMA(closes, strategyConfig.EMA_LONG_PERIOD);
+        const rsiArr = indicators.calculateRSI(closes, strategyConfig.RSI_PERIOD);
+        const atrArr = indicators.calculateATR(chartData, strategyConfig.ATR_PERIOD);
+        const volSmaArr = indicators.calculateSMA(volumes, strategyConfig.VOLUME_PERIOD);
         
-        const signal = await generateSignal(i, dogeChartData, strategyConfig, emaFastArr, emaSlowArr, rsiArr, psarArr, avgVolumeArr, atrArr);
+        const signalResult = await generateSignal(i, chartData, strategyConfig, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr);
 
-        if (signal) {
+        if (signalResult.entry) {
             section('Saving Signal');
-            const atrValue = indicators.getValueAt(atrArr, i-1) ?? 0;
-            const capital = 1000;
-            const dollarRisk = capital * (atrValue > 0.0005 ? 0.0075 : 0.0125);
-            const positionSize = dollarRisk / (atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER);
-            const leverage = Math.min(10, Math.max(1, Math.round((positionSize * signal.price) / capital)));
             
-            const enhancedSignal: EnhancedSignal = {
-                ...signal,
+            const signalToSave: Omit<Signal, 'displayTime' | 'serverTime'> = {
+                type: signalResult.side === 'long' ? 'BUY' : 'SELL',
+                level: signalResult.confidence > 0.65 ? 'High' : 'Medium',
+                price: chartData[i].close,
+                time: chartData[i].time,
+                confidence: signalResult.confidence,
                 strategy: STRATEGY_TYPE,
-                suggestedLeverage: leverage,
-                stopBuffer: atrValue * strategyConfig.STOP_LOSS_ATR_MULTIPLIER,
-                confidenceScore: signal.level === 'High' ? 0.85 : 0.65
             };
 
-            await saveSignalToFirestore(enhancedSignal);
-            log('Signal saved:', enhancedSignal);
+            await saveSignalToFirestore(signalToSave);
+            log('Signal saved:', signalToSave);
             (global as any).ENABLE_DETAILED_LOGS = false;
-            return NextResponse.json({ signal: enhancedSignal });
+            return NextResponse.json({ signal: signalToSave });
         }
 
+        log('No signal generated.');
         (global as any).ENABLE_DETAILED_LOGS = false;
         return NextResponse.json({ message: 'No signal generated.' });
 
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        console.error(`Error in cron job: ${errorMessage}`);
+        console.error(`Error in cron job: ${errorMessage}`, err);
         (global as any).ENABLE_DETAILED_LOGS = false;
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
