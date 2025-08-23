@@ -12,7 +12,6 @@ import type { StrategyParams, MarketRegime, QTableEntry } from './types';
 
 const Q_TABLE_COLLECTION = 'qLearningTable';
 const LEARNING_RATE = 0.1; // Alpha: How much we accept the new value.
-const DISCOUNT_FACTOR = 0.9; // Gamma: Importance of future rewards (less relevant here, but standard).
 
 /**
  * Creates a stable, string-based key from a strategy parameters object.
