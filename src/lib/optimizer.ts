@@ -7,7 +7,7 @@
  */
 
 import { getChartData } from '../app/actions';
-import { runBacktest, scoreMetrics, PARAMETER_RANGES } from './backtesting';
+import { runBacktest, scoreMetrics, PARAMETER_RANGES, calculatePerformanceMetrics } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
 import { db } from './firebase';
 import { setDoc, doc, terminate } from 'firebase/firestore';
