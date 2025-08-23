@@ -14,8 +14,16 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
     let position: InTradeState | null = null;
     let cooldown = 0;
 
-    const requiredPeriods = Math.max(params.EMA_SLOW_PERIOD, params.RSI_PERIOD, params.ATR_PERIOD, params.VOLUME_PERIOD, params.EMA_LONG_PERIOD) + 2;
+    const requiredPeriods = Math.max(
+        params.EMA_SLOW_PERIOD, 
+        params.RSI_PERIOD, 
+        params.ATR_PERIOD, 
+        params.VOLUME_PERIOD, 
+        params.EMA_LONG_PERIOD
+    ) + 50;
+    
     if (candles.length < requiredPeriods) {
+        console.warn(`Not enough data for backtest. Need ${requiredPeriods}, got ${candles.length}`);
         return { trades: [], metrics: {} as PerformanceMetrics, params, initialBalance: INITIAL_BALANCE };
     }
 
@@ -40,7 +48,9 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
         // --- EXIT LOGIC ---
         if (position) {
             const currentPrice = candle.close;
-            const pnl = position.side === 'long' ? (currentPrice - position.entryPrice) * position.qty : (position.entryPrice - currentPrice) * position.qty;
+            const pnl = position.side === 'long' 
+                ? (currentPrice - position.entryPrice) * position.qty 
+                : (position.entryPrice - currentPrice) * position.qty;
             equity = balance + pnl;
 
             // ATR Trailing Stop Loss
@@ -71,8 +81,11 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
                     exitPrice = candle.close;
                     reason = signal.exitReason || 'signal';
                 }
+                
+                const finalPnl = position.side === 'long' 
+                    ? (exitPrice - position.entryPrice) * position.qty 
+                    : (position.entryPrice - exitPrice) * position.qty;
 
-                const finalPnl = position.side === 'long' ? (exitPrice - position.entryPrice) * position.qty : (position.entryPrice - exitPrice) * position.qty;
                 balance += finalPnl;
 
                 trades.push({
@@ -100,10 +113,12 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
 
                 const entryPrice = candle.close;
                 const stopLossDist = atrValue * params.ATR_STOP_MULT;
-                const riskPerUnit = stopLossDist;
                 
+                // Correct position sizing
                 const riskAmount = balance * params.RISK_PCT;
-                const qty = riskAmount / riskPerUnit;
+                const positionSize = riskAmount / stopLossDist; // This is the quantity of the asset
+                const qty = positionSize;
+
 
                 const stopLossPrice = signal.side === 'long' ? entryPrice - stopLossDist : entryPrice + stopLossDist;
                 const takeProfitPrice = signal.side === 'long' ? entryPrice + (stopLossDist * params.TP_R_MULT) : entryPrice - (stopLossDist * params.TP_R_MULT);
@@ -158,7 +173,7 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
 
     const avgReturn = returns.reduce((a, b) => a + b, 0) / totalTrades;
     const stdDev = Math.sqrt(returns.map(x => Math.pow(x - avgReturn, 2)).reduce((a, b) => a + b, 0) / totalTrades);
-    const sharpe = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252 * (1440/5)) : 0; // Annualized for 5-min data
+    const sharpe = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252 * (1440/1)) : 0; // Annualized for 1-min data
 
     return {
         wins,
@@ -176,7 +191,7 @@ export async function calculatePerformanceMetrics(trades: TradeResult[], initial
 }
 
 
-export function scoreMetrics(metrics: PerformanceMetrics): number {
+export async function scoreMetrics(metrics: PerformanceMetrics): Promise<number> {
     if (!metrics || metrics.numberOfTrades < 10) {
         return -1; // Heavily penalize strategies with too few trades
     }
