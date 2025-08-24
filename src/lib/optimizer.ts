@@ -4,9 +4,8 @@
  * to find the most optimal configuration for a given strategy and market condition.
  */
 
-import { getChartData } from '../app/actions';
-import { runBacktest, scoreMetrics, PARAMETER_RANGES, calculatePerformanceMetrics } from './backtesting';
-import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
+import { runBacktest, scoreMetrics, calculatePerformanceMetrics } from './backtesting';
+import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult, ChartDataPoint } from './types';
 import { db } from './firebase';
 import { setDoc, doc } from 'firebase/firestore';
 import { detectMarketRegime } from './market-regime';
@@ -98,29 +97,24 @@ function mutate(individual: any, paramRanges: any): any {
 /**
  * The main function to run the genetic algorithm and save the best results.
  * @param strategyType The type of strategy to optimize ('Scalp', 'Day', 'Swing').
+ * @param parameterRanges The parameter ranges for the given strategy.
+ * @param chartData The historical chart data for backtesting.
  */
-export async function runAndSaveOptimization(strategyType: StrategyType) {
+export async function runAndSaveOptimization(
+    strategyType: StrategyType, 
+    parameterRanges: Record<keyof Omit<StrategyParams, 'leverage'>, number[]>,
+    chartData: ChartDataPoint[]
+) {
     
     try {
         log(strategyType, `====== OPTIMIZATION START ======`);
         
-        log(strategyType, "Step 1: Fetching historical data...");
-        const chartData = await getChartData('DOGEUSDT', 1000);
-        log(strategyType, `Loaded ${chartData.length} data points.`);
-
-        if (chartData.length < 500) {
-            log(strategyType, "CRITICAL: Not enough historical data to run optimization. Aborting.");
-            return;
-        }
-        
-        log(strategyType, "Step 2: Detecting market regime...");
+        log(strategyType, "Step 1: Detecting market regime...");
         const marketRegime = await detectMarketRegime(chartData);
         log(strategyType, `Market Regime Detected: ${marketRegime}`);
         
-        log(strategyType, "Step 3: Initializing population with Q-Learning...");
+        log(strategyType, "Step 2: Initializing population with Q-Learning...");
         const bestKnownParams = await getBestParamsFromQTable(marketRegime);
-
-        const parameterRanges = PARAMETER_RANGES[strategyType];
 
         let population: Omit<StrategyParams, 'leverage'>[] = [];
         if (bestKnownParams) {
@@ -139,7 +133,7 @@ export async function runAndSaveOptimization(strategyType: StrategyType) {
         let generationsWithoutImprovement = 0;
         let bestScore = -Infinity;
 
-        log(strategyType, `Step 4: Starting Genetic Algorithm for ${GENERATIONS} generations...`);
+        log(strategyType, `Step 3: Starting Genetic Algorithm for ${GENERATIONS} generations...`);
         for (let gen = 0; gen < GENERATIONS; gen++) {
             const fitnessPromises = population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, leverage: 10 };
@@ -196,10 +190,10 @@ export async function runAndSaveOptimization(strategyType: StrategyType) {
             return;
         }
 
-        log(strategyType, "Step 5: Updating AI long-term memory (Q-Table)...");
+        log(strategyType, "Step 4: Updating AI long-term memory (Q-Table)...");
         await updateQTable(marketRegime, bestIndividualFromAllGens, bestScore);
         
-        log(strategyType, `Step 6: Saving best parameters to Firestore document: latest-${strategyType}`);
+        log(strategyType, `Step 5: Saving best parameters to Firestore document: latest-${strategyType}`);
         const docId = `latest-${strategyType}`;
         const optimizationResultDoc = doc(db, 'optimizationResults', docId);
         await setDoc(optimizationResultDoc, {
