@@ -55,6 +55,11 @@ const PARAMETER_RANGES: Record<StrategyType, Record<keyof Omit<StrategyParams, '
     },
 };
 
+function logcond(message: string, ...args: any[]) {
+    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+    console.log(`[API-Route] ${message}`, params);
+}
+
 export async function GET(
     _request: NextRequest,
     { params }: { params: { strategy: string } }
@@ -71,19 +76,19 @@ export async function GET(
     // The request will return immediately, and the optimization will continue processing.
     (async () => {
         try {
-            console.log(`[API] Received request to start optimization for strategy: ${strategy}`);
+            logcond(`Received request to start optimization for strategy: ${strategy}`);
             
-            console.log(`[API-${strategy}] Fetching chart data for optimization...`);
+            logcond(`[${strategy}] Fetching chart data for optimization...`);
             const chartData = await getChartData('DOGEUSDT', 1000);
             if (!chartData || chartData.length < 500) {
-                console.error(`[API-${strategy}] Not enough historical data to run optimization. Aborting.`);
+                logcond(`[${strategy}] Not enough historical data to run optimization. Aborting.`);
                 return;
             }
-            console.log(`[API-${strategy}] Fetched ${chartData.length} data points.`);
+            logcond(`[${strategy}] Fetched ${chartData.length} data points.`);
 
             await runAndSaveOptimization(strategy, parameterRanges, chartData);
         } catch (err) {
-            console.error(`[API-${strategy}] Uncaught error in background optimization task:`, err);
+            logcond(`[${strategy}] Uncaught error in background optimization task:`, err);
         }
     })();
 

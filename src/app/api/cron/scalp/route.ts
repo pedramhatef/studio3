@@ -1,5 +1,4 @@
 
-'use server';
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
 import type { Signal, StrategyParams, StrategyType } from '@/lib/types';
@@ -12,40 +11,40 @@ const STRATEGY_TYPE: StrategyType = 'Scalp';
 
 export const revalidate = 0;
 
-function log(message: string, ...args: any[]) {
+function logcond(message: string, ...args: any[]) {
     const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
     console.log(`[Cron-Scalp] ${message}`, params);
 }
 
 export async function GET() {
-    log(`====== CRON JOB START ======`);
+    logcond(`====== CRON JOB START ======`);
     
     let strategyConfig: StrategyParams;
 
     try {
-        log("--- Fetching Optimal Parameters ---");
+        logcond("--- Fetching Optimal Parameters ---");
         const latestParams = await getLatestOptimizationParams(STRATEGY_TYPE);
         if (latestParams) {
             strategyConfig = { ...latestParams } as StrategyParams;
-            log(`Applied optimal parameters from Firestore.`);
+            logcond(`Applied optimal parameters from Firestore.`);
         } else {
-            log(`No optimization results found for ${STRATEGY_TYPE}. Attempting to fall back to 'Day' strategy parameters.`);
+            logcond(`No optimization results found for ${STRATEGY_TYPE}. Attempting to fall back to 'Day' strategy parameters.`);
             const dayParams = await getLatestOptimizationParams('Day');
             if (dayParams) {
                 strategyConfig = { ...dayParams } as StrategyParams;
-                 log(`Applied FALLBACK 'Day' parameters.`);
+                 logcond(`Applied FALLBACK 'Day' parameters.`);
             } else {
-                log(`CRITICAL: No optimization results found for ${STRATEGY_TYPE} or Day. Cannot generate signal.`);
+                logcond(`CRITICAL: No optimization results found for ${STRATEGY_TYPE} or Day. Cannot generate signal.`);
                 return NextResponse.json({ message: `No strategy parameters available for ${STRATEGY_TYPE} or fallback.` }, { status: 500 });
             }
         }
     } catch (error) {
-        log(`CRITICAL: Error fetching optimization results:`, error);
+        logcond(`CRITICAL: Error fetching optimization results:`, error);
         return NextResponse.json({ message: 'Failed to fetch strategy parameters.' }, { status: 500 });
     }
 
     try {
-        log("--- Fetching Chart Data ---");
+        logcond("--- Fetching Chart Data ---");
         const requiredPeriods = Math.max(
             strategyConfig.EMA_SLOW_PERIOD, 
             strategyConfig.RSI_PERIOD, 
@@ -55,14 +54,14 @@ export async function GET() {
         ) + 50;
 
         const chartData = await getChartData('DOGEUSDT', 500);
-        log(`Fetched ${chartData.length} candles. Required: ${requiredPeriods}.`);
+        logcond(`Fetched ${chartData.length} candles. Required: ${requiredPeriods}.`);
 
         if (!Array.isArray(chartData) || chartData.length < requiredPeriods) { 
-            log(`Insufficient data. DOGE=${chartData?.length ?? 0}. Aborting.`);
+            logcond(`Insufficient data. DOGE=${chartData?.length ?? 0}. Aborting.`);
             return NextResponse.json({ message: 'Not enough data for indicators.' });
         }
         
-        log("--- Checking Signal Cooldown ---");
+        logcond("--- Checking Signal Cooldown ---");
         const recentSignals = await getSignalHistoryFromFirestore();
         const lastSignal = recentSignals?.[0] ?? null;
 
@@ -74,15 +73,15 @@ export async function GET() {
             const cooldownActive = timeSinceLastSignalMs > 0 && timeSinceLastSignalMs < cooldown;
             
             if (cooldownActive) { 
-                log(`In trade cooldown. Last signal was ${Math.floor(timeSinceLastSignalMs/1000)}s ago. Aborting.`);
+                logcond(`In trade cooldown. Last signal was ${Math.floor(timeSinceLastSignalMs/1000)}s ago. Aborting.`);
                 return NextResponse.json({ message: 'In trade cooldown.' });
             }
-            log("Cooldown period has passed.");
+            logcond("Cooldown period has passed.");
         } else {
-            log('No previous signals for this strategy found, cooldown check skipped.');
+            logcond('No previous signals for this strategy found, cooldown check skipped.');
         }
 
-        log("--- Generating Signal ---");
+        logcond("--- Generating Signal ---");
         const i = chartData.length - 1; 
 
         const closes = chartData.map(d => d.close);
@@ -97,8 +96,8 @@ export async function GET() {
         const signalResult = await generateSignal(i, chartData, strategyConfig, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr, STRATEGY_TYPE);
 
         if (signalResult.entry) {
-            log(`SUCCESS: New signal generated. Side: ${signalResult.side}, Confidence: ${signalResult.confidence.toFixed(2)}`);
-            log("--- Saving Signal ---");
+            logcond(`SUCCESS: New signal generated. Side: ${signalResult.side}, Confidence: ${signalResult.confidence.toFixed(2)}`);
+            logcond("--- Saving Signal ---");
             
             const signalToSave: Omit<Signal, 'displayTime' | 'serverTime'> = {
                 type: signalResult.side === 'long' ? 'BUY' : 'SELL',
@@ -110,18 +109,17 @@ export async function GET() {
             };
 
             await saveSignalToFirestore(signalToSave);
-            log('Signal saved successfully.');
-            log(`====== CRON JOB END ======`);
+            logcond('Signal saved successfully.');
+            logcond(`====== CRON JOB END ======`);
             return NextResponse.json({ signal: signalToSave });
         }
-
-        log('No signal generated based on current strategy rules.');
-        log(`====== CRON JOB END ======`);
+        
+        logcond(`====== CRON JOB END ======`);
         return NextResponse.json({ message: 'No signal generated.' });
 
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        log(`CRITICAL: Unhandled error in cron job: ${errorMessage}`, err);
+        logcond(`CRITICAL: Unhandled error in cron job: ${errorMessage}`, err);
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }

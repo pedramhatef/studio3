@@ -12,7 +12,7 @@ import crypto from 'crypto';
 const Q_TABLE_COLLECTION = 'qLearningTable';
 const LEARNING_RATE = 0.05; // Alpha: How much we accept the new value.
 
-function log(message: string, ...args: any[]) {
+function logcond(message: string, ...args: any[]) {
     const params = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ');
     console.log(`[Q-Learning] ${message}`, params);
 }
@@ -34,7 +34,7 @@ function getParamsKey(params: Omit<StrategyParams, 'leverage'>): string {
  */
 export async function getBestParamsFromQTable(strategy: StrategyType, regime: MarketRegime): Promise<Omit<StrategyParams, 'leverage'> | null> {
     try {
-        log(`[${strategy}] Searching for best params for regime: ${regime}`);
+        logcond(`[${strategy}] Searching for best params for regime: ${regime}`);
         const qTableRef = collection(db, Q_TABLE_COLLECTION);
         const q = query(
             qTableRef,
@@ -45,7 +45,7 @@ export async function getBestParamsFromQTable(strategy: StrategyType, regime: Ma
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
-            log(`[${strategy}] No entries found in Q-Table for regime '${regime}'.`);
+            logcond(`[${strategy}] No entries found in Q-Table for regime '${regime}'.`);
             return null;
         }
 
@@ -53,15 +53,15 @@ export async function getBestParamsFromQTable(strategy: StrategyType, regime: Ma
         const bestScore = bestEntry.scores[regime];
 
         if (typeof bestScore !== 'number') {
-            log(`[${strategy}] Found an entry for regime '${regime}', but its score is invalid.`, bestEntry);
+            logcond(`[${strategy}] Found an entry for regime '${regime}', but its score is invalid.`, bestEntry);
             return null;
         }
 
-        log(`[${strategy}] Found best params for regime '${regime}' with score ${bestScore.toFixed(4)}.`);
+        logcond(`[${strategy}] Found best params for regime '${regime}' with score ${bestScore.toFixed(4)}.`);
         return bestEntry.params;
 
     } catch (error) {
-        log(`[${strategy}] Error getting best params from Q-Table for regime ${regime}:`, error);
+        logcond(`[${strategy}] Error getting best params from Q-Table for regime ${regime}:`, error);
         return null;
     }
 }
@@ -94,7 +94,7 @@ export async function updateQTable(strategy: StrategyType, regime: MarketRegime,
                 lastUpdated: new Date(),
                 uses: (existingData.uses || 0) + 1,
             });
-            log(`[${strategy}] Q-Table updated for regime '${regime}'. Old score: ${oldScore.toFixed(4)}, New score: ${updatedScore.toFixed(4)}.`);
+            logcond(`[${strategy}] Q-Table updated for regime '${regime}'. Old score: ${oldScore.toFixed(4)}, New score: ${updatedScore.toFixed(4)}.`);
 
         } else {
             // Create new entry
@@ -107,10 +107,10 @@ export async function updateQTable(strategy: StrategyType, regime: MarketRegime,
                 uses: 1,
             };
             await setDoc(docRef, newEntry);
-            log(`[${strategy}] Q-Table new entry created for regime '${regime}' with score ${newScore.toFixed(4)}.`);
+            logcond(`[${strategy}] Q-Table new entry created for regime '${regime}' with score ${newScore.toFixed(4)}.`);
         }
     } catch (error) {
-        log(`[${strategy}] Error updating Q-Table:`, error);
+        logcond(`[${strategy}] Error updating Q-Table:`, error);
     }
 }
 

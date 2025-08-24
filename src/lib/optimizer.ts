@@ -12,7 +12,7 @@ const MUTATION_RATE = 0.3;
 const ELITISM_RATE = 0.1;
 const CONVERGENCE_THRESHOLD = 5; // Stop if the best score doesn't improve for this many generations
 
-function log(strategyType: StrategyType, message: string, ...args: any[]) {
+function logcond(strategyType: StrategyType, message: string, ...args: any[]) {
     const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
     console.log(`[Optimizer-${strategyType}] ${message}`, params);
 }
@@ -101,21 +101,21 @@ export async function runAndSaveOptimization(
     chartData: ChartDataPoint[]
 ) {
     try {
-        log(strategyType, `====== OPTIMIZATION START ======`);
+        logcond(strategyType, `====== OPTIMIZATION START ======`);
         
-        log(strategyType, "Step 1: Detecting market regime...");
+        logcond(strategyType, "Step 1: Detecting market regime...");
         const marketRegime = await detectMarketRegime(chartData);
-        log(strategyType, `Market Regime Detected: ${marketRegime}`);
+        logcond(strategyType, `Market Regime Detected: ${marketRegime}`);
         
-        log(strategyType, "Step 2: Initializing population with Q-Learning...");
+        logcond(strategyType, "Step 2: Initializing population with Q-Learning...");
         const bestKnownParams = await getBestParamsFromQTable(strategyType, marketRegime);
 
         let population: Omit<StrategyParams, 'leverage'>[] = [];
         if (bestKnownParams) {
-            log(strategyType, "Seeding population with best known parameters from Q-Table.");
+            logcond(strategyType, "Seeding population with best known parameters from Q-Table.");
             population.push(bestKnownParams); 
         } else {
-            log(strategyType, "No best known params in Q-Table for this regime. Starting with random population.");
+            logcond(strategyType, "No best known params in Q-Table for this regime. Starting with random population.");
         }
         while(population.length < POPULATION_SIZE) {
             population.push(createIndividual(parameterRanges));
@@ -127,7 +127,7 @@ export async function runAndSaveOptimization(
         let generationsWithoutImprovement = 0;
         let bestScore = -Infinity;
 
-        log(strategyType, `Step 3: Starting Genetic Algorithm for ${GENERATIONS} generations...`);
+        logcond(strategyType, `Step 3: Starting Genetic Algorithm for ${GENERATIONS} generations...`);
         for (let gen = 0; gen < GENERATIONS; gen++) {
             const fitnessPromises = population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, leverage: 10 };
@@ -147,14 +147,14 @@ export async function runAndSaveOptimization(
                 bestPerformanceFromAllGens = bestOfGen.performance;
                 bestTradesFromAllGens = bestOfGen.trades;
                 generationsWithoutImprovement = 0;
-                log(strategyType, `Gen ${gen + 1}: New best! Score: ${bestScore.toFixed(4)}, Profit: ${bestPerformanceFromAllGens?.netProfit.toFixed(2)}%, Trades: ${bestPerformanceFromAllGens?.numberOfTrades}`);
+                logcond(strategyType, `Gen ${gen + 1}: New best! Score: ${bestScore.toFixed(4)}, Profit: ${bestPerformanceFromAllGens?.netProfit.toFixed(2)}%, Trades: ${bestPerformanceFromAllGens?.numberOfTrades}`);
             } else {
                 generationsWithoutImprovement++;
-                log(strategyType, `Gen ${gen + 1}: No improvement. Best score remains ${bestScore.toFixed(4)}.`);
+                logcond(strategyType, `Gen ${gen + 1}: No improvement. Best score remains ${bestScore.toFixed(4)}.`);
             }
 
             if (generationsWithoutImprovement >= CONVERGENCE_THRESHOLD && bestScore > 0) {
-                log(strategyType, `Stopping early at Gen ${gen + 1} due to convergence on a good result.`);
+                logcond(strategyType, `Stopping early at Gen ${gen + 1} due to convergence on a good result.`);
                 break;
             }
 
@@ -169,24 +169,24 @@ export async function runAndSaveOptimization(
             for (let i = eliteCount; i < POPULATION_SIZE; i++) {
                 const parent1 = select(population, fitnesses);
                 const parent2 = select(population, fitnesses);
-let child = crossover(parent1, parent2);
+                let child = crossover(parent1, parent2);
                 child = mutate(child, parameterRanges);
                 newPopulation.push(child);
             }
             
             population = newPopulation;
         }
-        log(strategyType, `Genetic Algorithm finished.`);
+        logcond(strategyType, `Genetic Algorithm finished.`);
 
         if (!bestIndividualFromAllGens || !bestPerformanceFromAllGens || bestPerformanceFromAllGens.numberOfTrades < 5) {
-            log(strategyType, `CRITICAL: Optimization failed. Did not find a suitable strategy with enough trades. Aborting save.`);
+            logcond(strategyType, `CRITICAL: Optimization failed. Did not find a suitable strategy with enough trades. Aborting save.`);
             return;
         }
 
-        log(strategyType, "Step 4: Updating AI long-term memory (Q-Table)...");
+        logcond(strategyType, "Step 4: Updating AI long-term memory (Q-Table)...");
         await updateQTable(strategyType, marketRegime, bestIndividualFromAllGens, bestScore);
         
-        log(strategyType, `Step 5: Saving best parameters to Firestore document: latest-${strategyType}`);
+        logcond(strategyType, `Step 5: Saving best parameters to Firestore document: latest-${strategyType}`);
         const docId = `latest-${strategyType}`;
         const optimizationResultDoc = doc(db, 'optimizationResults', docId);
         await setDoc(optimizationResultDoc, {
@@ -198,10 +198,10 @@ let child = crossover(parent1, parent2);
             score: bestScore,
             timestamp: new Date(),
         });
-        log(strategyType, `Successfully saved results to Firestore.`);
-        log(strategyType, `====== OPTIMIZATION COMPLETE ======`);
+        logcond(strategyType, `Successfully saved results to Firestore.`);
+        logcond(strategyType, `====== OPTIMIZATION COMPLETE ======`);
 
     } catch (error) {
-        log(strategyType, `CRITICAL: Unhandled error in optimization task:`, error);
+        logcond(strategyType, `CRITICAL: Unhandled error in optimization task:`, error);
     }
 }

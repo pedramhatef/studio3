@@ -5,7 +5,7 @@ const ADX_PERIOD = 14;
 const ADX_THRESHOLD = 25; // Threshold to determine if the market is trending or ranging
 const TREND_EMA_PERIOD = 200; // Long-term EMA to determine trend direction
 
-function log(message: string, ...args: any[]) {
+function logcond(message: string, ...args: any[]) {
     const params = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ');
     console.log(`[MarketRegime] ${message}`, params);
 }
@@ -82,7 +82,7 @@ function calculateADX(candles: ChartDataPoint[], period: number) {
  */
 export async function detectMarketRegime(candles: ChartDataPoint[]): Promise<MarketRegime> {
     if (candles.length < TREND_EMA_PERIOD) {
-        log(`Not enough data to detect market regime (${candles.length} candles), defaulting to 'ranging'.`);
+        logcond(`Not enough data to detect market regime (${candles.length} candles), defaulting to 'ranging'.`);
         return 'ranging';
     }
 
@@ -97,7 +97,7 @@ export async function detectMarketRegime(candles: ChartDataPoint[]): Promise<Mar
         const lastMinusDI = indicators.getValueAt(minusDIArr, minusDIArr.length - 1) ?? 0;
         const lastTrendEMA = indicators.getValueAt(emaTrendArr, emaTrendArr.length - 1) ?? 0;
     
-        log(`Values - ADX: ${lastADX.toFixed(2)}, +DI: ${lastPlusDI.toFixed(2)}, -DI: ${lastMinusDI.toFixed(2)}, Price: ${lastCandle.close}, Trend EMA: ${lastTrendEMA.toFixed(5)}`);
+        logcond(`Values - ADX: ${lastADX.toFixed(2)}, +DI: ${lastPlusDI.toFixed(2)}, -DI: ${lastMinusDI.toFixed(2)}, Price: ${lastCandle.close}, Trend EMA: ${lastTrendEMA.toFixed(5)}`);
     
         // Is the market trending?
         if (lastADX > ADX_THRESHOLD) {
@@ -113,7 +113,7 @@ export async function detectMarketRegime(candles: ChartDataPoint[]): Promise<Mar
         return 'ranging';
 
     } catch (error) {
-        log(`Error detecting market regime:`, error);
+        logcond(`Error detecting market regime:`, error);
         return 'ranging'; // Default to ranging on error
     }
 }

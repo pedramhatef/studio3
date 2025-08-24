@@ -1,12 +1,11 @@
 
-'use server';
 import type { ChartDataPoint, StrategyParams, TradeResult, InTradeState, PerformanceMetrics, BacktestResult, StrategyType } from './types';
 import * as indicators from './indicators';
 import { generateSignal } from './signal-generator';
 
 const INITIAL_BALANCE = 1000;
 
-function log(message: string, ...args: any[]) {
+function logcond(message: string, ...args: any[]) {
     const params = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ');
     console.log(`[Backtest] ${message}`, params);
 }
@@ -27,7 +26,7 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
     ) + 50;
     
     if (candles.length < requiredPeriods) {
-        log(`Not enough data for backtest. Required: ${requiredPeriods}, Available: ${candles.length}. Params:`, params);
+        logcond(`Not enough data for backtest. Required: ${requiredPeriods}, Available: ${candles.length}. Params:`, params);
         return { trades: [], metrics: {} as PerformanceMetrics, params, initialBalance: INITIAL_BALANCE };
     }
 
