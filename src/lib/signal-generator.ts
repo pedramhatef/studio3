@@ -1,4 +1,5 @@
 
+
 'use server';
 import type { ChartDataPoint, SignalResult, StrategyParams, StrategyType } from '@/lib/types';
 import * as indicators from './indicators';
@@ -13,11 +14,6 @@ const gv = (arr: (number | null)[], index: number, fallback: number = 0): number
 function candleStrength(candle: ChartDataPoint) {
     const range = candle.high - candle.low;
     return range > 0 ? Math.abs(candle.close - candle.open) / range : 0;
-}
-
-function log(strategyType: StrategyType, message: string, ...args: any[]) {
-    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
-    console.log(`[SignalGen-${strategyType}] ${message}`, params);
 }
 
 /**
@@ -50,42 +46,44 @@ export async function generateSignal(
     const isDownTrend = eFast < eSlow && eSlow < eLong;
     const enoughVolume = vol > vAvg * params.VOLUME_THRESHOLD_MULTIPLIER;
 
-    log(strategyType, `Checking conditions for candle at time ${new Date(c.time).toISOString()}`);
-    log(strategyType, `├─ EMA Fast: ${eFast.toFixed(5)}, EMA Slow: ${eSlow.toFixed(5)}, EMA Long: ${eLong.toFixed(5)}`);
-    log(strategyType, `├─ RSI: ${rsi.toFixed(2)} (Oversold: ${params.RSI_OVERSOLD}, Overbought: ${params.RSI_OVERBOUGHT})`);
-    log(strategyType, `├─ Volume: ${vol.toFixed(2)}, Avg Volume: ${vAvg.toFixed(2)}, Threshold: ${(vAvg * params.VOLUME_THRESHOLD_MULTIPLIER).toFixed(2)}`);
-    log(strategyType, `├─ Is Up-Trend? ${isUpTrend}`);
-    log(strategyType, `├─ Is Down-Trend? ${isDownTrend}`);
-    log(strategyType, `└─ Enough Volume? ${enoughVolume}`);
+    const logPrefix = `[SignalGen-${strategyType}]`;
+
+    console.log(`${logPrefix} Checking conditions for candle at time ${new Date(c.time).toISOString()}`);
+    console.log(`${logPrefix} ├─ EMA Fast: ${eFast.toFixed(5)}, EMA Slow: ${eSlow.toFixed(5)}, EMA Long: ${eLong.toFixed(5)}`);
+    console.log(`${logPrefix} ├─ RSI: ${rsi.toFixed(2)} (Oversold: ${params.RSI_OVERSOLD}, Overbought: ${params.RSI_OVERBOUGHT})`);
+    console.log(`${logPrefix} ├─ Volume: ${vol.toFixed(2)}, Avg Volume: ${vAvg.toFixed(2)}, Threshold: ${(vAvg * params.VOLUME_THRESHOLD_MULTIPLIER).toFixed(2)}`);
+    console.log(`${logPrefix} ├─ Is Up-Trend? ${isUpTrend}`);
+    console.log(`${logPrefix} ├─ Is Down-Trend? ${isDownTrend}`);
+    console.log(`${logPrefix} └─ Enough Volume? ${enoughVolume}`);
 
     let entry = false;
     let side: 'long' | 'short' | undefined;
   
     // --- Entry Logic: Pullback to Fast EMA ---
     if (isUpTrend && enoughVolume && rsi > params.RSI_OVERSOLD) {
-      log(strategyType, `  ↳ Potential LONG entry: Trend, Volume, and RSI conditions met.`);
+        console.log(`${logPrefix}   ↳ Potential LONG entry: Trend, Volume, and RSI conditions met.`);
       if (c.low < eFast && c.close > eFast) {
-          log(strategyType, `  ✓ SUCCESS: Price pulled back to and crossed above Fast EMA. Setting entry to LONG.`);
+          console.log(`${logPrefix}   ✓ SUCCESS: Price pulled back to and crossed above Fast EMA. Setting entry to LONG.`);
           entry = true;
           side = 'long';
       } else {
-          log(strategyType, `  ✗ FAILED: Price did not pull back to and cross above Fast EMA (Low: ${c.low.toFixed(5)}, Close: ${c.close.toFixed(5)}, EMA Fast: ${eFast.toFixed(5)}).`);
+          console.log(`${logPrefix}   ✗ FAILED: Price did not pull back to and cross above Fast EMA (Low: ${c.low.toFixed(5)}, Close: ${c.close.toFixed(5)}, EMA Fast: ${eFast.toFixed(5)}).`);
       }
     }
   
     if (isDownTrend && enoughVolume && rsi < params.RSI_OVERBOUGHT) {
-        log(strategyType, `  ↳ Potential SHORT entry: Trend, Volume, and RSI conditions met.`);
+        console.log(`${logPrefix}   ↳ Potential SHORT entry: Trend, Volume, and RSI conditions met.`);
       if (c.high > eFast && c.close < eFast) {
-          log(strategyType, `  ✓ SUCCESS: Price pulled back to and crossed below Fast EMA. Setting entry to SHORT.`);
+          console.log(`${logPrefix}   ✓ SUCCESS: Price pulled back to and crossed below Fast EMA. Setting entry to SHORT.`);
           entry = true;
           side = 'short';
       } else {
-        log(strategyType, `  ✗ FAILED: Price did not pull back to and cross below Fast EMA (High: ${c.high.toFixed(5)}, Close: ${c.close.toFixed(5)}, EMA Fast: ${eFast.toFixed(5)}).`);
+        console.log(`${logPrefix}   ✗ FAILED: Price did not pull back to and cross below Fast EMA (High: ${c.high.toFixed(5)}, Close: ${c.close.toFixed(5)}, EMA Fast: ${eFast.toFixed(5)}).`);
       }
     }
   
     if (!entry || !side) {
-        log(strategyType, `Final decision: No entry signal generated.`);
+        console.log(`${logPrefix} Final decision: No entry signal generated.`);
         return { confidence: 0 };
     }
   
@@ -102,7 +100,7 @@ export async function generateSignal(
     
     const confidence = components.reduce((a, b) => a + b, 0) / components.length;
 
-    log(strategyType, `Confidence calculated for ${side} signal: ${confidence.toFixed(4)}`);
+    console.log(`${logPrefix} Confidence calculated for ${side} signal: ${confidence.toFixed(4)}`);
 
     // --- Exit Logic ---
     let exit = false;
