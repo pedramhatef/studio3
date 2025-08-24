@@ -34,7 +34,7 @@ export async function generateSignal(
     rsiArr: (number | null)[],
     _atrArr: (number | null)[],
     volSmaArr: (number | null)[],
-    strategyType: StrategyType, // Pass strategy type for logging
+    strategyType: StrategyType,
 ): Promise<SignalResult> {
 
     const c = candles[i];
