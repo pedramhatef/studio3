@@ -9,15 +9,13 @@ import { doc, getDoc, setDoc, updateDoc, collection, query, orderBy, limit, getD
 import type { StrategyParams, MarketRegime, QTableEntry } from './types';
 import crypto from 'crypto';
 
-
 const Q_TABLE_COLLECTION = 'qLearningTable';
-const LEARNING_RATE = 0.1; // Alpha: How much we accept the new value.
+const LEARNING_RATE = 0.05; // Alpha: How much we accept the new value.
 
 function log(message: string, ...args: any[]) {
     const params = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ');
     console.log(`[Q-Learning] ${message}`, params);
 }
-
 
 /**
  * Creates a stable, string-based key from a strategy parameters object.
@@ -70,7 +68,6 @@ export async function getBestParamsFromQTable(regime: MarketRegime): Promise<Omi
         return null;
     }
 }
-
 
 /**
  * Updates the Q-table with the performance of a given set of parameters.
