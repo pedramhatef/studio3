@@ -35,14 +35,14 @@ export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: numbe
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Bybit Chart API Error (${symbol}):`, errorText);
+      console.error(`[Actions] Bybit Chart API Error (${symbol}):`, errorText);
       throw new Error(`Failed to fetch chart data for ${symbol}: ${response.statusText}`);
     }
 
     const data: BybitKlineResponse = await response.json();
 
     if (data.retCode !== 0) {
-      throw new Error(`Bybit API returned an error for ${symbol}: ${data.retMsg}`);
+      throw new Error(`[Actions] Bybit API returned an error for ${symbol}: ${data.retMsg}`);
     }
 
     const formattedData = data.result.list.map(d => ({
@@ -56,7 +56,7 @@ export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: numbe
 
     return formattedData;
   } catch (error) {
-    console.error(`Error in getChartData for ${symbol}:`, error);
+    console.error(`[Actions] Error in getChartData for ${symbol}:`, error);
     return []; // Return empty array on error
   }
 }
@@ -68,10 +68,10 @@ export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>)
       ...signal,
       serverTime: serverTimestamp(),
     });
-    console.log("Document written with ID: ", docRef.id);
+    console.log("[Actions] Signal saved to Firestore with ID: ", docRef.id);
     return { success: true, id: docRef.id };
   } catch (e) {
-    console.error("Error adding document: ", e);
+    console.error("[Actions] Error saving signal to Firestore: ", e);
     return { success: false, error: (e as Error).message };
   }
 }
@@ -102,7 +102,7 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
       
       return signals; 
     } catch (error) {
-      console.error("Error fetching signal history:", error);
+      console.error("[Actions] Error fetching signal history from Firestore:", error);
       return [];
     }
 }
@@ -116,15 +116,15 @@ export async function getLatestOptimizationParams(strategy: StrategyType = 'Day'
         if (docSnap.exists()) {
           const data = docSnap.data();
           if (data && data.bestParams) {
-             console.log(`Fetched optimization params for ${strategy}`, data.bestParams);
+             console.log(`[Actions] Fetched latest optimization params for ${strategy}.`);
              return data.bestParams as StrategyParams;
           }
         } else {
-            console.log(`No optimization document found for strategy: ${strategy}`);
+            console.log(`[Actions] No optimization document found for strategy: ${strategy}`);
         }
         return null;
       } catch (error) {
-        console.error(`Error fetching optimization results for ${strategy}:`, error);
+        console.error(`[Actions] Error fetching latest optimization results for ${strategy}:`, error);
         return null;
       }
 }

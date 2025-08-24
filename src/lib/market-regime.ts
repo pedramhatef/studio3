@@ -79,31 +79,43 @@ function calculateADX(candles: ChartDataPoint[], period: number) {
  * @returns The detected market regime ('trending_up', 'trending_down', or 'ranging').
  */
 export async function detectMarketRegime(candles: ChartDataPoint[]): Promise<MarketRegime> {
+    const logPrefix = `[MarketRegime]`;
     if (candles.length < TREND_EMA_PERIOD) {
-        console.warn("Not enough data to detect market regime, defaulting to 'ranging'.");
+        console.warn(`${logPrefix} Not enough data to detect market regime, defaulting to 'ranging'.`);
         return 'ranging';
     }
 
-    const closes = candles.map(c => c.close);
-    const emaTrendArr = indicators.calculateEMA(closes, TREND_EMA_PERIOD);
-    const { adx: adxArr, plusDI: plusDIArr, minusDI: minusDIArr } = calculateADX(candles, ADX_PERIOD);
+    try {
+        const closes = candles.map(c => c.close);
+        const emaTrendArr = indicators.calculateEMA(closes, TREND_EMA_PERIOD);
+        const { adx: adxArr, plusDI: plusDIArr, minusDI: minusDIArr } = calculateADX(candles, ADX_PERIOD);
+        
+        const lastCandle = candles[candles.length - 1];
+        const lastADX = indicators.getValueAt(adxArr, adxArr.length - 1) ?? 0;
+        const lastPlusDI = indicators.getValueAt(plusDIArr, plusDIArr.length - 1) ?? 0;
+        const lastMinusDI = indicators.getValueAt(minusDIArr, minusDIArr.length - 1) ?? 0;
+        const lastTrendEMA = indicators.getValueAt(emaTrendArr, emaTrendArr.length - 1) ?? 0;
     
-    const lastCandle = candles[candles.length - 1];
-    const lastADX = indicators.getValueAt(adxArr, adxArr.length - 1) ?? 0;
-    const lastPlusDI = indicators.getValueAt(plusDIArr, plusDIArr.length - 1) ?? 0;
-    const lastMinusDI = indicators.getValueAt(minusDIArr, minusDIArr.length - 1) ?? 0;
-    const lastTrendEMA = indicators.getValueAt(emaTrendArr, emaTrendArr.length - 1) ?? 0;
-
-    // Is the market trending?
-    if (lastADX > ADX_THRESHOLD) {
-        // Yes, it's trending. Now determine direction.
-        if (lastPlusDI > lastMinusDI && lastCandle.close > lastTrendEMA) {
-            return 'trending_up';
-        } else if (lastMinusDI > lastPlusDI && lastCandle.close < lastTrendEMA) {
-            return 'trending_down';
+        console.log(`${logPrefix} Values - ADX: ${lastADX.toFixed(2)}, +DI: ${lastPlusDI.toFixed(2)}, -DI: ${lastMinusDI.toFixed(2)}, Price: ${lastCandle.close}, Trend EMA: ${lastTrendEMA.toFixed(5)}`);
+    
+        // Is the market trending?
+        if (lastADX > ADX_THRESHOLD) {
+            // Yes, it's trending. Now determine direction.
+            if (lastPlusDI > lastMinusDI && lastCandle.close > lastTrendEMA) {
+                console.log(`${logPrefix} Regime Detected: trending_up`);
+                return 'trending_up';
+            } else if (lastMinusDI > lastPlusDI && lastCandle.close < lastTrendEMA) {
+                console.log(`${logPrefix} Regime Detected: trending_down`);
+                return 'trending_down';
+            }
         }
-    }
+    
+        // If ADX is weak or other conditions don't align, we are in a ranging market.
+        console.log(`${logPrefix} Regime Detected: ranging`);
+        return 'ranging';
 
-    // If ADX is weak or other conditions don't align, we are in a ranging market.
-    return 'ranging';
+    } catch (error) {
+        console.error(`${logPrefix} Error detecting market regime:`, error);
+        return 'ranging'; // Default to ranging on error
+    }
 }

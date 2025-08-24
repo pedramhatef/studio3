@@ -3,10 +3,9 @@
  * This file contains the core logic for running backtests with various parameters
  * to find the most optimal configuration for a given strategy and market condition.
  */
-'use server';
 
 import { getChartData } from '../app/actions';
-import { runBacktest, scoreMetrics, calculatePerformanceMetrics } from './backtesting';
+import { runBacktest, scoreMetrics, calculatePerformanceMetrics, PARAMETER_RANGES } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
 import { db } from './firebase';
 import { setDoc, doc } from 'firebase/firestore';
@@ -18,6 +17,10 @@ const GENERATIONS = 20;
 const MUTATION_RATE = 0.3;
 const ELITISM_RATE = 0.1;
 const CONVERGENCE_THRESHOLD = 5; // Stop if the best score doesn't improve for this many generations
+
+function log(strategyType: StrategyType, message: string) {
+    console.log(`[Optimizer-${strategyType}] ${message}`);
+}
 
 /**
  * Creates a single set of random strategy parameters.
@@ -40,7 +43,7 @@ function createIndividual(paramRanges: Record<keyof Omit<StrategyParams, 'levera
  */
 function select(population: any[], fitnesses: number[]): any {
     const minFitness = Math.min(...fitnesses);
-    const adjustedFitnesses = fitnesses.map(f => f - minFitness);
+    const adjustedFitnesses = fitnesses.map(f => f - minFitness + 1e-6); // Add small epsilon to avoid total fitness of 0
 
     const totalFitness = adjustedFitnesses.reduce((a, b) => a + b, 0);
 
@@ -99,25 +102,29 @@ function mutate(individual: any, paramRanges: any): any {
 export async function runAndSaveOptimization(strategyType: StrategyType, parameterRanges: Record<keyof Omit<StrategyParams, 'leverage'>, number[]>) {
     
     try {
-        console.log(`=== STRATEGY OPTIMIZATION (${strategyType}) STARTING ===`);
+        log(strategyType, `====== OPTIMIZATION START ======`);
         
+        log(strategyType, "Step 1: Fetching historical data...");
         const chartData = await getChartData('DOGEUSDT', 1000);
-        console.log(`Loaded ${chartData.length} DOGE data points for backtesting.`);
+        log(strategyType, `Loaded ${chartData.length} data points.`);
 
         if (chartData.length < 500) {
-            console.error("Not enough historical data to run optimization.");
+            log(strategyType, "CRITICAL: Not enough historical data to run optimization. Aborting.");
             return;
         }
         
+        log(strategyType, "Step 2: Detecting market regime...");
         const marketRegime = await detectMarketRegime(chartData);
-        console.log(`Current Market Regime Detected: ${marketRegime}`);
-
+        
+        log(strategyType, "Step 3: Initializing population with Q-Learning...");
         const bestKnownParams = await getBestParamsFromQTable(marketRegime);
 
         let population: Omit<StrategyParams, 'leverage'>[] = [];
         if (bestKnownParams) {
-            console.log("Seeding population with best known parameters from Q-Table.");
+            log(strategyType, "Seeding population with best known parameters from Q-Table.");
             population.push(bestKnownParams); 
+        } else {
+            log(strategyType, "No best known params in Q-Table for this regime. Starting with random population.");
         }
         while(population.length < POPULATION_SIZE) {
             population.push(createIndividual(parameterRanges));
@@ -129,6 +136,7 @@ export async function runAndSaveOptimization(strategyType: StrategyType, paramet
         let generationsWithoutImprovement = 0;
         let bestScore = -Infinity;
 
+        log(strategyType, `Step 4: Starting Genetic Algorithm for ${GENERATIONS} generations...`);
         for (let gen = 0; gen < GENERATIONS; gen++) {
             const fitnessPromises = population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, leverage: 10 };
@@ -149,15 +157,14 @@ export async function runAndSaveOptimization(strategyType: StrategyType, paramet
                 bestPerformanceFromAllGens = bestOfGen.performance;
                 bestTradesFromAllGens = bestOfGen.trades;
                 generationsWithoutImprovement = 0;
-                console.log(`New best in Gen ${gen + 1}! Score: ${bestScore.toFixed(4)}, Profit: ${bestPerformanceFromAllGens?.netProfit.toFixed(2)}%, Trades: ${bestPerformanceFromAllGens?.numberOfTrades}`);
+                log(strategyType, `Gen ${gen + 1}: New best found! Score: ${bestScore.toFixed(4)}, Profit: ${bestPerformanceFromAllGens?.netProfit.toFixed(2)}%, Trades: ${bestPerformanceFromAllGens?.numberOfTrades}`);
             } else {
                 generationsWithoutImprovement++;
+                log(strategyType, `Gen ${gen + 1}: No improvement. Best score remains ${bestScore.toFixed(4)}.`);
             }
-            
-            console.log(`Gen ${gen + 1}/${GENERATIONS} | Best Score: ${bestOfGen.score.toFixed(4)}`);
 
             if (generationsWithoutImprovement >= CONVERGENCE_THRESHOLD && bestScore > 0) {
-                console.log("Stopping early due to convergence on a good result.");
+                log(strategyType, `Stopping early at Gen ${gen + 1} due to convergence on a good result.`);
                 break;
             }
 
@@ -179,15 +186,17 @@ export async function runAndSaveOptimization(strategyType: StrategyType, paramet
             
             population = newPopulation;
         }
+        log(strategyType, `Genetic Algorithm finished.`);
 
         if (!bestIndividualFromAllGens || !bestPerformanceFromAllGens || bestPerformanceFromAllGens.numberOfTrades < 5) {
-            console.error(`Optimization failed for ${strategyType}: did not find a suitable strategy with enough trades.`);
+            log(strategyType, `CRITICAL: Optimization failed. Did not find a suitable strategy with enough trades. Aborting save.`);
             return;
         }
 
+        log(strategyType, "Step 5: Updating AI long-term memory (Q-Table)...");
         await updateQTable(marketRegime, bestIndividualFromAllGens, bestScore);
         
-        console.log(`Saving best parameters to Firestore document: latest-${strategyType}`);
+        log(strategyType, `Step 6: Saving best parameters to Firestore document: latest-${strategyType}`);
         const docId = `latest-${strategyType}`;
         const optimizationResultDoc = doc(db, 'optimizationResults', docId);
         await setDoc(optimizationResultDoc, {
@@ -199,9 +208,10 @@ export async function runAndSaveOptimization(strategyType: StrategyType, paramet
             score: bestScore,
             timestamp: new Date(),
         });
-        console.log(`Successfully saved ${strategyType} optimization results to Firestore.`);
+        log(strategyType, `Successfully saved results to Firestore.`);
+        log(strategyType, `====== OPTIMIZATION COMPLETE ======`);
 
     } catch (error) {
-        console.error(`[Optimization Task Error] Failed to run optimization for ${strategyType}:`, error);
+        console.error(`[Optimizer-${strategyType}] CRITICAL: Unhandled error in optimization task:`, error);
     }
 }
