@@ -9,6 +9,11 @@ import type { ChartDataPoint } from './types';
 // Each function takes historical market data and returns the calculated values.
 // =================================================================================
 
+function logcond(source: string, message: string, ...args: any[]) {
+    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+    console.log(`[${source}] ${message}`, params);
+}
+
 /**
  * Safely gets a value from a numeric array at a specific index.
  * Returns null if the index is out of bounds or the value is invalid.
@@ -24,7 +29,10 @@ export const getValueAt = (arr: (number | null)[], idx: number): number | null =
  * Calculates Simple Moving Average (SMA)
  */
 export function calculateSMA(data: number[], period: number): (number | null)[] {
-    if (period <= 0 || period > data.length) return [];
+    if (period <= 0 || period > data.length) {
+        logcond('indicators', `[calculateSMA] Invalid period (${period}) or insufficient data (${data.length}). Returning empty array.`);
+        return [];
+    }
     
     const result: (number | null)[] = Array(period - 1).fill(null);
     let sum = 0;
@@ -62,7 +70,10 @@ export function calculateStdDev(data: number[], period: number): (number | null)
  * Calculates Exponential Moving Average (EMA)
  */
 export function calculateEMA(data: number[], period: number): (number | null)[] {
-    if (period <= 0 || period > data.length) return [];
+    if (period <= 0 || period > data.length) {
+        logcond('indicators', `[calculateEMA] Invalid period (${period}) or insufficient data (${data.length}). Returning empty array.`);
+        return [];
+    }
 
     const result: (number | null)[] = Array(period - 1).fill(null);
     const k = 2 / (period + 1);
@@ -121,7 +132,10 @@ export function calculateVWAP(data: ChartDataPoint[]): (number | null)[] {
  * Calculates Relative Strength Index (RSI)
  */
 export function calculateRSI(data: number[], period: number = 14): (number | null)[] {
-    if (period <= 0 || period >= data.length) return [];
+    if (period <= 0 || period >= data.length) {
+        logcond('indicators', `[calculateRSI] Invalid period (${period}) or insufficient data (${data.length}). Returning empty array.`);
+        return [];
+    }
 
     const result: (number | null)[] = Array(period).fill(null);
     let gains = 0;
@@ -174,6 +188,7 @@ export function calculateRSI(data: number[], period: number = 14): (number | nul
  */
 export function calculateBollingerBands(data: number[], period: number = 20, stdDev: number = 2): { middle: (number|null)[], upper: (number|null)[], lower: (number|null)[] } {
     if (period <= 0 || period > data.length) {
+        logcond('indicators', `[calculateBollingerBands] Invalid period (${period}) or insufficient data (${data.length}). Returning empty result.`);
         return { 
             middle: [], 
             upper: [], 
@@ -296,6 +311,7 @@ export function calculateParabolicSAR(data: ChartDataPoint[], step: number, max:
  */
 export function calculateATR(chartData: ChartDataPoint[], period: number): (number | null)[] {
     if (period <= 0 || chartData.length < period) {
+        logcond('indicators', `[calculateATR] Invalid period (${period}) or insufficient data (${chartData.length}). Returning empty array.`);
         return [];
     }
     
