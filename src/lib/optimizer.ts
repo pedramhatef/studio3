@@ -7,8 +7,8 @@
  */
 
 import { getChartData } from '../app/actions';
-import { runBacktest, scoreMetrics, PARAMETER_RANGES, calculatePerformanceMetrics } from './backtesting';
-import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
+import { runBacktest, scoreMetrics, calculatePerformanceMetrics } from './backtesting';
+import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult, BacktestResult } from './types';
 import { db } from './firebase';
 import { setDoc, doc, terminate } from 'firebase/firestore';
 import { detectMarketRegime } from './market-regime';
@@ -97,17 +97,11 @@ function mutate(individual: any, paramRanges: any): any {
  * The main function to run the genetic algorithm and save the best results.
  * @param strategyType The type of strategy to optimize ('Scalp', 'Day', 'Swing').
  */
-export async function runAndSaveOptimization(strategyType: StrategyType) {
-    if (!Object.keys(PARAMETER_RANGES).includes(strategyType)) {
-        console.error(`Invalid strategy type provided: ${strategyType}. Aborting optimization.`);
-        return;
-    }
+export async function runAndSaveOptimization(strategyType: StrategyType, parameterRanges: Record<keyof Omit<StrategyParams, 'leverage'>, number[]>) {
     
     try {
         console.log(`=== STRATEGY OPTIMIZATION (${strategyType}) STARTING ===`);
         
-        const parameterRanges = PARAMETER_RANGES[strategyType];
-
         const chartData = await getChartData('DOGEUSDT', 1000);
         console.log(`Loaded ${chartData.length} DOGE data points for backtesting.`);
 
