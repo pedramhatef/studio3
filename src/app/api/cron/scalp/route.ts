@@ -84,6 +84,7 @@ export async function GET() {
         logcond("--- Generating Signal ---");
         const i = chartData.length - 1; 
 
+        // Efficiently calculate only the most recent indicator values needed
         const closes = chartData.map(d => d.close);
         const volumes = chartData.map(d => d.volume);
         const emaFastArr = indicators.calculateEMA(closes, strategyConfig.EMA_FAST_PERIOD);
@@ -114,6 +115,7 @@ export async function GET() {
             return NextResponse.json({ signal: signalToSave });
         }
         
+        logcond('No signal generated based on current strategy rules.');
         logcond(`====== CRON JOB END ======`);
         return NextResponse.json({ message: 'No signal generated.' });
 
