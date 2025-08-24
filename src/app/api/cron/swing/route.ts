@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
 import type { Signal, StrategyParams, StrategyType } from '@/lib/types';
 import { generateSignal } from '@/lib/signal-generator';
-import * as indicators from '@/lib/indicators';
 
 const COOLDOWN_HIGH = 15 * 60 * 1000; // 15 minutes
 const COOLDOWN_MEDIUM = 30 * 60 * 1000; // 30 minutes
@@ -84,17 +83,9 @@ export async function GET() {
         logcond("--- Generating Signal ---");
         const i = chartData.length - 1; 
 
-        // Efficiently calculate only the most recent indicator values needed
-        const closes = chartData.map(d => d.close);
-        const volumes = chartData.map(d => d.volume);
-        const emaFastArr = indicators.calculateEMA(closes, strategyConfig.EMA_FAST_PERIOD);
-        const emaSlowArr = indicators.calculateEMA(closes, strategyConfig.EMA_SLOW_PERIOD);
-        const emaLongArr = indicators.calculateEMA(closes, strategyConfig.EMA_LONG_PERIOD);
-        const rsiArr = indicators.calculateRSI(closes, strategyConfig.RSI_PERIOD);
-        const atrArr = indicators.calculateATR(chartData, strategyConfig.ATR_PERIOD);
-        const volSmaArr = indicators.calculateSMA(volumes, strategyConfig.VOLUME_PERIOD);
-        
-        const signalResult = await generateSignal(i, chartData, strategyConfig, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr, STRATEGY_TYPE);
+        // No longer pre-calculating entire indicator arrays to save memory.
+        // generateSignal will now calculate what it needs on-demand.
+        const signalResult = await generateSignal(i, chartData, strategyConfig, STRATEGY_TYPE);
 
         if (signalResult.entry) {
             logcond(`SUCCESS: New signal generated. Side: ${signalResult.side}, Confidence: ${signalResult.confidence.toFixed(2)}`);

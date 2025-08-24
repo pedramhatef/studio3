@@ -30,15 +30,10 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
         return { trades: [], metrics: {} as PerformanceMetrics, params, initialBalance: INITIAL_BALANCE };
     }
 
-    // Pre-calculate all indicators
+    // Pre-calculate all indicators for efficiency in backtesting
     const closes = candles.map(c => c.close);
     const volumes = candles.map(c => c.volume);
-    const emaFastArr = indicators.calculateEMA(closes, params.EMA_FAST_PERIOD);
-    const emaSlowArr = indicators.calculateEMA(closes, params.EMA_SLOW_PERIOD);
-    const emaLongArr = indicators.calculateEMA(closes, params.EMA_LONG_PERIOD);
-    const rsiArr = indicators.calculateRSI(closes, params.RSI_PERIOD);
     const atrArr = indicators.calculateATR(candles, params.ATR_PERIOD);
-    const volSmaArr = indicators.calculateSMA(volumes, params.VOLUME_PERIOD);
     
     for (let i = requiredPeriods; i < candles.length; i++) {
         if (cooldown > 0) {
@@ -47,6 +42,10 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
         }
 
         const candle = candles[i];
+        
+        // Generate signal for the current candle `i`.
+        // This calculates indicators on-demand inside generateSignal.
+        const signal = await generateSignal(i, candles, params, strategyType);
         
         // --- EXIT LOGIC ---
         if (position) {
@@ -67,7 +66,6 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
             const hitStop = (position.side === 'long' && candle.low <= position.stopLossPrice) || (position.side === 'short' && candle.high >= position.stopLossPrice);
             const hitTP = (position.side === 'long' && candle.high >= position.takeProfitPrice) || (position.side === 'short' && candle.low <= position.takeProfitPrice);
             
-            const signal = await generateSignal(i, candles, params, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr, strategyType);
             const signalExit = signal.exit && ((position.side === 'long' && signal.side !== 'long') || (position.side === 'short' && signal.side !== 'short'));
 
             if (hitStop || hitTP || signalExit) {
@@ -109,7 +107,6 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
         
         // --- ENTRY LOGIC ---
         if (!position) {
-            const signal = await generateSignal(i, candles, params, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr, strategyType);
             if (signal.entry && signal.side) {
                 const atrValue = indicators.getValueAt(atrArr, i) ?? 0;
                 if (atrValue === 0) continue;

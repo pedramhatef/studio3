@@ -23,28 +23,26 @@ function log(strategyType: StrategyType, message: string, ...args: any[]) {
 /**
  * Generates a trading signal based on the provided data and strategy parameters.
  * This is the core logic engine used by both backtesting and live trading.
+ * This version calculates indicators on-demand to save memory.
  */
 export async function generateSignal(
     i: number,
     candles: ChartDataPoint[],
     params: StrategyParams,
-    emaFastArr: (number | null)[],
-    emaSlowArr: (number | null)[],
-    emaLongArr: (number | null)[],
-    rsiArr: (number | null)[],
-    _atrArr: (number | null)[],
-    volSmaArr: (number | null)[],
     strategyType: StrategyType,
 ): Promise<SignalResult> {
 
     const c = candles[i];
-  
-    // --- Indicator Values ---
-    const eFast = gv(emaFastArr, i);
-    const eSlow = gv(emaSlowArr, i);
-    const eLong = gv(emaLongArr, i);
-    const rsi = gv(rsiArr, i, 50);
-    const vol = gv(candles.map(c => c.volume), i, 0);
+    const closes = candles.map(c => c.close);
+    const volumes = candles.map(d => d.volume);
+
+    // --- On-Demand Indicator Calculation ---
+    const eFast = gv(indicators.calculateEMA(closes, params.EMA_FAST_PERIOD), i);
+    const eSlow = gv(indicators.calculateEMA(closes, params.EMA_SLOW_PERIOD), i);
+    const eLong = gv(indicators.calculateEMA(closes, params.EMA_LONG_PERIOD), i);
+    const rsi = gv(indicators.calculateRSI(closes, params.RSI_PERIOD), i, 50);
+    const vol = gv(volumes, i, 0);
+    const volSmaArr = indicators.calculateSMA(volumes, params.VOLUME_PERIOD);
     const vAvg = gv(volSmaArr, i, 1);
   
     // --- Primary Conditions ---
