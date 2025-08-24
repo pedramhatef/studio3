@@ -81,14 +81,18 @@ export async function GET(
             logcond(`[${strategy}] Fetching chart data for optimization...`);
             const chartData = await getChartData('DOGEUSDT', 1000);
             if (!chartData || chartData.length < 500) {
-                logcond(`[${strategy}] Not enough historical data to run optimization. Aborting.`);
+                // This check is important, but getChartData will throw on network failure now.
+                console.error(`[API-Route] [${strategy}] Not enough historical data to run optimization. Aborting.`);
                 return;
             }
             logcond(`[${strategy}] Fetched ${chartData.length} data points.`);
 
             await runAndSaveOptimization(strategy, parameterRanges, chartData);
         } catch (err) {
-            logcond(`[${strategy}] Uncaught error in background optimization task:`, err);
+            // This is the critical change. We log the error, but also re-throw it
+            // so that Vercel knows the background task has failed.
+            console.error(`[API-Route] [${strategy}] CRITICAL: Uncaught error in background optimization task:`, err);
+            throw err; // Re-throw the error to ensure the serverless function exits with a failure status.
         }
     })();
 

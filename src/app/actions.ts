@@ -35,13 +35,15 @@ export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: numbe
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Actions] Bybit Chart API Error (${symbol}):`, errorText);
+      console.error(`[Actions] Bybit Chart API HTTP Error (${symbol}): ${response.status} ${response.statusText}`, errorText);
+      // Throw an error to be caught by the calling cron job, ensuring it fails explicitly.
       throw new Error(`Failed to fetch chart data for ${symbol}: ${response.statusText}`);
     }
 
     const data: BybitKlineResponse = await response.json();
 
     if (data.retCode !== 0) {
+      // Throw an error to be caught by the calling cron job.
       throw new Error(`[Actions] Bybit API returned an error for ${symbol}: ${data.retMsg}`);
     }
 
@@ -56,7 +58,7 @@ export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: numbe
 
     return formattedData;
   } catch (error) {
-    console.error(`[Actions] Error in getChartData for ${symbol}:`, error);
+    console.error(`[Actions] CRITICAL: Unhandled error in getChartData for ${symbol}. Re-throwing.`, error);
     // Re-throw the error to ensure the calling function (like a cron job) fails instead of proceeding with bad data.
     throw error;
   }
