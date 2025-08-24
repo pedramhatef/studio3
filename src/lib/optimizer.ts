@@ -1,3 +1,4 @@
+
 /**
  * @fileOverview Genetic Algorithm and Q-Learning based strategy optimizer.
  * This file contains the core logic for running backtests with various parameters
@@ -18,8 +19,8 @@ const MUTATION_RATE = 0.3;
 const ELITISM_RATE = 0.1;
 const CONVERGENCE_THRESHOLD = 5; // Stop if the best score doesn't improve for this many generations
 
-function log(strategyType: StrategyType, message: string) {
-    console.log(`[Optimizer-${strategyType}] ${message}`);
+function log(strategyType: StrategyType, message: string, ...args: any[]) {
+    console.log(`[Optimizer-${strategyType}] ${message}`, ...args);
 }
 
 /**
@@ -212,6 +213,6 @@ export async function runAndSaveOptimization(strategyType: StrategyType, paramet
         log(strategyType, `====== OPTIMIZATION COMPLETE ======`);
 
     } catch (error) {
-        console.error(`[Optimizer-${strategyType}] CRITICAL: Unhandled error in optimization task:`, error);
+        log(strategyType, `CRITICAL: Unhandled error in optimization task:`, error);
     }
 }

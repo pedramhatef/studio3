@@ -12,12 +12,11 @@ const STRATEGY_TYPE = 'Day';
 export const revalidate = 0;
 
 function log(message: string, ...args: any[]) {
-    const timestamp = new Date().toISOString();
-    console.log(`${timestamp} [Cron-Day] ${message}`, ...args);
+    console.log(`[Cron-Day] ${message}`, ...args);
 }
 
 export async function GET() {
-    log(`====== CRON JOB START @ ${new Date().toISOString()} ======`);
+    log(`====== CRON JOB START ======`);
     
     let strategyConfig: StrategyParams;
 
@@ -32,7 +31,7 @@ export async function GET() {
             return NextResponse.json({ message: `No strategy parameters available for ${STRATEGY_TYPE}.` }, { status: 500 });
         }
     } catch (error) {
-        console.error(`CRITICAL: Error fetching optimization results:`, error);
+        log(`CRITICAL: Error fetching optimization results:`, error);
         return NextResponse.json({ message: 'Failed to fetch strategy parameters.' }, { status: 500 });
     }
 
@@ -113,7 +112,7 @@ export async function GET() {
 
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        console.error(`CRITICAL: Unhandled error in cron job: ${errorMessage}`, err);
+        log(`CRITICAL: Unhandled error in cron job: ${errorMessage}`, err);
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }
