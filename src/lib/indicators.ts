@@ -1,5 +1,4 @@
 
-
 import type { ChartDataPoint } from './types';
 
 // =================================================================================
@@ -328,7 +327,7 @@ export function calculateATR(chartData: ChartDataPoint[], period: number): (numb
         tr.push(trueRange);
     }
 
-    const atr: (number | null)[] = Array(period -1).fill(null);
+    const atr: (number | null)[] = Array(period - 1).fill(null);
 
     let sumTr = 0;
     for(let i=0; i<period; i++) {
