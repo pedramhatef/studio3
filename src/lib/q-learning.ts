@@ -6,7 +6,7 @@
  */
 import { db } from './firebase';
 import { doc, getDoc, setDoc, updateDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
-import type { StrategyParams, MarketRegime, QTableEntry } from './types';
+import type { StrategyParams, MarketRegime, QTableEntry, StrategyType } from './types';
 import crypto from 'crypto';
 
 const Q_TABLE_COLLECTION = 'qLearningTable';
@@ -19,9 +19,6 @@ function log(message: string, ...args: any[]) {
 
 /**
  * Creates a stable, string-based key from a strategy parameters object.
- * This is an internal utility function and is not exported.
- * @param params The strategy parameters.
- * @returns A string key.
  */
 function getParamsKey(params: Omit<StrategyParams, 'leverage'>): string {
     return Object.entries(params)
@@ -35,9 +32,9 @@ function getParamsKey(params: Omit<StrategyParams, 'leverage'>): string {
  * @param regime The current market regime.
  * @returns The best known StrategyParams or null if none are found.
  */
-export async function getBestParamsFromQTable(regime: MarketRegime): Promise<Omit<StrategyParams, 'leverage'> | null> {
+export async function getBestParamsFromQTable(strategy: StrategyType, regime: MarketRegime): Promise<Omit<StrategyParams, 'leverage'> | null> {
     try {
-        log(`Searching for best params for regime: ${regime}`);
+        log(`[${strategy}] Searching for best params for regime: ${regime}`);
         const qTableRef = collection(db, Q_TABLE_COLLECTION);
         const q = query(
             qTableRef,
@@ -48,7 +45,7 @@ export async function getBestParamsFromQTable(regime: MarketRegime): Promise<Omi
         const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
-            log(`No entries found in Q-Table for regime '${regime}'.`);
+            log(`[${strategy}] No entries found in Q-Table for regime '${regime}'.`);
             return null;
         }
 
@@ -56,15 +53,15 @@ export async function getBestParamsFromQTable(regime: MarketRegime): Promise<Omi
         const bestScore = bestEntry.scores[regime];
 
         if (typeof bestScore !== 'number') {
-            log(`Found an entry for regime '${regime}', but its score is invalid.`, bestEntry);
+            log(`[${strategy}] Found an entry for regime '${regime}', but its score is invalid.`, bestEntry);
             return null;
         }
 
-        log(`Found best params for regime '${regime}' with score ${bestScore.toFixed(4)}.`);
+        log(`[${strategy}] Found best params for regime '${regime}' with score ${bestScore.toFixed(4)}.`);
         return bestEntry.params;
 
     } catch (error) {
-        log(`Error getting best params from Q-Table for regime ${regime}:`, error);
+        log(`[${strategy}] Error getting best params from Q-Table for regime ${regime}:`, error);
         return null;
     }
 }
@@ -75,7 +72,7 @@ export async function getBestParamsFromQTable(regime: MarketRegime): Promise<Omi
  * @param params The strategy parameters that were tested.
  * @param newScore The performance score achieved by the parameters.
  */
-export async function updateQTable(regime: MarketRegime, params: Omit<StrategyParams, 'leverage'>, newScore: number) {
+export async function updateQTable(strategy: StrategyType, regime: MarketRegime, params: Omit<StrategyParams, 'leverage'>, newScore: number) {
     const paramsKey = getParamsKey(params);
     const docId = createHash(paramsKey);
     const docRef = doc(db, Q_TABLE_COLLECTION, docId);
@@ -97,7 +94,7 @@ export async function updateQTable(regime: MarketRegime, params: Omit<StrategyPa
                 lastUpdated: new Date(),
                 uses: (existingData.uses || 0) + 1,
             });
-            log(`Q-Table updated for regime '${regime}'. Old score: ${oldScore.toFixed(4)}, New score: ${updatedScore.toFixed(4)}.`);
+            log(`[${strategy}] Q-Table updated for regime '${regime}'. Old score: ${oldScore.toFixed(4)}, New score: ${updatedScore.toFixed(4)}.`);
 
         } else {
             // Create new entry
@@ -110,10 +107,10 @@ export async function updateQTable(regime: MarketRegime, params: Omit<StrategyPa
                 uses: 1,
             };
             await setDoc(docRef, newEntry);
-            log(`Q-Table new entry created for regime '${regime}' with score ${newScore.toFixed(4)}.`);
+            log(`[${strategy}] Q-Table new entry created for regime '${regime}' with score ${newScore.toFixed(4)}.`);
         }
     } catch (error) {
-        log(`Error updating Q-Table:`, error);
+        log(`[${strategy}] Error updating Q-Table:`, error);
     }
 }
 
