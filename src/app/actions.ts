@@ -57,7 +57,8 @@ export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: numbe
     return formattedData;
   } catch (error) {
     console.error(`[Actions] Error in getChartData for ${symbol}:`, error);
-    return []; // Return empty array on error
+    // Re-throw the error to ensure the calling function (like a cron job) fails instead of proceeding with bad data.
+    throw error;
   }
 }
 
