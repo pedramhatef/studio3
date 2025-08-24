@@ -6,7 +6,7 @@
 'use server';
 
 import { getChartData } from '../app/actions';
-import { calculatePerformanceMetrics, runBacktest, scoreMetrics } from './backtesting';
+import { runBacktest, scoreMetrics, calculatePerformanceMetrics, PARAMETER_RANGES } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
 import { db } from './firebase';
 import { setDoc, doc, terminate } from 'firebase/firestore';
