@@ -1,4 +1,3 @@
-
 import { runBacktest, scoreMetrics } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult, ChartDataPoint } from './types';
 import { db } from './firebase';
@@ -7,10 +6,17 @@ import { detectMarketRegime } from './market-regime';
 import { getBestParamsFromQTable, updateQTable } from './q-learning';
 
 const POPULATION_SIZE = 25;
-const GENERATIONS = 20;
 const MUTATION_RATE = 0.3;
 const ELITISM_RATE = 0.1;
 const CONVERGENCE_THRESHOLD = 5; // Stop if the best score doesn't improve for this many generations
+
+// Different generation counts based on strategy complexity to avoid timeouts
+const GENERATION_COUNTS: Record<StrategyType, number> = {
+    Scalp: 20,
+    Day: 10,
+    Swing: 5,
+};
+
 
 function logcond(strategyType: StrategyType, message: string, ...args: any[]) {
     const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
@@ -101,7 +107,8 @@ export async function runAndSaveOptimization(
     chartData: ChartDataPoint[]
 ) {
     try {
-        logcond(strategyType, `====== OPTIMIZATION START ======`);
+        const generations = GENERATION_COUNTS[strategyType];
+        logcond(strategyType, `====== OPTIMIZATION START (Generations: ${generations}) ======`);
         
         logcond(strategyType, "Step 1: Detecting market regime...");
         const marketRegime = await detectMarketRegime(chartData);
@@ -127,8 +134,8 @@ export async function runAndSaveOptimization(
         let generationsWithoutImprovement = 0;
         let bestScore = -Infinity;
 
-        logcond(strategyType, `Step 3: Starting Genetic Algorithm for ${GENERATIONS} generations...`);
-        for (let gen = 0; gen < GENERATIONS; gen++) {
+        logcond(strategyType, `Step 3: Starting Genetic Algorithm for ${generations} generations...`);
+        for (let gen = 0; gen < generations; gen++) {
             const fitnessPromises = population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, leverage: 10 };
                 const backtestResult = await runBacktest(chartData, params, strategyType);
