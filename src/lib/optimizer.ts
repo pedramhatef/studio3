@@ -1,4 +1,3 @@
-
 /**
  * @fileOverview Genetic Algorithm and Q-Learning based strategy optimizer.
  * This file contains the core logic for running backtests with various parameters
@@ -6,7 +5,7 @@
  */
 
 import { getChartData } from '../app/actions';
-import { runBacktest, scoreMetrics, calculatePerformanceMetrics, PARAMETER_RANGES } from './backtesting';
+import { runBacktest, scoreMetrics, PARAMETER_RANGES } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
 import { db } from './firebase';
 import { setDoc, doc } from 'firebase/firestore';
@@ -20,7 +19,8 @@ const ELITISM_RATE = 0.1;
 const CONVERGENCE_THRESHOLD = 5; // Stop if the best score doesn't improve for this many generations
 
 function log(strategyType: StrategyType, message: string, ...args: any[]) {
-    console.log(`[Optimizer-${strategyType}] ${message}`, ...args);
+    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ');
+    console.log(`[Optimizer-${strategyType}] ${message}`, params);
 }
 
 /**
@@ -98,9 +98,8 @@ function mutate(individual: any, paramRanges: any): any {
 /**
  * The main function to run the genetic algorithm and save the best results.
  * @param strategyType The type of strategy to optimize ('Scalp', 'Day', 'Swing').
- * @param parameterRanges The parameter ranges for the given strategy.
  */
-export async function runAndSaveOptimization(strategyType: StrategyType, parameterRanges: Record<keyof Omit<StrategyParams, 'leverage'>, number[]>) {
+export async function runAndSaveOptimization(strategyType: StrategyType) {
     
     try {
         log(strategyType, `====== OPTIMIZATION START ======`);
@@ -116,9 +115,12 @@ export async function runAndSaveOptimization(strategyType: StrategyType, paramet
         
         log(strategyType, "Step 2: Detecting market regime...");
         const marketRegime = await detectMarketRegime(chartData);
+        log(strategyType, `Market Regime Detected: ${marketRegime}`);
         
         log(strategyType, "Step 3: Initializing population with Q-Learning...");
         const bestKnownParams = await getBestParamsFromQTable(marketRegime);
+
+        const parameterRanges = PARAMETER_RANGES[strategyType];
 
         let population: Omit<StrategyParams, 'leverage'>[] = [];
         if (bestKnownParams) {
@@ -158,7 +160,7 @@ export async function runAndSaveOptimization(strategyType: StrategyType, paramet
                 bestPerformanceFromAllGens = bestOfGen.performance;
                 bestTradesFromAllGens = bestOfGen.trades;
                 generationsWithoutImprovement = 0;
-                log(strategyType, `Gen ${gen + 1}: New best found! Score: ${bestScore.toFixed(4)}, Profit: ${bestPerformanceFromAllGens?.netProfit.toFixed(2)}%, Trades: ${bestPerformanceFromAllGens?.numberOfTrades}`);
+                log(strategyType, `Gen ${gen + 1}: New best! Score: ${bestScore.toFixed(4)}, Profit: ${bestPerformanceFromAllGens?.netProfit.toFixed(2)}%, Trades: ${bestPerformanceFromAllGens?.numberOfTrades}`);
             } else {
                 generationsWithoutImprovement++;
                 log(strategyType, `Gen ${gen + 1}: No improvement. Best score remains ${bestScore.toFixed(4)}.`);

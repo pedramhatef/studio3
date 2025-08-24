@@ -1,6 +1,3 @@
-
-'use server';
-
 import type { ChartDataPoint, SignalResult, StrategyParams } from '@/lib/types';
 import * as indicators from './indicators';
 

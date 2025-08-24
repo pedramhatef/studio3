@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { runAndSaveOptimization } from '../../../../lib/optimizer';
-import type { StrategyParams, StrategyType } from '../../../../lib/types';
+import type { StrategyType } from '../../../../lib/types';
 import { PARAMETER_RANGES } from '@/lib/backtesting';
 
 function capitalizeFirstLetter(string: string) {
@@ -17,14 +17,12 @@ export async function GET(
     if (!Object.keys(PARAMETER_RANGES).includes(strategy)) {
         return NextResponse.json({ message: `Invalid strategy type: ${strategy}` }, { status: 400 });
     }
-
-    const parameterRanges = PARAMETER_RANGES[strategy];
     
     console.log(`[API] Received request to start optimization for strategy: ${strategy}`);
 
     // Run the optimization in the background. Don't await it.
     // The request will return immediately, and the optimization will continue processing.
-    runAndSaveOptimization(strategy, parameterRanges).catch(err => {
+    runAndSaveOptimization(strategy).catch(err => {
         console.error(`[API] Uncaught error in background optimization task for ${strategy}:`, err);
     });
 

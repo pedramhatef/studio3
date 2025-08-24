@@ -1,5 +1,3 @@
-
-'use server';
 /**
  * @fileOverview Q-Learning inspired optimizer for managing and improving strategy parameters.
  * This system uses a Q-table stored in Firestore to associate strategy parameters
@@ -16,7 +14,8 @@ const Q_TABLE_COLLECTION = 'qLearningTable';
 const LEARNING_RATE = 0.1; // Alpha: How much we accept the new value.
 
 function log(message: string, ...args: any[]) {
-    console.log(`[Q-Learning] ${message}`, ...args);
+    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ');
+    console.log(`[Q-Learning] ${message}`, params);
 }
 
 
