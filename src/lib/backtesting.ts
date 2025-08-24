@@ -1,3 +1,5 @@
+
+'use server';
 import type { ChartDataPoint, StrategyParams, TradeResult, InTradeState, PerformanceMetrics, BacktestResult, StrategyType } from './types';
 import * as indicators from './indicators';
 import { generateSignal } from './signal-generator';
@@ -9,7 +11,7 @@ function log(message: string, ...args: any[]) {
     console.log(`[Backtest] ${message}`, params);
 }
 
-export async function runBacktest(candles: ChartDataPoint[], params: StrategyParams): Promise<BacktestResult> {
+export async function runBacktest(candles: ChartDataPoint[], params: StrategyParams, strategyType: StrategyType): Promise<BacktestResult> {
     const trades: TradeResult[] = [];
     let balance = INITIAL_BALANCE;
     let equity = INITIAL_BALANCE;
@@ -66,7 +68,7 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
             const hitStop = (position.side === 'long' && candle.low <= position.stopLossPrice) || (position.side === 'short' && candle.high >= position.stopLossPrice);
             const hitTP = (position.side === 'long' && candle.high >= position.takeProfitPrice) || (position.side === 'short' && candle.low <= position.takeProfitPrice);
             
-            const signal = await generateSignal(i, candles, params, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr);
+            const signal = await generateSignal(i, candles, params, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr, strategyType);
             const signalExit = signal.exit && ((position.side === 'long' && signal.side !== 'long') || (position.side === 'short' && signal.side !== 'short'));
 
             if (hitStop || hitTP || signalExit) {
@@ -108,7 +110,7 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
         
         // --- ENTRY LOGIC ---
         if (!position) {
-            const signal = await generateSignal(i, candles, params, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr);
+            const signal = await generateSignal(i, candles, params, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr, strategyType);
             if (signal.entry && signal.side) {
                 const atrValue = indicators.getValueAt(atrArr, i) ?? 0;
                 if (atrValue === 0) continue;

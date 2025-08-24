@@ -1,18 +1,20 @@
 
+'use server';
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
-import type { Signal, StrategyParams } from '@/lib/types';
+import type { Signal, StrategyParams, StrategyType } from '@/lib/types';
 import { generateSignal } from '@/lib/signal-generator';
 import * as indicators from '@/lib/indicators';
 
 const COOLDOWN_HIGH = 1 * 60 * 1000; // 1 minute
 const COOLDOWN_MEDIUM = 2 * 60 * 1000; // 2 minutes
-const STRATEGY_TYPE = 'Scalp';
+const STRATEGY_TYPE: StrategyType = 'Scalp';
 
 export const revalidate = 0;
 
 function log(message: string, ...args: any[]) {
-    console.log(`[Cron-Scalp] ${message}`, ...args);
+    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+    console.log(`[Cron-Scalp] ${message}`, params);
 }
 
 export async function GET() {
@@ -92,7 +94,7 @@ export async function GET() {
         const atrArr = indicators.calculateATR(chartData, strategyConfig.ATR_PERIOD);
         const volSmaArr = indicators.calculateSMA(volumes, strategyConfig.VOLUME_PERIOD);
         
-        const signalResult = await generateSignal(i, chartData, strategyConfig, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr);
+        const signalResult = await generateSignal(i, chartData, strategyConfig, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr, STRATEGY_TYPE);
 
         if (signalResult.entry) {
             log(`SUCCESS: New signal generated. Side: ${signalResult.side}, Confidence: ${signalResult.confidence.toFixed(2)}`);

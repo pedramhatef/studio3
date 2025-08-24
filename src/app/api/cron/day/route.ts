@@ -1,18 +1,20 @@
 
+'use server';
 import { NextResponse } from 'next/server';
 import { getChartData, saveSignalToFirestore, getSignalHistoryFromFirestore, getLatestOptimizationParams } from '@/app/actions';
-import type { Signal, StrategyParams } from '@/lib/types';
+import type { Signal, StrategyParams, StrategyType } from '@/lib/types';
 import { generateSignal } from '@/lib/signal-generator';
 import * as indicators from '@/lib/indicators';
 
 const COOLDOWN_HIGH = 3 * 60 * 1000; // 3 minutes
 const COOLDOWN_MEDIUM = 5 * 60 * 1000; // 5 minutes
-const STRATEGY_TYPE = 'Day';
+const STRATEGY_TYPE: StrategyType = 'Day';
 
 export const revalidate = 0;
 
 function log(message: string, ...args: any[]) {
-    console.log(`[Cron-Day] ${message}`, ...args);
+    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+    console.log(`[Cron-Day] ${message}`, params);
 }
 
 export async function GET() {
@@ -85,7 +87,7 @@ export async function GET() {
         const atrArr = indicators.calculateATR(chartData, strategyConfig.ATR_PERIOD);
         const volSmaArr = indicators.calculateSMA(volumes, strategyConfig.VOLUME_PERIOD);
         
-        const signalResult = await generateSignal(i, chartData, strategyConfig, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr);
+        const signalResult = await generateSignal(i, chartData, strategyConfig, emaFastArr, emaSlowArr, emaLongArr, rsiArr, atrArr, volSmaArr, STRATEGY_TYPE);
 
         if (signalResult.entry) {
             log(`SUCCESS: New signal generated. Side: ${signalResult.side}, Confidence: ${signalResult.confidence.toFixed(2)}`);

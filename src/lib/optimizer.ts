@@ -1,8 +1,3 @@
-/**
- * @fileOverview Genetic Algorithm and Q-Learning based strategy optimizer.
- * This file contains the core logic for running backtests with various parameters
- * to find the most optimal configuration for a given strategy and market condition.
- */
 
 import { runBacktest, scoreMetrics } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult, ChartDataPoint } from './types';
@@ -18,7 +13,7 @@ const ELITISM_RATE = 0.1;
 const CONVERGENCE_THRESHOLD = 5; // Stop if the best score doesn't improve for this many generations
 
 function log(strategyType: StrategyType, message: string, ...args: any[]) {
-    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ');
+    const params = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
     console.log(`[Optimizer-${strategyType}] ${message}`, params);
 }
 
@@ -136,7 +131,7 @@ export async function runAndSaveOptimization(
         for (let gen = 0; gen < GENERATIONS; gen++) {
             const fitnessPromises = population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, leverage: 10 };
-                const backtestResult = await runBacktest(chartData, params);
+                const backtestResult = await runBacktest(chartData, params, strategyType);
                 const score = await scoreMetrics(backtestResult.metrics);
                 return { individual, performance: backtestResult.metrics, score, trades: backtestResult.trades };
             });
@@ -174,7 +169,7 @@ export async function runAndSaveOptimization(
             for (let i = eliteCount; i < POPULATION_SIZE; i++) {
                 const parent1 = select(population, fitnesses);
                 const parent2 = select(population, fitnesses);
-                let child = crossover(parent1, parent2);
+let child = crossover(parent1, parent2);
                 child = mutate(child, parameterRanges);
                 newPopulation.push(child);
             }
