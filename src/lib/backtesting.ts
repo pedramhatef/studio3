@@ -44,8 +44,8 @@ export async function runBacktest(candles: ChartDataPoint[], params: StrategyPar
         const candle = candles[i];
         
         // Generate signal for the current candle `i`.
-        // This calculates indicators on-demand inside generateSignal.
-        const signal = await generateSignal(i, candles, params, strategyType);
+        // VERBOSE is set to false here to keep optimizer logs clean.
+        const signal = await generateSignal(i, candles, params, strategyType, false);
         
         // --- EXIT LOGIC ---
         if (position) {

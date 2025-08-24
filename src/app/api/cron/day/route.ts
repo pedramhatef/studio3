@@ -76,9 +76,8 @@ export async function GET() {
         logcond("--- Generating Signal ---");
         const i = chartData.length - 1; 
         
-        // No longer pre-calculating entire indicator arrays to save memory.
-        // generateSignal will now calculate what it needs on-demand.
-        const signalResult = await generateSignal(i, chartData, strategyConfig, STRATEGY_TYPE);
+        // Call generateSignal with verbose: true for detailed live logging
+        const signalResult = await generateSignal(i, chartData, strategyConfig, STRATEGY_TYPE, true);
 
         if (signalResult.entry) {
             logcond(`SUCCESS: New signal generated. Side: ${signalResult.side}, Confidence: ${signalResult.confidence.toFixed(2)}`);
