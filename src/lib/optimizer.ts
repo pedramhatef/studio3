@@ -4,7 +4,7 @@
  * to find the most optimal configuration for a given strategy and market condition.
  */
 
-import { runBacktest, scoreMetrics, calculatePerformanceMetrics } from './backtesting';
+import { runBacktest, scoreMetrics } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult, ChartDataPoint } from './types';
 import { db } from './firebase';
 import { setDoc, doc } from 'firebase/firestore';
@@ -105,7 +105,6 @@ export async function runAndSaveOptimization(
     parameterRanges: Record<keyof Omit<StrategyParams, 'leverage'>, number[]>,
     chartData: ChartDataPoint[]
 ) {
-    
     try {
         log(strategyType, `====== OPTIMIZATION START ======`);
         
@@ -114,7 +113,7 @@ export async function runAndSaveOptimization(
         log(strategyType, `Market Regime Detected: ${marketRegime}`);
         
         log(strategyType, "Step 2: Initializing population with Q-Learning...");
-        const bestKnownParams = await getBestParamsFromQTable(marketRegime);
+        const bestKnownParams = await getBestParamsFromQTable(strategyType, marketRegime);
 
         let population: Omit<StrategyParams, 'leverage'>[] = [];
         if (bestKnownParams) {
@@ -138,9 +137,8 @@ export async function runAndSaveOptimization(
             const fitnessPromises = population.map(async (individual) => {
                 const params: StrategyParams = { ...individual, leverage: 10 };
                 const backtestResult = await runBacktest(chartData, params);
-                const performance = await calculatePerformanceMetrics(backtestResult.trades, backtestResult.initialBalance);
-                const score = await scoreMetrics(performance);
-                return { individual, performance, score, trades: backtestResult.trades };
+                const score = await scoreMetrics(backtestResult.metrics);
+                return { individual, performance: backtestResult.metrics, score, trades: backtestResult.trades };
             });
 
             const results = await Promise.all(fitnessPromises);
@@ -191,7 +189,7 @@ export async function runAndSaveOptimization(
         }
 
         log(strategyType, "Step 4: Updating AI long-term memory (Q-Table)...");
-        await updateQTable(marketRegime, bestIndividualFromAllGens, bestScore);
+        await updateQTable(strategyType, marketRegime, bestIndividualFromAllGens, bestScore);
         
         log(strategyType, `Step 5: Saving best parameters to Firestore document: latest-${strategyType}`);
         const docId = `latest-${strategyType}`;

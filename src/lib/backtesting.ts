@@ -1,4 +1,3 @@
-
 import type { ChartDataPoint, StrategyParams, TradeResult, InTradeState, PerformanceMetrics, BacktestResult, StrategyType } from './types';
 import * as indicators from './indicators';
 import { generateSignal } from './signal-generator';

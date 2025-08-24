@@ -1,4 +1,3 @@
-
 import { NextResponse, NextRequest } from 'next/server';
 import { runAndSaveOptimization } from '../../../../lib/optimizer';
 import type { StrategyType, StrategyParams } from '../../../../lib/types';
