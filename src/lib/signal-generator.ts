@@ -28,7 +28,7 @@ export async function generateSignal(
     emaSlowArr: (number | null)[],
     emaLongArr: (number | null)[],
     rsiArr: (number | null)[],
-    atrArr: (number | null)[],
+    _atrArr: (number | null)[],
     volSmaArr: (number | null)[]
 ): Promise<SignalResult> {
 

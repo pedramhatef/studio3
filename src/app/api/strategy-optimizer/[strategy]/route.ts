@@ -55,7 +55,7 @@ function capitalizeFirstLetter(string: string) {
 }
 
 export async function GET(
-    request: NextRequest,
+    _request: NextRequest,
     { params }: { params: { strategy: string } }
 ) {
     const strategyParam = params.strategy;
