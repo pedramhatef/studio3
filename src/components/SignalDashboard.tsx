@@ -88,12 +88,14 @@ export function SignalDashboard() {
       const fetchedSignals: Signal[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
+        // Ensure strategy is present, default to 'Day' only if absolutely necessary
+        const strategy = data.strategy && ['Scalp', 'Day', 'Swing'].includes(data.strategy) ? data.strategy : 'Day';
         fetchedSignals.push({
             type: data.type,
             level: data.level,
             price: data.price,
             time: data.time,
-            strategy: data.strategy || 'Day', // Default to Day if not present
+            strategy: strategy,
         } as Signal);
       });
       // The query is desc, so we need to reverse to get chronological order for the state
@@ -117,12 +119,13 @@ export function SignalDashboard() {
         snapshot.docChanges().forEach((change) => {
             if (change.type === "added") {
                 const newSignalData = change.doc.data();
+                const strategy = newSignalData.strategy && ['Scalp', 'Day', 'Swing'].includes(newSignalData.strategy) ? newSignalData.strategy : 'Day';
                 const newSignal = {
                     type: newSignalData.type,
                     level: newSignalData.level,
                     price: newSignalData.price,
                     time: newSignalData.time,
-                    strategy: newSignalData.strategy || 'Day',
+                    strategy: strategy,
                 } as Signal;
 
                 // Simple check to avoid processing duplicates from the listener
