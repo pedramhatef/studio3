@@ -1,6 +1,3 @@
-
-'use server';
-
 import { NextResponse, NextRequest } from 'next/server';
 import { runAndSaveOptimization } from '../../../../lib/optimizer';
 import type { StrategyType } from '../../../../lib/types';
@@ -17,7 +14,7 @@ export async function GET(
     const strategyParam = params.strategy;
     const strategy = capitalizeFirstLetter(strategyParam) as StrategyType;
 
-    if (!Object.keys(PARAMETER_RANGES).includes(strategy)) {
+    if (!PARAMETER_RANGES[strategy]) {
         return NextResponse.json({ message: `Invalid strategy type: ${strategy}` }, { status: 400 });
     }
 

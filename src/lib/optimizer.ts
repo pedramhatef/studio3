@@ -1,5 +1,3 @@
-
-'use server';
 /**
  * @fileOverview Genetic Algorithm and Q-Learning based strategy optimizer.
  * This file contains the core logic for running backtests with various parameters
@@ -7,8 +5,8 @@
  */
 
 import { getChartData } from '../app/actions';
-import { runBacktest, scoreMetrics, calculatePerformanceMetrics } from './backtesting';
-import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult, BacktestResult } from './types';
+import { runBacktest, calculatePerformanceMetrics, scoreMetrics, PARAMETER_RANGES } from './backtesting';
+import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
 import { db } from './firebase';
 import { setDoc, doc, terminate } from 'firebase/firestore';
 import { detectMarketRegime } from './market-regime';
@@ -99,6 +97,11 @@ function mutate(individual: any, paramRanges: any): any {
  */
 export async function runAndSaveOptimization(strategyType: StrategyType, parameterRanges: Record<keyof Omit<StrategyParams, 'leverage'>, number[]>) {
     
+    if (!Object.keys(PARAMETER_RANGES).includes(strategyType)) {
+        console.error(`Invalid strategy type provided: ${strategyType}`);
+        return;
+    }
+
     try {
         console.log(`=== STRATEGY OPTIMIZATION (${strategyType}) STARTING ===`);
         
