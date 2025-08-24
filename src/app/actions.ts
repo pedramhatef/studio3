@@ -91,6 +91,7 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
       
       const signals = querySnapshot.docs.map(doc => {
         const data = doc.data();
+        // Ensure strategy is valid, default to Day as a safe fallback.
         const strategy = data.strategy && ['Scalp', 'Day', 'Swing'].includes(data.strategy) ? data.strategy : 'Day';
         // Ensure all required fields are returned for the duplicate check
         return {

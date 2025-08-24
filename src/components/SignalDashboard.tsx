@@ -44,6 +44,8 @@ export function SignalDashboard() {
       return {
         ...s,
         displayTime: `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`,
+        // Ensure strategy is valid, default to Day for display purposes if somehow missing.
+        strategy: ['Scalp', 'Day', 'Swing'].includes(s.strategy) ? s.strategy : 'Day',
       };
     }).sort((a,b) => b.time - a.time);
   }, [signals]);
@@ -88,7 +90,8 @@ export function SignalDashboard() {
       const fetchedSignals: Signal[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        // Ensure strategy is present, default to 'Day' only if absolutely necessary
+        // Robust check for strategy field. If it's missing or invalid, we default to 'Day'.
+        // This handles legacy data that might not have the strategy field.
         const strategy = data.strategy && ['Scalp', 'Day', 'Swing'].includes(data.strategy) ? data.strategy : 'Day';
         fetchedSignals.push({
             type: data.type,
@@ -119,6 +122,7 @@ export function SignalDashboard() {
         snapshot.docChanges().forEach((change) => {
             if (change.type === "added") {
                 const newSignalData = change.doc.data();
+                // Robust check for strategy field on new signals as well.
                 const strategy = newSignalData.strategy && ['Scalp', 'Day', 'Swing'].includes(newSignalData.strategy) ? newSignalData.strategy : 'Day';
                 const newSignal = {
                     type: newSignalData.type,
