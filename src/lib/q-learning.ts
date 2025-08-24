@@ -17,6 +17,7 @@ const LEARNING_RATE = 0.1; // Alpha: How much we accept the new value.
 
 /**
  * Creates a stable, string-based key from a strategy parameters object.
+ * This is now an internal utility function and is not exported.
  * @param params The strategy parameters.
  * @returns A string key.
  */
