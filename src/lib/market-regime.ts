@@ -1,3 +1,4 @@
+
 import type { ChartDataPoint, MarketRegime } from './types';
 import * as indicators from './indicators';
 
@@ -11,6 +12,31 @@ function logcond(message: string, ...args: any[]) {
 }
 
 /**
+ * Implements Wilder's Smoothing. This is different from a standard EMA.
+ * It's the correct smoothing method for indicators like ADX and ATR.
+ * @param data The array of numbers to smooth.
+ * @param period The smoothing period.
+ * @returns A smoothed array of numbers.
+ */
+function wildersSmooth(data: number[], period: number): number[] {
+    const smoothed: number[] = new Array(data.length).fill(0);
+    
+    // The first value is a simple moving average
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+        sum += data[i];
+    }
+    smoothed[period - 1] = sum / period;
+
+    // Subsequent values use Wilder's smoothing formula
+    for (let i = period; i < data.length; i++) {
+        smoothed[i] = (smoothed[i - 1] * (period - 1) + data[i]) / period;
+    }
+    return smoothed;
+}
+
+
+/**
  * Calculates the Average Directional Index (ADX).
  * ADX is used to determine the strength of a trend, not its direction.
  * @param candles The historical price data.
@@ -18,59 +44,63 @@ function logcond(message: string, ...args: any[]) {
  * @returns An array containing ADX, +DI, and -DI values.
  */
 function calculateADX(candles: ChartDataPoint[], period: number) {
+    if (candles.length < period * 2) { // Need enough data for initial calculations
+        const empty = Array(candles.length).fill(null);
+        return { adx: empty, plusDI: empty, minusDI: empty };
+    }
+
     const highs = candles.map(c => c.high);
     const lows = candles.map(c => c.low);
     const closes = candles.map(c => c.close);
 
+    // Step 1: Calculate True Range (TR), +DM, -DM
+    const trs: number[] = [0];
     const plusDMs: number[] = [0];
     const minusDMs: number[] = [0];
 
     for (let i = 1; i < highs.length; i++) {
+        const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1]));
+        trs.push(tr);
+
         const upMove = highs[i] - highs[i-1];
         const downMove = lows[i-1] - lows[i];
 
         plusDMs.push(upMove > downMove && upMove > 0 ? upMove : 0);
         minusDMs.push(downMove > upMove && downMove > 0 ? downMove : 0);
     }
-
-    const trs = candles.map((c, i) => {
-        if (i === 0) return 0;
-        return Math.max(c.high - c.low, Math.abs(c.high - candles[i-1].close), Math.abs(c.low - candles[i-1].close));
-    });
-
-    const smooth = (data: number[], period: number): number[] => {
-        const smoothed: number[] = [data.slice(0, period).reduce((a, b) => a + b, 0)];
-        for (let i = period; i < data.length; i++) {
-            smoothed.push(smoothed[i-period] - (smoothed[i-period] / period) + data[i]);
-        }
-        return smoothed;
-    }
-
-    const smoothedTR = smooth(trs, period);
-    const smoothedPlusDM = smooth(plusDMs, period);
-    const smoothedMinusDM = smooth(minusDMs, period);
-
+    
+    // Step 2: Smooth TR, +DM, -DM
+    const smoothedTR = wildersSmooth(trs.slice(1), period);
+    const smoothedPlusDM = wildersSmooth(plusDMs.slice(1), period);
+    const smoothedMinusDM = wildersSmooth(minusDMs.slice(1), period);
+    
+    // Step 3: Calculate +DI and -DI
     const plusDIs: number[] = [];
     const minusDIs: number[] = [];
     for (let i = 0; i < smoothedTR.length; i++) {
         plusDIs.push(smoothedTR[i] > 0 ? (smoothedPlusDM[i] / smoothedTR[i]) * 100 : 0);
         minusDIs.push(smoothedTR[i] > 0 ? (smoothedMinusDM[i] / smoothedTR[i]) * 100 : 0);
     }
-
+    
+    // Step 4: Calculate DX and ADX
     const dxs: number[] = [];
     for (let i = 0; i < plusDIs.length; i++) {
         const sum = plusDIs[i] + minusDIs[i];
         dxs.push(sum > 0 ? (Math.abs(plusDIs[i] - minusDIs[i]) / sum) * 100 : 0);
     }
     
-    const adx = smooth(dxs, period);
+    const adx = wildersSmooth(dxs.slice(period - 1), period);
+
+    // Align all arrays to the original candle length by padding with nulls
+    const align = (arr: number[]) => {
+        const padding = candles.length - arr.length;
+        return [...Array(padding).fill(null), ...arr];
+    }
     
-    // Align with original candle length
-    const emptyFill = Array(candles.length - adx.length).fill(null);
     return {
-      adx: [...emptyFill, ...adx],
-      plusDI: [...emptyFill, ...plusDIs],
-      minusDI: [...emptyFill, ...minusDIs],
+      adx: align(adx),
+      plusDI: align(plusDIs),
+      minusDI: align(minusDIs),
     };
 }
 
