@@ -3,15 +3,15 @@
  * This file contains the core logic for running backtests with various parameters
  * to find the most optimal configuration for a given strategy and market condition.
  */
+'use server';
 
 import { getChartData } from '../app/actions';
-import { runBacktest, calculatePerformanceMetrics, scoreMetrics, PARAMETER_RANGES } from './backtesting';
+import { runBacktest, scoreMetrics } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
 import { db } from './firebase';
 import { setDoc, doc, terminate } from 'firebase/firestore';
 import { detectMarketRegime } from './market-regime';
 import { getBestParamsFromQTable, updateQTable } from './q-learning';
-
 
 const POPULATION_SIZE = 25;
 const GENERATIONS = 20;
@@ -94,14 +94,10 @@ function mutate(individual: any, paramRanges: any): any {
 /**
  * The main function to run the genetic algorithm and save the best results.
  * @param strategyType The type of strategy to optimize ('Scalp', 'Day', 'Swing').
+ * @param parameterRanges The parameter ranges for the given strategy.
  */
 export async function runAndSaveOptimization(strategyType: StrategyType, parameterRanges: Record<keyof Omit<StrategyParams, 'leverage'>, number[]>) {
     
-    if (!Object.keys(PARAMETER_RANGES).includes(strategyType)) {
-        console.error(`Invalid strategy type provided: ${strategyType}`);
-        return;
-    }
-
     try {
         console.log(`=== STRATEGY OPTIMIZATION (${strategyType}) STARTING ===`);
         
