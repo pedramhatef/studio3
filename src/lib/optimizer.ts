@@ -9,7 +9,7 @@ import { getChartData } from '../app/actions';
 import { runBacktest, scoreMetrics, calculatePerformanceMetrics } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult } from './types';
 import { db } from './firebase';
-import { setDoc, doc, terminate } from 'firebase/firestore';
+import { setDoc, doc } from 'firebase/firestore';
 import { detectMarketRegime } from './market-regime';
 import { getBestParamsFromQTable, updateQTable } from './q-learning';
 
@@ -203,8 +203,5 @@ export async function runAndSaveOptimization(strategyType: StrategyType, paramet
 
     } catch (error) {
         console.error(`[Optimization Task Error] Failed to run optimization for ${strategyType}:`, error);
-    } finally {
-        await terminate(db);
-        console.log(`Firestore connection terminated for ${strategyType} optimizer.`);
     }
 }
