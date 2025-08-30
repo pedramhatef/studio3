@@ -4,24 +4,16 @@
 import type { ChartDataPoint, SignalResult, StrategyParams, StrategyType } from '@/lib/types';
 import * as indicators from './indicators';
 
-// Helper for safely getting values from indicator arrays.
 const gv = (arr: (number | null)[], index: number, fallback: number = 0): number => {
     const val = indicators.getValueAt(arr, index);
     return val === null || isNaN(val) ? fallback : val;
 };
 
-// Helper for analyzing candle properties
 function candleStrength(candle: ChartDataPoint) {
     const range = candle.high - candle.low;
     return range > 0 ? Math.abs(candle.close - candle.open) / range : 0;
 }
 
-/**
- * Generates a trading signal based on the provided data and strategy parameters.
- * This is the core logic engine used by both backtesting and live trading.
- * This version calculates indicators on-demand to save memory.
- * @param verbose - If true, will print detailed logs to the console.
- */
 export async function generateSignal(
     i: number,
     candles: ChartDataPoint[],
@@ -35,7 +27,6 @@ export async function generateSignal(
     const volumes = candles.map(d => d.volume);
     const logPrefix = `[SignalGen-${strategyType}]`;
 
-    // --- On-Demand Indicator Calculation ---
     const eFast = gv(indicators.calculateEMA(closes, params.EMA_FAST_PERIOD), i);
     const eSlow = gv(indicators.calculateEMA(closes, params.EMA_SLOW_PERIOD), i);
     const eLong = gv(indicators.calculateEMA(closes, params.EMA_LONG_PERIOD), i);
@@ -44,9 +35,10 @@ export async function generateSignal(
     const volSmaArr = indicators.calculateSMA(volumes, params.VOLUME_PERIOD);
     const vAvg = gv(volSmaArr, i, 1);
   
-    // --- Primary Conditions ---
-    const isUpTrend = eFast > eSlow && eSlow > eLong;
-    const isDownTrend = eFast < eSlow && eSlow < eLong;
+    const isPrimaryUpTrend = eFast > eSlow;
+    const isPrimaryDownTrend = eFast < eSlow;
+    const isLongTermUpTrend = c.close > eLong;
+    const isLongTermDownTrend = c.close < eLong;
     const enoughVolume = vol > vAvg * params.VOLUME_THRESHOLD_MULTIPLIER;
 
     if (verbose) {
@@ -62,8 +54,10 @@ export async function generateSignal(
         console.log(`${logPrefix} │  └─ Volume Threshold: ${(vAvg * params.VOLUME_THRESHOLD_MULTIPLIER).toFixed(2)}`);
         console.log(`${logPrefix} │`);
         console.log(`${logPrefix} ├─ Conditions:`);
-        console.log(`${logPrefix} │  ├─ Is Up-Trend? ${isUpTrend}`);
-        console.log(`${logPrefix} │  ├─ Is Down-Trend? ${isDownTrend}`);
+        console.log(`${logPrefix} │  ├─ Primary Trend Up? ${isPrimaryUpTrend}`);
+        console.log(`${logPrefix} │  ├─ Primary Trend Down? ${isPrimaryDownTrend}`);
+        console.log(`${logPrefix} │  ├─ Long-Term Filter Up? ${isLongTermUpTrend}`);
+        console.log(`${logPrefix} │  ├─ Long-Term Filter Down? ${isLongTermDownTrend}`);
         console.log(`${logPrefix} │  └─ Enough Volume? ${enoughVolume}`);
         console.log(`${logPrefix} │`);
     }
@@ -71,8 +65,7 @@ export async function generateSignal(
     let entry = false;
     let side: 'long' | 'short' | undefined;
   
-    // --- Entry Logic: Pullback to Fast EMA ---
-    if (isUpTrend && enoughVolume && rsi > params.RSI_OVERSOLD) {
+    if (isPrimaryUpTrend && isLongTermUpTrend && enoughVolume && rsi > params.RSI_OVERSOLD) {
         if (verbose) console.log(`${logPrefix} ├─ Logic Path: Potential LONG entry`);
       if (c.low < eFast && c.close > eFast) {
           if (verbose) console.log(`${logPrefix} │  └─ ✓ SUCCESS: Price pulled back to and crossed above Fast EMA.`);
@@ -83,7 +76,7 @@ export async function generateSignal(
       }
     }
   
-    if (isDownTrend && enoughVolume && rsi < params.RSI_OVERBOUGHT) {
+    if (isPrimaryDownTrend && isLongTermDownTrend && enoughVolume && rsi < params.RSI_OVERBOUGHT) {
         if (verbose) console.log(`${logPrefix} ├─ Logic Path: Potential SHORT entry`);
       if (c.high > eFast && c.close < eFast) {
           if (verbose) console.log(`${logPrefix} │  └─ ✓ SUCCESS: Price pulled back to and crossed below Fast EMA.`);
@@ -99,7 +92,6 @@ export async function generateSignal(
         return { confidence: 0 };
     }
   
-    // --- Confidence Scoring ---
     const components: number[] = [];
     components.push(Math.min(1, Math.abs(eSlow - eLong) / (eLong * 0.01)));
     components.push(candleStrength(c));
@@ -113,7 +105,6 @@ export async function generateSignal(
     const confidence = components.reduce((a, b) => a + b, 0) / components.length;
     if (verbose) console.log(`${logPrefix} └─ Final decision: ${side.toUpperCase()} signal generated with confidence ${confidence.toFixed(4)}.`);
 
-    // --- Exit Logic ---
     let exit = false;
     let exitReason: string | undefined;
 
