@@ -11,7 +11,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { collection, query, orderBy, onSnapshot, limit, getDocs, where, Timestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
-import { useFirestore, useMemoFirebase } from '@/firebase';
+import { useFirestore, useMemoFirebase, useAuth, useUser } from '@/firebase';
+import { initiateAnonymousSignIn } from '@/firebase/non-blocking-login';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { errorEmitter } from '@/firebase/error-emitter';
 
@@ -32,6 +33,8 @@ export function SignalDashboard() {
   const { toast } = useToast();
   const lastSignalRef = useRef<Signal | null>(null);
   const firestore = useFirestore();
+  const auth = useAuth();
+  const { user, isUserLoading } = useUser();
 
   const displayedSignals = useMemo(() => {
     return signals.map(s => {
@@ -79,9 +82,16 @@ export function SignalDashboard() {
     }
   }, [toast]);
 
+  // Handle anonymous sign-in
+  useEffect(() => {
+    if (!isUserLoading && !user && auth) {
+      initiateAnonymousSignIn(auth);
+    }
+  }, [isUserLoading, user, auth]);
+
   // Initial data load and listener setup
   useEffect(() => {
-    if (!firestore) return;
+    if (!firestore || isUserLoading || !user) return;
     
     let unsubscribe: () => void;
     
@@ -195,7 +205,7 @@ export function SignalDashboard() {
         unsubscribe();
       }
     };
-  }, [firestore, activeView, fetchChartData, toast]);
+  }, [firestore, activeView, fetchChartData, toast, isUserLoading, user]);
 
   // Effect to refetch chart data when activeView changes
   useEffect(() => {
@@ -273,3 +283,5 @@ export function SignalDashboard() {
     </div>
   );
 }
+
+    

@@ -1,3 +1,4 @@
+
 /**
  * @description This ruleset enforces a strict user-ownership model for Bybit account data.
  * All data is nested under /users/{userId}/bybitAccounts/{bybitAccountId}, ensuring only the owning user can access their account details.
@@ -9,6 +10,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    /**
+     * @description Publicly readable collection of trading signals.
+     * Anyone who is authenticated (including anonymous users) can read the signals.
+     * Writing signals is restricted (handled by server-side logic).
+     */
+    match /signals/{signalId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Disallow all client-side writes
+    }
 
     /**
      * @description Secures Bybit account documents, ensuring only the owning user can create, read, update, or delete them.
@@ -57,3 +68,5 @@ service cloud.firestore {
     }
   }
 }
+
+    
