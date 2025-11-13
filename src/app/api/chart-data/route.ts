@@ -2,61 +2,47 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import type { ChartDataPoint } from '@/lib/types';
 
-interface BybitKlineResponse {
-  retCode: number;
-  retMsg: string;
-  result: {
-    symbol: string;
-    category: string;
-    list: [string, string, string, string, string, string, string][];
-  };
-  retExtInfo: {};
-  time: number;
-}
+interface BinanceKlineResponse extends Array<string | number> {}
 
-async function fetchChartDataFromBybit(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: number = 200): Promise<ChartDataPoint[]> {
+async function fetchChartDataFromBinance(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: number = 200): Promise<ChartDataPoint[]> {
   try {
-    const host = 'https://api.bytick.com';
-    const path = '/v5/market/kline';
+    const host = 'https://api.binance.com';
+    const path = '/api/v3/klines';
     const params = new URLSearchParams({
-      category: 'linear',
       symbol: symbol,
-      interval: '1', // 1 minute
+      interval: '1m', // 1 minute
       limit: limit.toString(),
     });
     const url = `${host}${path}?${params.toString()}`;
 
     const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      },
       next: { revalidate: 10 }, // Revalidate every 10 seconds
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Bybit-API] HTTP Error (${symbol}): ${response.status} ${response.statusText}`, errorText);
+      console.error(`[Binance-API] HTTP Error (${symbol}): ${response.status} ${response.statusText}`, errorText);
       throw new Error(`Failed to fetch chart data for ${symbol}: ${response.statusText}`);
     }
 
-    const data: BybitKlineResponse = await response.json();
+    const data: BinanceKlineResponse[] = await response.json();
 
-    if (data.retCode !== 0) {
-      throw new Error(`[Bybit-API] API returned an error for ${symbol}: ${data.retMsg}`);
+    if (!Array.isArray(data)) {
+        throw new Error(`[Binance-API] API returned an invalid format for ${symbol}`);
     }
 
-    const formattedData = data.result.list.map(d => ({
-      time: parseInt(d[0]),
-      open: parseFloat(d[1]),
-      high: parseFloat(d[2]),
-      low: parseFloat(d[3]),
-      close: parseFloat(d[4]),
-      volume: parseFloat(d[5]),
+    const formattedData = data.map(d => ({
+      time: Number(d[0]),
+      open: parseFloat(d[1] as string),
+      high: parseFloat(d[2] as string),
+      low: parseFloat(d[3] as string),
+      close: parseFloat(d[4] as string),
+      volume: parseFloat(d[5] as string),
     })).sort((a, b) => a.time - b.time);
 
     return formattedData;
   } catch (error) {
-    console.error(`[Bybit-API] CRITICAL: Unhandled error in fetchChartDataFromBybit for ${symbol}. Re-throwing.`, error);
+    console.error(`[Binance-API] CRITICAL: Unhandled error in fetchChartDataFromBinance for ${symbol}. Re-throwing.`, error);
     throw error;
   }
 }
@@ -71,7 +57,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = await fetchChartDataFromBybit('DOGEUSDT', limit);
+    const data = await fetchChartDataFromBinance('DOGEUSDT', limit);
     return NextResponse.json(data);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
