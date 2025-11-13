@@ -10,9 +10,9 @@ import { BarChart2, Briefcase, Zap, Waves } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getChartData } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, limit, getDocs, where, Timestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
+import { useFirestore, useMemoFirebase } from '@/firebase';
 
 const MAX_SIGNALS = 15;
 
@@ -30,6 +30,7 @@ export function SignalDashboard() {
   const [activeView, setActiveView] = useState<StrategyType>('Day');
   const { toast } = useToast();
   const lastSignalRef = useRef<Signal | null>(null);
+  const firestore = useFirestore();
 
   const displayedSignals = useMemo(() => {
     return signals.map(s => {
@@ -44,7 +45,6 @@ export function SignalDashboard() {
       return {
         ...s,
         displayTime: `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`,
-        // Ensure strategy is valid, default to Day for display purposes if somehow missing.
         strategy: ['Scalp', 'Day', 'Swing'].includes(s.strategy) ? s.strategy : 'Day',
       };
     }).sort((a,b) => b.time - a.time);
@@ -73,9 +73,10 @@ export function SignalDashboard() {
 
   // Initial data load and listener setup
   useEffect(() => {
+    if (!firestore) return;
+    
     let unsubscribe: () => void;
     
-    // This timestamp will be used to listen for only new signals after the initial fetch
     const initialLoadTimestamp = Timestamp.now();
 
     const initialFetch = async () => {
@@ -83,15 +84,12 @@ export function SignalDashboard() {
       
       await fetchChartData(activeView);
 
-      // 1. One-time fetch for historical signals
-      const historyQuery = query(collection(db, "signals"), orderBy("serverTime", "desc"), limit(MAX_SIGNALS));
+      const historyQuery = query(collection(firestore, "signals"), orderBy("serverTime", "desc"), limit(MAX_SIGNALS));
       const querySnapshot = await getDocs(historyQuery);
       
       const fetchedSignals: Signal[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        // Robust check for strategy field. If it's missing or invalid, we default to 'Day'.
-        // This handles legacy data that might not have the strategy field.
         const strategy = data.strategy && ['Scalp', 'Day', 'Swing'].includes(data.strategy) ? data.strategy : 'Day';
         fetchedSignals.push({
             type: data.type,
@@ -101,7 +99,6 @@ export function SignalDashboard() {
             strategy: strategy,
         } as Signal);
       });
-      // The query is desc, so we need to reverse to get chronological order for the state
       const chronologicalSignals = fetchedSignals.reverse();
       setSignals(chronologicalSignals);
       setIsLoading(false);
@@ -110,19 +107,17 @@ export function SignalDashboard() {
         lastSignalRef.current = chronologicalSignals[chronologicalSignals.length - 1];
       }
 
-      // 2. Set up a listener for NEW signals only
-      const newSignalsQuery = query(collection(db, "signals"), where("serverTime", ">", initialLoadTimestamp), orderBy("serverTime", "desc"));
+      const newSignalsQuery = query(collection(firestore, "signals"), where("serverTime", ">", initialLoadTimestamp), orderBy("serverTime", "desc"));
       
       unsubscribe = onSnapshot(newSignalsQuery, (snapshot) => {
         if (snapshot.empty) {
-          return; // No new signals yet
+          return;
         }
         
         const newSignalsFromSnapshot: Signal[] = [];
         snapshot.docChanges().forEach((change) => {
             if (change.type === "added") {
                 const newSignalData = change.doc.data();
-                // Robust check for strategy field on new signals as well.
                 const strategy = newSignalData.strategy && ['Scalp', 'Day', 'Swing'].includes(newSignalData.strategy) ? newSignalData.strategy : 'Day';
                 const newSignal = {
                     type: newSignalData.type,
@@ -132,7 +127,6 @@ export function SignalDashboard() {
                     strategy: strategy,
                 } as Signal;
 
-                // Simple check to avoid processing duplicates from the listener
                 if (lastSignalRef.current?.time !== newSignal.time) {
                     lastSignalRef.current = newSignal;
                     newSignalsFromSnapshot.push(newSignal);
@@ -153,9 +147,7 @@ export function SignalDashboard() {
         });
 
         if (newSignalsFromSnapshot.length > 0) {
-            // Add the new signal(s) to our state
             setSignals(prevSignals => [...prevSignals, ...newSignalsFromSnapshot].slice(-MAX_SIGNALS));
-            // Refresh chart data to align with the new signal
             fetchChartData(activeView);
         }
 
@@ -172,14 +164,12 @@ export function SignalDashboard() {
     
     initialFetch();
     
-    // Cleanup listener on component unmount
     return () => {
       if (unsubscribe) {
         unsubscribe();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Changed to only run on mount
+  }, [firestore, activeView, fetchChartData, toast]);
 
   // Effect to refetch chart data when activeView changes
   useEffect(() => {
