@@ -1,6 +1,5 @@
 
 import * as admin from 'firebase-admin';
-import { firebaseConfig } from '@/firebase/config';
 
 let db: admin.firestore.Firestore;
 
@@ -16,16 +15,17 @@ export function getAdminFirestore(): admin.firestore.Firestore {
   // Ensure the app is only initialized once
   if (!admin.apps.length) {
     try {
-      // In a Vercel environment, the GOOGLE_CREDENTIALS env var should be set.
-      // The SDK will automatically use it.
+      // In a Vercel environment, GOOGLE_APPLICATION_CREDENTIALS will be set.
+      // Locally, ensure you have the service account file and env var set.
+      // The projectId is also often sourced from an environment variable like GCLOUD_PROJECT.
       admin.initializeApp({
-        projectId: firebaseConfig.projectId,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT,
       });
       console.log('Firebase Admin SDK initialized successfully.');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Firebase admin initialization failed', error);
       // Re-throw the error to ensure the calling function knows initialization failed.
-      throw new Error('Could not initialize Firebase Admin SDK.');
+      throw new Error(`Could not initialize Firebase Admin SDK: ${error.message}`);
     }
   }
 

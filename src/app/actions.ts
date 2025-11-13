@@ -4,8 +4,6 @@
 import type { ChartDataPoint, Signal, StrategyParams, StrategyType } from '@/lib/types';
 import { getAdminFirestore } from '@/firebase/server';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit, doc, getDoc } from "firebase/firestore"; 
-import { errorEmitter } from '@/firebase/error-emitter';
-import { FirestorePermissionError } from '@/firebase/errors';
 
 const db = getAdminFirestore();
 
@@ -79,9 +77,9 @@ export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>)
         console.log("[Actions] Signal saved to Firestore with ID: ", docRef.id);
       })
       .catch(error => {
-        // This part is tricky because errorEmitter is client-side.
-        // For server actions, direct logging is more reliable.
-        console.error(`[Actions] Firestore permission error while saving signal: ${error.message}. Path: ${signalsCollection.path}, Data: ${JSON.stringify(signalData)}`);
+        // For server actions, direct logging is the primary method for now.
+        // The concept of a client-side errorEmitter doesn't apply here.
+        console.error(`[Actions] Firestore permission error while saving signal. Path: ${signalsCollection.path}. Data: ${JSON.stringify(signalData)}. Error: ${error.message}`);
       });
 }
 
