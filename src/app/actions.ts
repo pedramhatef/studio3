@@ -19,7 +19,7 @@ interface BybitKlineResponse {
 
 export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: number = 200): Promise<ChartDataPoint[]> {
   try {
-    const host = 'https://api.bybit.com';
+    const host = 'https://api-demo.bybit.com';
     const path = '/v5/market/kline';
     const params = new URLSearchParams({
       category: 'linear',
@@ -133,3 +133,4 @@ export async function getLatestOptimizationParams(strategy: StrategyType = 'Day'
         return null;
       }
 }
+
