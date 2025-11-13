@@ -13,6 +13,8 @@ import { useToast } from '@/hooks/use-toast';
 import { collection, query, orderBy, onSnapshot, limit, getDocs, where, Timestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { useFirestore, useMemoFirebase } from '@/firebase';
+import { FirestorePermissionError } from '@/firebase/errors';
+import { errorEmitter } from '@/firebase/error-emitter';
 
 const MAX_SIGNALS = 15;
 
@@ -85,27 +87,39 @@ export function SignalDashboard() {
       await fetchChartData(activeView);
 
       const historyQuery = query(collection(firestore, "signals"), orderBy("serverTime", "desc"), limit(MAX_SIGNALS));
-      const querySnapshot = await getDocs(historyQuery);
       
-      const fetchedSignals: Signal[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const strategy = data.strategy && ['Scalp', 'Day', 'Swing'].includes(data.strategy) ? data.strategy : 'Day';
-        fetchedSignals.push({
-            type: data.type,
-            level: data.level,
-            price: data.price,
-            time: data.time,
-            strategy: strategy,
-        } as Signal);
-      });
-      const chronologicalSignals = fetchedSignals.reverse();
-      setSignals(chronologicalSignals);
-      setIsLoading(false);
+      try {
+        const querySnapshot = await getDocs(historyQuery);
+        const fetchedSignals: Signal[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          const strategy = data.strategy && ['Scalp', 'Day', 'Swing'].includes(data.strategy) ? data.strategy : 'Day';
+          fetchedSignals.push({
+              type: data.type,
+              level: data.level,
+              price: data.price,
+              time: data.time,
+              strategy: strategy,
+              confidence: data.confidence,
+          } as Signal);
+        });
+        const chronologicalSignals = fetchedSignals.reverse();
+        setSignals(chronologicalSignals);
+        
+        if (chronologicalSignals.length > 0) {
+            lastSignalRef.current = chronologicalSignals[chronologicalSignals.length - 1];
+        }
 
-      if (chronologicalSignals.length > 0) {
-        lastSignalRef.current = chronologicalSignals[chronologicalSignals.length - 1];
+      } catch (error) {
+         const permissionError = new FirestorePermissionError({
+            path: 'signals',
+            operation: 'list',
+          });
+          errorEmitter.emit('permission-error', permissionError);
+      } finally {
+        setIsLoading(false);
       }
+
 
       const newSignalsQuery = query(collection(firestore, "signals"), where("serverTime", ">", initialLoadTimestamp), orderBy("serverTime", "desc"));
       
@@ -125,13 +139,14 @@ export function SignalDashboard() {
                     price: newSignalData.price,
                     time: newSignalData.time,
                     strategy: strategy,
+                    confidence: newSignalData.confidence,
                 } as Signal;
 
                 if (lastSignalRef.current?.time !== newSignal.time) {
                     lastSignalRef.current = newSignal;
                     newSignalsFromSnapshot.push(newSignal);
 
-                    const toastTitles = {
+                    const toastTitles: Record<Signal['level'], string> = {
                       High: `🚀 High ${newSignal.type} Signal!`,
                       Medium: `🔥 Medium ${newSignal.type} Signal!`,
                     };
@@ -152,7 +167,12 @@ export function SignalDashboard() {
         }
 
       }, (error) => {
-        console.error("Firestore snapshot error: ", error);
+        const permissionError = new FirestorePermissionError({
+          path: 'signals',
+          operation: 'list',
+        });
+        errorEmitter.emit('permission-error', permissionError);
+        
         toast({
           variant: "destructive",
           title: "Database Listener Error",

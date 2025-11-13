@@ -1,10 +1,3 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { firebaseConfig } from "@/firebase/config";
-
-// Initialize Firebase
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
-
-export { db };
+// This file is deprecated and replaced by the /src/firebase directory.
+// It is kept for reference but should not be used in new code.
+export {};

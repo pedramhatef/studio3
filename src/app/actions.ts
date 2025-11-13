@@ -2,8 +2,12 @@
 'use server';
 
 import type { ChartDataPoint, Signal, StrategyParams, StrategyType } from '@/lib/types';
-import { db } from '@/lib/firebase';
+import { getAdminFirestore } from '@/firebase/server';
 import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit, doc, getDoc } from "firebase/firestore"; 
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
+
+const db = getAdminFirestore();
 
 interface BybitKlineResponse {
   retCode: number;
@@ -36,14 +40,12 @@ export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: numbe
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[Actions] Bybit Chart API HTTP Error (${symbol}): ${response.status} ${response.statusText}`, errorText);
-      // Throw an error to be caught by the calling cron job, ensuring it fails explicitly.
       throw new Error(`Failed to fetch chart data for ${symbol}: ${response.statusText}`);
     }
 
     const data: BybitKlineResponse = await response.json();
 
     if (data.retCode !== 0) {
-      // Throw an error to be caught by the calling cron job.
       throw new Error(`[Actions] Bybit API returned an error for ${symbol}: ${data.retMsg}`);
     }
 
@@ -54,40 +56,39 @@ export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: numbe
       low: parseFloat(d[3]),
       close: parseFloat(d[4]),
       volume: parseFloat(d[5]),
-    })).sort((a, b) => a.time - b.time); // Ensure data is sorted chronologically
+    })).sort((a, b) => a.time - b.time);
 
     return formattedData;
   } catch (error) {
     console.error(`[Actions] CRITICAL: Unhandled error in getChartData for ${symbol}. Re-throwing.`, error);
-    // Re-throw the error to ensure the calling function (like a cron job) fails instead of proceeding with bad data.
     throw error;
   }
 }
 
 
 export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>) {
-  try {
-    const docRef = await addDoc(collection(db, "signals"), {
+    const signalsCollection = collection(db, "signals");
+    const signalData = {
       ...signal,
       serverTime: serverTimestamp(),
-    });
-    console.log("[Actions] Signal saved to Firestore with ID: ", docRef.id);
-    return { success: true, id: docRef.id };
-  } catch (e) {
-    console.error("[Actions] Error saving signal to Firestore: ", e);
-    return { success: false, error: (e as Error).message };
-  }
+    };
+
+    // No await, no try/catch. Chain .catch() for error handling.
+    addDoc(signalsCollection, signalData)
+      .then(docRef => {
+        console.log("[Actions] Signal saved to Firestore with ID: ", docRef.id);
+      })
+      .catch(error => {
+        // This part is tricky because errorEmitter is client-side.
+        // For server actions, direct logging is more reliable.
+        console.error(`[Actions] Firestore permission error while saving signal: ${error.message}. Path: ${signalsCollection.path}, Data: ${JSON.stringify(signalData)}`);
+      });
 }
 
-/**
- * Fetches the single most recent signal from Firestore.
- * This is used by the cron job to check the last signal's direction ('BUY' or 'SELL')
- * and confidence level to prevent saving consecutive identical signals.
- */
+
 export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
     try {
       const signalsCol = collection(db, "signals");
-      // Fetch only the single most recent document.
       const q = query(signalsCol, orderBy("serverTime", "desc"), limit(1));
       const querySnapshot = await getDocs(q);
       
@@ -95,13 +96,13 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
         const data = doc.data();
         // Ensure strategy is valid, default to Day as a safe fallback.
         const strategy = data.strategy && ['Scalp', 'Day', 'Swing'].includes(data.strategy) ? data.strategy : 'Day';
-        // Ensure all required fields are returned for the duplicate check
         return {
           type: data.type,
           level: data.level,
           price: data.price,
           time: data.time,
           strategy: strategy,
+          confidence: data.confidence,
         } as Signal;
       });
       
@@ -133,4 +134,3 @@ export async function getLatestOptimizationParams(strategy: StrategyType = 'Day'
         return null;
       }
 }
-

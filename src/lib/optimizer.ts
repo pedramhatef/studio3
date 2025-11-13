@@ -1,6 +1,6 @@
 import { runBacktest, scoreMetrics } from './backtesting';
 import type { StrategyParams, StrategyType, PerformanceMetrics, TradeResult, ChartDataPoint } from './types';
-import { db } from './firebase';
+import { getAdminFirestore } from '@/firebase/server';
 import { setDoc, doc } from 'firebase/firestore';
 import { detectMarketRegime } from './market-regime';
 import { getBestParamsFromQTable, updateQTable } from './q-learning';
@@ -107,6 +107,7 @@ export async function runAndSaveOptimization(
     chartData: ChartDataPoint[]
 ) {
     try {
+        const db = getAdminFirestore();
         const generations = GENERATION_COUNTS[strategyType];
         logcond(strategyType, `====== OPTIMIZATION START (Generations: ${generations}) ======`);
         

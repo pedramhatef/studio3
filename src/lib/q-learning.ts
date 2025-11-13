@@ -4,7 +4,7 @@
  * with market regimes, learning over time which parameters perform best under
  * different conditions.
  */
-import { db } from './firebase';
+import { getAdminFirestore } from '@/firebase/server';
 import { doc, getDoc, setDoc, updateDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import type { StrategyParams, MarketRegime, QTableEntry, StrategyType } from './types';
 import crypto from 'crypto';
@@ -34,6 +34,7 @@ function getParamsKey(params: Omit<StrategyParams, 'leverage'>): string {
  */
 export async function getBestParamsFromQTable(strategy: StrategyType, regime: MarketRegime): Promise<Omit<StrategyParams, 'leverage'> | null> {
     try {
+        const db = getAdminFirestore();
         logcond(`[${strategy}] Searching for best params for regime: ${regime}`);
         const qTableRef = collection(db, Q_TABLE_COLLECTION);
         const q = query(
@@ -73,6 +74,7 @@ export async function getBestParamsFromQTable(strategy: StrategyType, regime: Ma
  * @param newScore The performance score achieved by the parameters.
  */
 export async function updateQTable(strategy: StrategyType, regime: MarketRegime, params: Omit<StrategyParams, 'leverage'>, newScore: number) {
+    const db = getAdminFirestore();
     const paramsKey = getParamsKey(params);
     const docId = createHash(paramsKey);
     const docRef = doc(db, Q_TABLE_COLLECTION, docId);
