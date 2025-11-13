@@ -63,7 +63,7 @@ export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: numbe
   }
 }
 
-
+// This function will remain but will be called from API routes only
 export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>) {
     const signalsCollection = collection(db, "signals");
     const signalData = {
@@ -71,16 +71,14 @@ export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>)
       serverTime: serverTimestamp(),
     };
 
-    // No await, no try/catch. Chain .catch() for error handling.
-    addDoc(signalsCollection, signalData)
-      .then(docRef => {
+    try {
+        const docRef = await addDoc(signalsCollection, signalData);
         console.log("[Actions] Signal saved to Firestore with ID: ", docRef.id);
-      })
-      .catch(error => {
-        // For server actions, direct logging is the primary method for now.
-        // The concept of a client-side errorEmitter doesn't apply here.
+    } catch (error: any) {
         console.error(`[Actions] Firestore permission error while saving signal. Path: ${signalsCollection.path}. Data: ${JSON.stringify(signalData)}. Error: ${error.message}`);
-      });
+        // Re-throw to ensure the caller (cron job) knows about the failure.
+        throw error;
+    }
 }
 
 
@@ -92,7 +90,6 @@ export async function getSignalHistoryFromFirestore(): Promise<Signal[]> {
       
       const signals = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        // Ensure strategy is valid, default to Day as a safe fallback.
         const strategy = data.strategy && ['Scalp', 'Day', 'Swing'].includes(data.strategy) ? data.strategy : 'Day';
         return {
           type: data.type,

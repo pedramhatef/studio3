@@ -8,7 +8,6 @@ import { SignalHistory } from './SignalHistory';
 import type { ChartDataPoint, Signal, StrategyType } from '@/lib/types';
 import { BarChart2, Briefcase, Zap, Waves } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getChartData } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { collection, query, orderBy, onSnapshot, limit, getDocs, where, Timestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -59,7 +58,11 @@ export function SignalDashboard() {
   const fetchChartData = useCallback(async (view: StrategyType) => {
     try {
       const dataLimit = chartDataLimits[view];
-      const formattedData = await getChartData('DOGEUSDT', dataLimit);
+      const response = await fetch(`/api/chart-data?limit=${dataLimit}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch chart data');
+      }
+      const formattedData: ChartDataPoint[] = await response.json();
       if (formattedData?.length) {
         setChartData(formattedData);
       }
