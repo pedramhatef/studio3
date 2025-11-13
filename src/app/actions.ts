@@ -7,61 +7,30 @@ import { collection, addDoc, serverTimestamp, getDocs, query, orderBy, limit, do
 
 const db = getAdminFirestore();
 
-interface BybitKlineResponse {
-  retCode: number;
-  retMsg: string;
-  result: {
-    symbol: string;
-    category: string;
-    list: [string, string, string, string, string, string, string][];
-  };
-  retExtInfo: {};
-  time: number;
-}
-
 export async function getChartData(symbol: 'DOGEUSDT' = 'DOGEUSDT', limit: number = 200): Promise<ChartDataPoint[]> {
-  try {
-    const host = 'https://api-demo.bybit.com';
-    const path = '/v5/market/kline';
-    const params = new URLSearchParams({
-      category: 'linear',
-      symbol: symbol,
-      interval: '1', // 1 minute
-      limit: limit.toString(),
-    });
-    const url = `${host}${path}?${params.toString()}`;
+    try {
+        // Construct the absolute URL for the API route
+        const host = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:9002';
+        const url = `${host}/api/chart-data?limit=${limit}`;
 
-    const response = await fetch(url, {
-      next: { revalidate: 10 }, // Revalidate every 10 seconds
-    });
+        const response = await fetch(url, {
+            next: { revalidate: 10 }, // Revalidate every 10 seconds
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[Actions] Failed to fetch from /api/chart-data: ${response.status}`, errorText);
+            throw new Error(`Failed to fetch chart data via API route: ${errorText}`);
+        }
+        
+        return response.json();
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[Actions] Bybit Chart API HTTP Error (${symbol}): ${response.status} ${response.statusText}`, errorText);
-      throw new Error(`Failed to fetch chart data for ${symbol}: ${response.statusText}`);
+    } catch (error) {
+        console.error(`[Actions] CRITICAL: Unhandled error in getChartData for ${symbol}. Re-throwing.`, error);
+        throw error;
     }
-
-    const data: BybitKlineResponse = await response.json();
-
-    if (data.retCode !== 0) {
-      throw new Error(`[Actions] Bybit API returned an error for ${symbol}: ${data.retMsg}`);
-    }
-
-    const formattedData = data.result.list.map(d => ({
-      time: parseInt(d[0]),
-      open: parseFloat(d[1]),
-      high: parseFloat(d[2]),
-      low: parseFloat(d[3]),
-      close: parseFloat(d[4]),
-      volume: parseFloat(d[5]),
-    })).sort((a, b) => a.time - b.time);
-
-    return formattedData;
-  } catch (error) {
-    console.error(`[Actions] CRITICAL: Unhandled error in getChartData for ${symbol}. Re-throwing.`, error);
-    throw error;
-  }
 }
+
 
 // This function will remain but will be called from API routes only
 export async function saveSignalToFirestore(signal: Omit<Signal, 'displayTime'>) {

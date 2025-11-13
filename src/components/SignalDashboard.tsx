@@ -59,9 +59,12 @@ export function SignalDashboard() {
     try {
       const dataLimit = chartDataLimits[view];
       const response = await fetch(`/api/chart-data?limit=${dataLimit}`);
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch chart data');
+        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
+        throw new Error(errorData.error || 'Failed to fetch chart data');
       }
+
       const formattedData: ChartDataPoint[] = await response.json();
       if (formattedData?.length) {
         setChartData(formattedData);
@@ -71,7 +74,7 @@ export function SignalDashboard() {
       toast({
         variant: "destructive",
         title: "Chart Data Error",
-        description: "Could not fetch real-time chart data.",
+        description: error instanceof Error ? error.message : "Could not fetch real-time chart data.",
       });
     }
   }, [toast]);
