@@ -1,12 +1,59 @@
-
+/**
+ * @description This ruleset enforces a strict user-ownership model for Bybit account data.
+ * All data is nested under /users/{userId}/bybitAccounts/{bybitAccountId}, ensuring only the owning user can access their account details.
+ * Key Security Decisions:
+ *  - User listing is disabled for privacy.
+ *  - Data validation is relaxed for rapid prototyping but focuses on ownership constraints.
+ *  - Authorization data (ownership) is embedded directly within the document path for efficient rule evaluation.
+ */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow read and write access to all documents
-    // for developers to get started quickly.
-    // IMPORTANT: Make sure to secure your database before deploying to production.
-    match /{document=**} {
-      allow read, write: if true;
+
+    /**
+     * @description Secures Bybit account documents, ensuring only the owning user can create, read, update, or delete them.
+     * @path /users/{userId}/bybitAccounts/{bybitAccountId}
+     * @allow (create) User with ID 'user_abc' creates a new Bybit account with creatorId 'user_abc'.
+     * @allow (get) User with ID 'user_abc' reads their own Bybit account data.
+     * @allow (update) User with ID 'user_abc' updates their own Bybit account data.
+     * @allow (delete) User with ID 'user_abc' deletes their own Bybit account.
+     * @deny (create) User with ID 'user_xyz' attempts to create a Bybit account under user ID 'user_abc'.
+     * @deny (get) User with ID 'user_xyz' attempts to read a Bybit account belonging to user ID 'user_abc'.
+     * @deny (update) User with ID 'user_xyz' attempts to update a Bybit account belonging to user ID 'user_abc'.
+     * @deny (delete) User with ID 'user_xyz' attempts to delete a Bybit account belonging to user ID 'user_abc'.
+     * @principle Enforces document ownership for all operations on Bybit accounts.
+     */
+    match /users/{userId}/bybitAccounts/{bybitAccountId} {
+      // Allow a user to read their own Bybit account details
+      allow get: if isSignedIn() && isOwner(userId);
+      // Allow a user to list their own Bybit accounts
+      allow list: if isSignedIn() && isOwner(userId);
+
+      // Allow a user to create a Bybit account if the userId matches
+      allow create: if isSignedIn() && isOwner(userId) && request.resource.data.id == userId;
+
+      // Allow a user to update their own Bybit account if the userId matches and the document exists
+      allow update: if isSignedIn() && isExistingOwner(userId) && request.resource.data.id == resource.data.id;
+
+      // Allow a user to delete their own Bybit account if the userId matches and the document exists
+      allow delete: if isSignedIn() && isExistingOwner(userId);
+    }
+
+    // --- Helper functions ---
+
+    // Checks if the user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Checks if the userId matches the authenticated user's ID
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Checks if the userId matches the authenticated user's ID and the document exists
+    function isExistingOwner(userId) {
+      return isOwner(userId) && resource != null;
     }
   }
 }

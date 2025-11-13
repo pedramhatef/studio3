@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "BybitAccount": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "BybitAccount",
+      "type": "object",
+      "description": "Represents a Bybit demo trading account and its associated API credentials.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Bybit Account."
+        },
+        "apiKey": {
+          "type": "string",
+          "description": "The API key for the Bybit demo account."
+        },
+        "apiSecret": {
+          "type": "string",
+          "description": "The API secret for the Bybit demo account."
+        },
+        "balance": {
+          "type": "number",
+          "description": "The current balance of the Bybit demo account."
+        },
+        "lastUpdated": {
+          "type": "string",
+          "description": "The timestamp of the last time the balance was fetched.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "apiKey",
+        "apiSecret",
+        "balance",
+        "lastUpdated"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}/bybitAccounts/{bybitAccountId}",
+        "definition": {
+          "entityName": "BybitAccount",
+          "schema": {
+            "$ref": "#/backend/entities/BybitAccount"
+          },
+          "description": "Stores Bybit account details (API key, secret, balance) for a specific user. Path-based ownership ensures only the user can access these details.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique ID of the user."
+            },
+            {
+              "name": "bybitAccountId",
+              "description": "The unique ID of the user's Bybit account."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "To address the lack of provided entities besides `BybitAccount`, and the core feature of fetching and displaying data from a user's Bybit demo account, the Firestore structure focuses on securely storing and managing user's Bybit account credentials. The primary goal is to store the API keys and secrets in a way that's associated with the user but isolated for security and maintainability. Given the error reported is a network error, is important that the data be available when the network is not, so the structure must also reflect an efficient synchronization strategy.\n\n**Authorization Independence:** The `BybitAccount` information is stored under the user's document (`/users/{uid}/bybitAccounts/{bybitAccountId}`). This design ensures authorization is path-based and doesn't require fetching parent document data, adhering to Authorization Independence.\n\n**QAPs:** The structure supports the necessary QAPs (Rules are not Filters) with the path-based ownership. Listing operations within `/users/{uid}/bybitAccounts` are secure because rules can easily filter based on `request.auth.uid` without needing to inspect data.\n\n**Denormalization:** No specific denormalization is needed in this simple design. However, if future features introduce relationships (e.g., associating Bybit accounts with specific strategies), consider denormalizing relevant user attributes (like roles) into the related documents to maintain Authorization Independence.\n\n**Further Considerations:**\n*   If the app scales to support multiple exchanges, consider an additional collection for `Exchange` details. This will add structure, but it could reduce future complexity.\n*   Consider adding document-level validation to the `BybitAccount` documents to ensure data integrity (e.g., preventing API keys from being too short or containing invalid characters)."
+  }
+}
